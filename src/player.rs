@@ -1,0 +1,228 @@
+use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
+             opts::opts,
+             place,
+             sky,
+             stuff::Stuffs,
+             terrain::Ground,
+             walker::Walker},
+     avian3d::prelude::*,
+     bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+            prelude::*,
+            window::{CursorGrabMode, CursorOptions}}};
+
+pub const RUN_SPEED: f32 = 5.2;
+pub const SPRINT_SPEED: f32 = 8.4;
+pub const WALK_SPEED: f32 = 2.2;
+const CAPSULE_RADIUS: f32 = 0.34;
+const CAPSULE_HEIGHT: f32 = 1.84;
+const EYE: f32 = 1.66;
+const FOCUS: Vec3 = Vec3::new(0.42, 1.62, 0.0);
+const LOOK_SPEED: f32 = 0.0025;
+const PITCH_LIMIT: f32 = 1.35;
+
+#[derive(Component)]
+pub struct Player;
+
+#[derive(Component)]
+pub struct MainCamera;
+
+#[derive(Resource)]
+pub struct View {
+  pub yaw: f32,
+  pub pitch: f32,
+  pub distance: f32,
+  pub first_person: bool,
+  pub captured: bool,
+  pub combat: f32
+}
+
+impl View {
+  pub fn forward(&self) -> Vec3 {
+    Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, 0.0) * Vec3::NEG_Z
+  }
+
+  pub fn flat_forward(&self) -> Vec3 { Quat::from_rotation_y(self.yaw) * Vec3::NEG_Z }
+}
+
+fn capsule_offset() -> f32 { CAPSULE_HEIGHT / 2.0 }
+
+fn start_spot() -> (Vec2, Vec2) {
+  let named = opts().at.as_deref().and_then(|name| {
+    place::Place::ALL
+      .into_iter()
+      .find(|place| place.name().to_lowercase().contains(&name.to_lowercase()))
+  });
+  named
+    .map(|place| {
+      let spot = place.spot() + Vec2::new(0.0, place.flat() * 1.6 + 6.0);
+      (spot, (place.spot() - spot).normalize())
+    })
+    .unwrap_or((place::START, place::START_FACING.normalize()))
+}
+
+fn spawn_player(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  stuffs: Res<Stuffs>,
+  ground: Res<Ground>
+) {
+  let (spot, facing) = start_spot();
+  let yaw = f32::atan2(-facing.x, -facing.y) + opts().yaw.unwrap_or(0.0).to_radians();
+  let player = commands
+    .spawn((
+      Name::new("Dragonborn"),
+      Player,
+      Walker::default(),
+      Motion::default(),
+      crate::combat::Vitals::new(120.0, 110.0),
+      crate::combat::Side::Hero,
+      crate::combat::Fighter { reach: 2.1, damage: 18.0, swing_time: 0.62, cone: 1.0, girth: 0.35 },
+      Collider::capsule(CAPSULE_RADIUS, CAPSULE_HEIGHT - 2.0 * CAPSULE_RADIUS),
+      Transform::from_translation(ground.surface(spot) + Vec3::Y * (capsule_offset() + 0.3))
+        .with_rotation(Quat::from_rotation_y(yaw))
+    ))
+    .id();
+  let body = commands
+    .spawn((Transform::from_xyz(0.0, -capsule_offset(), 0.0), Visibility::Inherited, ChildOf(player)))
+    .id();
+  let rig = humanoid::spawn_body(
+    &mut commands,
+    &mut meshes,
+    &stuffs,
+    body,
+    MAN,
+    Grip::Blade,
+    0.0,
+    humanoid::dragonborn()
+  );
+  commands.entity(player).insert(rig);
+
+  commands.insert_resource(View {
+    yaw: yaw + opts().turn.to_radians(),
+    pitch: opts().pitch.unwrap_or(-8.0).to_radians(),
+    distance: opts().zoom.unwrap_or(3.2),
+    first_person: false,
+    captured: true,
+    combat: 0.0
+  });
+  commands.spawn((
+    Name::new("Camera"),
+    MainCamera,
+    Camera3d::default(),
+    Projection::Perspective(PerspectiveProjection {
+      fov: 72f32.to_radians(),
+      near: 0.08,
+      far: 30000.0,
+      ..default()
+    }),
+    sky::lens(),
+    Transform::default()
+  ));
+}
+
+fn capture_cursor(
+  keys: Res<ButtonInput<KeyCode>>,
+  mouse: Res<ButtonInput<MouseButton>>,
+  mut view: ResMut<View>,
+  mut cursor: Single<&mut CursorOptions>
+) {
+  if keys.just_pressed(KeyCode::Escape) {
+    view.captured = false;
+  }
+  if mouse.just_pressed(MouseButton::Left) {
+    view.captured = true;
+  }
+  cursor.visible = !view.captured;
+  cursor.grab_mode = view.captured.then_some(CursorGrabMode::Locked).unwrap_or(CursorGrabMode::None);
+}
+
+fn steer(
+  keys: Res<ButtonInput<KeyCode>>,
+  motion: Res<AccumulatedMouseMotion>,
+  scroll: Res<AccumulatedMouseScroll>,
+  time: Res<Time>,
+  mut view: ResMut<View>,
+  player: Single<(&mut Walker, &mut Motion, &crate::combat::Vitals), With<Player>>
+) {
+  let (mut walker, mut body, vitals) = player.into_inner();
+  if let Some(pose) = opts().pose.as_deref() {
+    body.swing = (pose == "swing").then_some(0.4);
+    body.guard = (pose == "guard") as u8 as f32;
+    body.fallen = (pose == "dead") as u8 as f32;
+    body.speed = (pose == "run").then_some(5.0).unwrap_or(0.0);
+    body.stride = 1.0;
+  }
+  if view.captured {
+    view.yaw -= motion.delta.x * LOOK_SPEED;
+    view.pitch = (view.pitch - motion.delta.y * LOOK_SPEED).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+  }
+  view.distance = (view.distance * 1.15f32.powf(-scroll.delta.y)).clamp(1.4, 9.0);
+  if keys.just_pressed(KeyCode::KeyF) {
+    view.first_person = !view.first_person;
+  }
+  view.combat = (view.combat - time.delta_secs()).max(0.0);
+
+  let alive = body.fallen < 0.1;
+  let forward = view.flat_forward();
+  let right = Vec3::new(-forward.z, 0.0, forward.x);
+  let heading = [(KeyCode::KeyW, forward), (KeyCode::KeyS, -forward), (KeyCode::KeyD, right), (KeyCode::KeyA, -right)]
+    .into_iter()
+    .filter(|&(key, _)| keys.pressed(key))
+    .fold(Vec3::ZERO, |sum, (_, direction)| sum + direction)
+    .normalize_or_zero();
+  let sprinting = keys.pressed(KeyCode::ShiftLeft) && vitals.stamina > 1.0 && body.guard < 0.3;
+  let pace = if sprinting {
+    SPRINT_SPEED
+  } else if keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::CapsLock) {
+    WALK_SPEED
+  } else {
+    RUN_SPEED
+  };
+  let slowed = 1.0 - 0.55 * body.guard - 0.4 * body.swing.map_or(0.0, |_| 1.0);
+  walker.wish = heading * pace * slowed * alive as u8 as f32;
+  let fighting = view.combat > 0.0 || view.first_person;
+  walker.facing = (alive && fighting).then_some(forward);
+  if keys.just_pressed(KeyCode::Space) && walker.grounded && alive {
+    walker.leap = Some(1.1);
+  }
+}
+
+pub fn sprinting(walker: &Walker) -> bool { walker.wish.length() > RUN_SPEED + 0.5 }
+
+fn follow(
+  view: Res<View>,
+  spatial: SpatialQuery,
+  player: Single<(Entity, &Transform), With<Player>>,
+  mut camera: Single<&mut Transform, (With<MainCamera>, Without<Player>)>,
+  mut hidden: Query<&mut Visibility, With<Hidden1st>>
+) {
+  let (entity, body) = *player;
+  let feet = body.translation - Vec3::Y * capsule_offset();
+  let rotation = Quat::from_euler(EulerRot::YXZ, view.yaw, view.pitch, 0.0);
+  let (eye, wanted) = if view.first_person {
+    let eye = feet + Vec3::Y * EYE + view.flat_forward() * 0.12;
+    (eye, eye)
+  } else {
+    let shoulder = feet + Quat::from_rotation_y(view.yaw) * FOCUS;
+    (shoulder, shoulder - rotation * Vec3::NEG_Z * view.distance)
+  };
+  let gap = wanted - eye;
+  let reach = Dir3::new(gap)
+    .ok()
+    .and_then(|direction| {
+      spatial.cast_ray(eye, direction, gap.length(), true, &SpatialQueryFilter::from_excluded_entities([entity]))
+    })
+    .map_or(gap.length(), |hit| (hit.distance - 0.25).max(0.1));
+  camera.translation = eye + gap.normalize_or_zero() * reach;
+  camera.rotation = rotation;
+  hidden.iter_mut().for_each(|mut visibility| {
+    *visibility = view.first_person.then_some(Visibility::Hidden).unwrap_or(Visibility::Inherited);
+  });
+}
+
+pub fn plugin(app: &mut App) {
+  app
+    .add_systems(Startup, spawn_player)
+    .add_systems(Update, (capture_cursor, steer).chain().before(crate::walker::Walking))
+    .add_systems(PostUpdate, follow.before(TransformSystems::Propagate));
+}
