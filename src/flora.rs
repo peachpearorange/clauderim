@@ -7,12 +7,14 @@ use {crate::{model::{self, Piece},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             camera::visibility::VisibilityRange,
+            image::{ImageSampler, ImageSamplerDescriptor},
             light::NotShadowCaster,
             mesh::{Indices, PrimitiveTopology},
             pbr::{ExtendedMaterial, MaterialExtension},
             platform::collections::HashMap,
             prelude::*,
-            render::render_resource::AsBindGroup,
+            render::render_resource::{AsBindGroup, Extent3d, TextureDimension,
+                                      TextureFormat},
             shader::ShaderRef,
             tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
      enum_assoc::Assoc,
@@ -23,14 +25,18 @@ const TUNDRA: LinearRgba = srgb(0.56, 0.52, 0.30);
 const FOREST_FLOOR: LinearRgba = srgb(0.27, 0.27, 0.15);
 const MEADOW_TIP: LinearRgba = srgb(0.60, 0.64, 0.27);
 const TUNDRA_TIP: LinearRgba = srgb(0.82, 0.73, 0.43);
-const NEEDLE_DEEP: LinearRgba = srgb(0.06, 0.11, 0.09);
-const NEEDLE: LinearRgba = srgb(0.14, 0.23, 0.18);
-const NEEDLE_TIP: LinearRgba = srgb(0.25, 0.35, 0.24);
+const NEEDLE_DEEP: LinearRgba = srgb(0.05, 0.10, 0.09);
+const NEEDLE: LinearRgba = srgb(0.12, 0.20, 0.17);
+const NEEDLE_TIP: LinearRgba = srgb(0.22, 0.31, 0.23);
 const SNOW: LinearRgba = srgb(0.90, 0.93, 0.98);
 const BARK: LinearRgba = srgb(0.31, 0.25, 0.20);
 const DARK_BARK: LinearRgba = srgb(0.18, 0.15, 0.13);
 const DEAD_WOOD: LinearRgba = srgb(0.48, 0.44, 0.39);
 const HEARTWOOD: LinearRgba = srgb(0.68, 0.56, 0.40);
+const GNARL_BARK: LinearRgba = srgb(0.30, 0.27, 0.24);
+const SPRAY: LinearRgba = srgb(0.84, 0.70, 0.47);
+const SPRAY_DRY: LinearRgba = srgb(0.66, 0.52, 0.40);
+const PINE_BARK: LinearRgba = srgb(0.30, 0.26, 0.23);
 const BIRCH_BARK: LinearRgba = srgb(0.87, 0.85, 0.80);
 const BIRCH_SCAR: LinearRgba = srgb(0.14, 0.13, 0.12);
 const LEAVES: [LinearRgba; 4] = [
@@ -78,85 +84,6 @@ fn tundra(at: Vec2) -> f32 { smooth(-0.3, 0.4, noise::fbm(at / 120.0, 4, 41)) }
 
 fn dim(tone: LinearRgba, by: f32) -> LinearRgba { tone.mix(&LinearRgba::BLACK, by) }
 
-fn sheet(rows: &[Vec<Vec3>]) -> Mesh {
-  let width = rows[0].len() as u32;
-  let height = rows.len() as u32;
-  let positions: Vec<Vec3> = rows.iter().flatten().copied().collect();
-  let uvs: Vec<Vec2> = (0..height)
-    .flat_map(|row| {
-      (0..width).map(move |column| {
-        Vec2::new(column as f32 / (width - 1) as f32, row as f32 / (height - 1) as f32)
-      })
-    })
-    .collect();
-  let indices = (0..height - 1)
-    .flat_map(|row| {
-      (0..width - 1).flat_map(move |column| {
-        let first = row * width + column;
-        let next = first + width;
-        [first, first + 1, next, first + 1, next + 1, next]
-      })
-    })
-    .collect();
-  let mut mesh =
-    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
-      .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-      .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
-      .with_inserted_indices(Indices::U32(indices));
-  mesh.compute_smooth_normals();
-  mesh
-}
-
-fn tier(
-  roll: &mut Roll,
-  radius: f32,
-  droop: f32,
-  spikes: usize,
-  rings: &[(f32, f32)]
-) -> Mesh {
-  let reach: Vec<f32> = (0..spikes).map(|_| roll.range(0.78, 1.15)).collect();
-  let twist = roll.range(0.0, TAU);
-  let rows: Vec<Vec<Vec3>> = rings
-    .iter()
-    .map(|&(out, fall)| {
-      (0..=2 * spikes)
-        .map(|step| {
-          let spike = step % 2 == 0;
-          let length = if spike {
-            reach[(step / 2) % spikes]
-          } else {
-            0.62 * (reach[(step / 2) % spikes] + reach[(step / 2 + 1) % spikes]) / 2.0
-          };
-          let angle = twist + step as f32 / (2 * spikes) as f32 * TAU;
-          let span = radius * out * 1.0f32.lerp(length, out);
-          let sag = 1.0f32.lerp(if spike { 1.0 } else { 0.8 }, out);
-          Vec3::new(angle.cos() * span, -droop * fall * sag, angle.sin() * span)
-        })
-        .collect()
-    })
-    .collect();
-  sheet(&rows)
-}
-
-fn needle_tone(
-  point: Vec3,
-  normal: Vec3,
-  radius: f32,
-  snowy: bool,
-  seed: u32
-) -> LinearRgba {
-  let outer = (point.xz().length() / radius).clamp(0.0, 1.0);
-  let lit = smooth(-0.3, 0.7, normal.y);
-  let fleck = noise::fbm3(point * 1.7 + Vec3::splat(seed as f32), 2, seed);
-  let green = NEEDLE_DEEP
-    .mix(&NEEDLE, outer.sqrt() * (0.55 + 0.45 * lit))
-    .mix(&NEEDLE_TIP, (outer * outer * lit * (0.7 + 2.0 * fleck)).clamp(0.0, 1.0));
-  let cover = snowy
-    .then(|| smooth(0.3, 0.7, normal.y + fleck * 1.2) * smooth(0.15, 0.55, outer))
-    .unwrap_or(0.0);
-  green.mix(&SNOW, cover)
-}
-
 fn bark_tone(point: Vec3, base: LinearRgba) -> LinearRgba {
   let angle = point.z.atan2(point.x);
   let furrow = noise::perlin(Vec2::new(angle * 3.0, point.y * 0.6), 91);
@@ -182,47 +109,346 @@ struct Tree {
   girth: f32
 }
 
+const ATLAS: u32 = 512;
+
+#[derive(Clone, Copy)]
+struct Card {
+  corner: Vec2,
+  extent: Vec2
+}
+
+impl Card {
+  const FROND: Card = Card { corner: Vec2::ZERO, extent: Vec2::new(0.5, 1.0) };
+  const SPRAY: Card = Card { corner: Vec2::new(0.5, 0.0), extent: Vec2::new(0.5, 0.875) };
+  const SOLID: Vec2 = Vec2::new(0.75, 0.94);
+
+  fn texels(self) -> UVec2 { (self.extent * ATLAS as f32).as_uvec2() }
+
+  fn uv(self, across: f32, along: f32) -> Vec2 {
+    self.corner + self.extent * Vec2::new(across, along)
+  }
+}
+
+fn frond_texel(across: f32, along: f32) -> [f32; 4] {
+  let side = across.abs();
+  let flank = if across < 0.0 { 1 } else { 2 };
+  let outline = |along: f32| 0.97 * smooth(0.0, 0.22, along) * (1.0 - along).powf(0.55);
+  let spacing = 0.045;
+  let root = along - 0.3 * side;
+  let twig = (root / spacing).round();
+  let offset = (root - twig * spacing).abs();
+  let reach =
+    outline(twig * spacing) * (0.72 + 0.38 * noise::hash(twig as i32, flank, 131));
+  let out = side / reach.max(1e-3);
+  let comb = noise::hash((side * 110.0) as i32, twig as i32 * 3 + flank, 133);
+  let tuft = spacing * 0.56 * (1.0 - out).max(0.0).powf(0.3) * (0.45 + 0.6 * comb);
+  let rachis = side < 0.018 * (1.0 - along) + 0.005 && along < 0.96;
+  let stem = offset < 0.004 && out < 0.95;
+  let needled = offset < tuft && out < 1.0 && along > 0.04;
+  let light = 0.62
+    + 0.38 * out.min(1.0)
+    + 0.18 * (noise::hash((across * 60.0) as i32, (along * 180.0) as i32, 137) - 0.5);
+  (rachis || stem)
+    .then_some([0.42, 0.34, 0.26, 1.0])
+    .or_else(|| needled.then_some([light, light, light * 0.95, 1.0]))
+    .unwrap_or([0.7, 0.7, 0.68, 0.0])
+}
+
+struct Sprig {
+  from: Vec2,
+  to: Vec2,
+  width: f32
+}
+
+fn sprigs(
+  roll: &mut Roll,
+  from: Vec2,
+  heading: f32,
+  length: f32,
+  width: f32,
+  depth: u32
+) -> (Vec<Sprig>, Vec<(Vec2, f32)>) {
+  let to = from + Vec2::from_angle(heading) * length;
+  let leaves: Vec<(Vec2, f32)> = (0..if depth >= 4 { depth - 2 } else { 0 })
+    .map(|_| {
+      let along = from.lerp(to, roll.range(0.4, 1.0));
+      (along + Vec2::new(roll.spread(4.0), roll.spread(4.0)), roll.range(1.2, 2.6))
+    })
+    .collect();
+  let sprig = Sprig { from, to, width };
+  (0..if depth < 5 { 2 + roll.below(2) } else { 0 })
+    .map(|_| {
+      let heading = heading + roll.spread(0.75);
+      let length = length * roll.range(0.55, 0.8);
+      sprigs(roll, to, heading, length, (width * 0.68).max(0.6), depth + 1)
+    })
+    .fold((vec![sprig], leaves), |(mut twigs, mut leaves), (more, buds)| {
+      twigs.extend(more);
+      leaves.extend(buds);
+      (twigs, leaves)
+    })
+}
+
+fn spray_texel(at: Vec2, twigs: &[Sprig], leaves: &[(Vec2, f32)]) -> [f32; 4] {
+  let wood = twigs.iter().any(|&Sprig { from, to, width }| {
+    let along = to - from;
+    let t = ((at - from).dot(along) / along.length_squared()).clamp(0.0, 1.0);
+    at.distance(from + along * t) < width * 0.5
+  });
+  let leaf = leaves.iter().any(|&(center, radius)| at.distance(center) < radius);
+  let fleck = noise::hash(at.x as i32, at.y as i32, 139);
+  leaf
+    .then_some([0.95 + 0.05 * fleck, 0.9 + 0.1 * fleck, 0.78, 1.0])
+    .or_else(|| wood.then_some([0.62, 0.56, 0.48, 1.0]))
+    .unwrap_or([0.8, 0.76, 0.6, 0.0])
+}
+
+fn coverage(texels: &[[f32; 4]], scale: f32) -> f32 {
+  texels.iter().filter(|texel| texel[3] * scale >= 0.5).count() as f32
+    / texels.len() as f32
+}
+
+fn halved(texels: &[[f32; 4]], size: u32) -> Vec<[f32; 4]> {
+  let half = size / 2;
+  (0..half * half)
+    .map(|index| {
+      let (x, y) = (index % half * 2, index / half * 2);
+      [(0, 0), (1, 0), (0, 1), (1, 1)]
+        .map(|(dx, dy)| texels[((y + dy) * size + x + dx) as usize])
+        .into_iter()
+        .fold([0.0; 4], |sum, texel| {
+          std::array::from_fn(|channel| sum[channel] + texel[channel] / 4.0)
+        })
+    })
+    .collect()
+}
+
+fn frond_atlas() -> Image {
+  let mut roll = Roll::new(141);
+  let spray = Card::SPRAY.texels().as_vec2();
+  let (twigs, leaves) =
+    (0..3).fold((Vec::new(), Vec::new()), |(mut twigs, mut leaves), stem| {
+      let (more, buds) = sprigs(
+        &mut roll,
+        Vec2::new(spray.x * (0.4 + 0.1 * stem as f32), 2.0),
+        FRAC_PI_2 + (stem as f32 - 1.0) * 0.35,
+        spray.y * 0.34,
+        5.0,
+        0
+      );
+      twigs.extend(more);
+      leaves.extend(buds);
+      (twigs, leaves)
+    });
+  let frond = Card::FROND.texels().as_vec2();
+  let base: Vec<[f32; 4]> = (0..ATLAS * ATLAS)
+    .map(|index| {
+      let at = Vec2::new((index % ATLAS) as f32, (index / ATLAS) as f32) + 0.5;
+      let across = at.x - frond.x;
+      (at.x < frond.x)
+        .then(|| frond_texel(at.x / frond.x * 2.0 - 1.0, at.y / frond.y))
+        .or_else(|| {
+          (at.y < spray.y).then(|| spray_texel(Vec2::new(across, at.y), &twigs, &leaves))
+        })
+        .unwrap_or([1.0; 4])
+    })
+    .collect();
+  let target = coverage(&base, 1.0);
+  let levels = ATLAS.ilog2() + 1;
+  let data: Vec<u8> = (1..levels)
+    .scan((base.clone(), ATLAS), |(texels, size), _| {
+      *texels = halved(texels, *size);
+      *size /= 2;
+      let scale = (0..14)
+        .fold((1.0f32, 4.0f32), |(low, high), _| {
+          let middle = (low + high) / 2.0;
+          if coverage(texels, middle) < target { (middle, high) } else { (low, middle) }
+        })
+        .1;
+      Some(
+        texels
+          .iter()
+          .map(|&[r, g, b, a]| [r, g, b, (a * scale).min(1.0)])
+          .collect::<Vec<_>>()
+      )
+    })
+    .fold(vec![base], |mut chain, level| {
+      chain.push(level);
+      chain
+    })
+    .into_iter()
+    .flatten()
+    .flat_map(|texel| texel.map(|channel| (channel.clamp(0.0, 1.0) * 255.0) as u8))
+    .collect();
+  let mut image = Image::new_uninit(
+    Extent3d { width: ATLAS, height: ATLAS, depth_or_array_layers: 1 },
+    TextureDimension::D2,
+    TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::RENDER_WORLD
+  );
+  image.data = Some(data);
+  image.texture_descriptor.mip_level_count = levels;
+  image.sampler = ImageSampler::Descriptor(ImageSamplerDescriptor {
+    anisotropy_clamp: 8,
+    ..ImageSamplerDescriptor::linear()
+  });
+  image
+}
+
+#[derive(Default)]
+struct Cards {
+  positions: Vec<Vec3>,
+  normals: Vec<Vec3>,
+  uvs: Vec<Vec2>,
+  colors: Vec<[f32; 4]>,
+  indices: Vec<u32>
+}
+
+struct Rib {
+  center: Vec3,
+  side: Vec3,
+  drop: Vec3,
+  normal: Vec3,
+  tone: LinearRgba
+}
+
+impl Cards {
+  fn ribbon(&mut self, card: Card, ribs: &[Rib]) {
+    let first = self.positions.len() as u32;
+    let last = (ribs.len() - 1) as f32;
+    ribs.iter().enumerate().for_each(
+      |(row, &Rib { center, side, drop, normal, tone })| {
+        let along = row as f32 / last;
+        self.positions.extend([center - side - drop, center, center + side - drop]);
+        self.normals.extend([
+          (normal - side.normalize_or_zero() * 0.4).normalize(),
+          normal,
+          (normal + side.normalize_or_zero() * 0.4).normalize()
+        ]);
+        self.uvs.extend([0.0, 0.5, 1.0].map(|across| card.uv(across, along)));
+        self.colors.extend([tone.to_f32_array(); 3]);
+      }
+    );
+    self.indices.extend((0..ribs.len() as u32 - 1).flat_map(|row| {
+      let at = first + row * 3;
+      [0, 1].into_iter().flat_map(move |column| {
+        let corner = at + column;
+        [corner, corner + 3, corner + 1, corner + 1, corner + 3, corner + 4]
+      })
+    }));
+  }
+
+  fn mesh(self) -> Mesh {
+    Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, self.positions)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, self.normals)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, self.uvs)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, self.colors)
+      .with_inserted_indices(Indices::U32(self.indices))
+  }
+}
+
+fn solid(Piece(mut mesh): Piece) -> Piece {
+  let count = mesh.count_vertices();
+  mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![Card::SOLID; count]);
+  Piece(mesh)
+}
+
 fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
   let mut roll = Roll::new(seed);
-  let height = roll.range(13.0, 17.0);
-  let base = height * roll.range(0.14, 0.32);
-  let width = height * roll.range(0.15, 0.2);
-  let girth = 0.018 * height + 0.1;
-  let tiers = 9 + roll.below(4);
-  let fine_spikes = 7 + roll.below(3);
-  let (count, spikes, sag, sides): (usize, usize, f32, u32) =
-    if coarse { (tiers / 2 + 1, 5, 1.3, 5) } else { (tiers, fine_spikes, 1.0, 9) };
-  let rings: &[(f32, f32)] = if coarse {
-    &[(0.04, -0.3), (1.0, 1.0), (0.04, 0.45)]
-  } else {
-    &[(0.04, -0.35), (0.45, 0.22), (1.0, 1.0), (0.5, 0.62), (0.04, 0.42)]
-  };
-  let crown = model::merge((0..=count).map(|index| {
-    let t = index as f32 / count as f32;
-    let y = base + (height - base - 0.6) * (1.0 - (1.0 - t).powf(1.35));
-    let radius = width * (1.0 - t).powf(0.9) * roll.range(0.85, 1.12) + 0.3;
-    let droop = (radius * 0.75 + 0.35) * sag;
-    let skirt = tier(&mut roll, radius, droop, spikes, rings);
-    let shift = Vec2::new(roll.spread(0.1), roll.spread(0.1)) * radius;
-    Piece::new(skirt, Srgba::WHITE)
-      .shaded(|point, normal| needle_tone(point, normal, radius, snowy, seed))
-      .at(Vec3::new(shift.x, y, shift.y))
-  }));
+  let height = roll.range(14.0, 18.0);
+  let base = height * roll.range(0.16, 0.3);
+  let width = height * roll.range(0.16, 0.2);
+  let girth = 0.02 * height + 0.12;
+  let whorls = if coarse { 6 + roll.below(2) } else { 12 + roll.below(4) };
+  let twist = roll.range(0.0, TAU);
+  let mut cards = Cards::default();
+  (0..whorls).for_each(|whorl| {
+    let t = whorl as f32 / whorls as f32;
+    let y =
+      base + (height - base - 1.2) * (1.0 - (1.0 - t).powf(1.25)) + roll.spread(0.15);
+    let reach = width * (1.0 - t).powf(0.85) * roll.range(0.85, 1.1) + 0.6;
+    let boughs = if coarse { 4 } else { 5 + roll.below(3) };
+    (0..boughs).for_each(|bough| {
+      let angle = twist
+        + whorl as f32 * 2.4
+        + (bough as f32 + roll.spread(0.3)) / boughs as f32 * TAU;
+      let out = Vec3::new(angle.cos(), 0.0, angle.sin());
+      let tilt = roll.spread(0.35);
+      let across = Vec3::new(-out.z, 0.0, out.x) * tilt.cos() + Vec3::Y * tilt.sin();
+      let lift = roll.spread(0.35);
+      let length = reach * roll.range(0.8, 1.15);
+      let droop = (0.3 + 0.4 * (1.0 - t)) * roll.range(0.8, 1.25);
+      let half = (length * 0.45 + 0.3).min(1.2) * if coarse { 1.3 } else { 1.0 };
+      let hue = NEEDLE_DEEP
+        .mix(&NEEDLE, roll.range(0.3, 0.8))
+        .mix(&LinearRgba::BLACK, 0.35 * (1.0 - t));
+      let frost = if snowy { roll.range(0.35, 0.8) } else { 0.0 };
+      let ribs: Vec<Rib> = (0..=3)
+        .map(|step| {
+          let s = step as f32 / 3.0;
+          Rib {
+            center: out * (girth * 0.5 + length * s)
+              + Vec3::Y * (y + lift + length * (0.18 * s - droop * s * s)),
+            side: across * half,
+            drop: Vec3::Y * half * (0.3 + 0.3 * s),
+            normal: (Vec3::Y * 0.7 + out * (0.5 + 0.5 * s)).normalize(),
+            tone: hue
+              .mix(&NEEDLE_TIP, s * s * 0.45)
+              .mix(&SNOW, frost * smooth(0.1, 0.6, s))
+          }
+        })
+        .collect();
+      cards.ribbon(Card::FROND, &ribs);
+      let hanging = !coarse && t < 0.8 && roll.chance(0.6);
+      let from = ribs[1].center;
+      let sway = roll.spread(0.6);
+      let hang = (out + across * sway - Vec3::Y * roll.range(0.5, 0.9)).normalize();
+      let span = length * roll.range(0.45, 0.65);
+      let under: Vec<Rib> = (0..=2)
+        .map(|step| {
+          let s = step as f32 / 2.0;
+          Rib {
+            center: from + hang * span * s - Vec3::Y * 0.15,
+            side: (across - out * sway).normalize() * half * 0.7,
+            drop: Vec3::Y * half * 0.25,
+            normal: (Vec3::Y * 0.5 + out).normalize(),
+            tone: dim(hue, 0.25).mix(&NEEDLE_TIP, s * 0.3)
+          }
+        })
+        .collect();
+      if hanging {
+        cards.ribbon(Card::FROND, &under);
+      }
+    });
+  });
+  [Vec3::X, Vec3::Z].into_iter().for_each(|across| {
+    let ribs: Vec<Rib> = (0..=1)
+      .map(|step| Rib {
+        center: Vec3::Y * (height - 2.6 + 3.0 * step as f32),
+        side: across * 0.55,
+        drop: Vec3::ZERO,
+        normal: Vec3::Y,
+        tone: NEEDLE.mix(&SNOW, if snowy { 0.4 } else { 0.0 })
+      })
+      .collect();
+    cards.ribbon(Card::FROND, &ribs);
+  });
   let trunk = wood_piece(
     model::lathe(
       &[
-        Vec2::new(girth * 1.45, -0.8),
+        Vec2::new(girth * 1.5, -0.8),
         Vec2::new(girth * 1.15, 0.4),
         Vec2::new(girth, 1.6),
-        Vec2::new(girth * 0.7, height * 0.45),
-        Vec2::new(girth * 0.35, height * 0.8),
-        Vec2::new(0.02, height)
+        Vec2::new(girth * 0.72, height * 0.45),
+        Vec2::new(girth * 0.38, height * 0.8),
+        Vec2::new(0.03, height)
       ],
-      sides
+      if coarse { 5 } else { 9 }
     ),
-    BARK
+    PINE_BARK
   );
-  let stubs = (0..(!coarse).then_some(4 + roll.below(5)).unwrap_or(0)).map(|_| {
+  let stubs = (0..if coarse { 0 } else { 4 + roll.below(5) }).map(|_| {
     let angle = roll.range(0.0, TAU);
     let start = Vec3::Y * roll.range(1.8, base.max(2.2));
     let reach =
@@ -230,7 +456,103 @@ fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
     wood_piece(model::tube(&[start, start + reach], &[0.05, 0.015], 4), DEAD_WOOD)
   });
   let wood = model::merge(std::iter::once(trunk).chain(stubs.collect::<Vec<_>>()));
-  Tree { wood, crown, height, girth }
+  Tree { wood, crown: cards.mesh(), height, girth }
+}
+
+fn limb(
+  roll: &mut Roll,
+  from: Vec3,
+  heading: Vec3,
+  length: f32,
+  radius: f32,
+  depth: u32
+) -> (Vec<Piece>, Vec<(Vec3, Vec3)>) {
+  let wobble = Vec3::new(roll.spread(0.3), roll.spread(0.15), roll.spread(0.3)) * length;
+  let to = from + heading * length + wobble * 0.4 + Vec3::Y * length * 0.1;
+  let bend = (from + to) / 2.0 + wobble;
+  let branch = wood_piece(
+    model::tube(
+      &model::curve(from, bend, to, 3),
+      &model::taper(3, radius, radius * 0.66),
+      if depth < 2 { 6 } else { 4 }
+    ),
+    GNARL_BARK
+  );
+  let direction = (to - bend).normalize_or(heading);
+  let tips = (depth >= 1).then_some((to, direction)).into_iter().collect();
+  (0..if depth < 3 { 2 + roll.below(2) } else { 0 })
+    .map(|_| {
+      let splay = Vec3::new(roll.spread(1.0), roll.spread(0.4), roll.spread(1.0));
+      let heading = (direction + splay * 1.1 + Vec3::Y * 0.15).normalize_or(direction);
+      let length = length * roll.range(0.6, 0.8);
+      limb(roll, to, heading, length, radius * 0.62, depth + 1)
+    })
+    .fold((vec![branch], tips), |(mut pieces, mut tips), (more, ends)| {
+      pieces.extend(more);
+      tips.extend(ends);
+      (pieces, tips)
+    })
+}
+
+fn gnarl(seed: u32) -> Tree {
+  let mut roll = Roll::new(seed);
+  let height = roll.range(5.0, 7.5);
+  let girth = roll.range(0.2, 0.3);
+  let lean = Vec3::new(roll.spread(1.0), 0.0, roll.spread(1.0)).normalize_or(Vec3::X);
+  let across = Vec3::Y.cross(lean);
+  let path = model::spline(
+    &[
+      Vec3::Y * -0.4,
+      Vec3::Y * height * 0.16 + lean * 0.5 + across * roll.spread(0.4),
+      Vec3::Y * height * 0.3 + lean * height * 0.2 + across * roll.spread(0.7),
+      Vec3::Y * height * 0.42 + lean * height * 0.24 + across * roll.spread(0.8)
+    ],
+    3
+  );
+  let steps = path.len() - 1;
+  let radii: Vec<f32> = (0..=steps)
+    .map(|step| {
+      let t = step as f32 / steps as f32;
+      girth * (0.75 + 0.9 * smooth(0.25, 0.0, t) - 0.2 * t)
+    })
+    .collect();
+  let trunk = wood_piece(model::tube(&path, &radii, 8), GNARL_BARK);
+  let fork = path[steps];
+  let heading = (fork - path[steps - 1]).normalize();
+  let (limbs, tips) = (0..2 + roll.below(2))
+    .map(|_| {
+      let splay = Vec3::new(roll.spread(1.0), 0.0, roll.spread(1.0));
+      let direction = (heading * 0.6 + splay * 1.4 + Vec3::Y * 0.3).normalize_or(Vec3::Y);
+      let length = height * roll.range(0.28, 0.4);
+      limb(&mut roll, fork, direction, length, girth * 0.62, 0)
+    })
+    .fold((vec![trunk], Vec::new()), |(mut pieces, mut tips), (more, ends)| {
+      pieces.extend(more);
+      tips.extend(ends);
+      (pieces, tips)
+    });
+  let mut cards = Cards::default();
+  tips.iter().for_each(|&(tip, direction)| {
+    let rise = (direction + Vec3::Y * 0.3).normalize();
+    let size = roll.range(1.1, 1.8);
+    let flat = rise.any_orthonormal_vector();
+    let turn = |angle: f32| Quat::from_axis_angle(rise, angle) * flat;
+    let hue =
+      SPRAY.mix(&SPRAY_DRY, roll.next()).mix(&LinearRgba::BLACK, roll.range(0.0, 0.25));
+    [0.0, PI / 3.0, 2.0 * PI / 3.0].map(turn).into_iter().for_each(|side| {
+      let ribs: Vec<Rib> = (0..=1)
+        .map(|step| Rib {
+          center: tip - rise * size * 0.35 + rise * size * 1.75 * step as f32,
+          side: side * size * 0.5,
+          drop: Vec3::ZERO,
+          normal: (Vec3::Y + direction * 0.5).normalize(),
+          tone: hue
+        })
+        .collect();
+      cards.ribbon(Card::SPRAY, &ribs);
+    });
+  });
+  Tree { wood: model::merge(limbs), crown: cards.mesh(), height, girth }
 }
 
 fn foliage(
@@ -517,6 +839,8 @@ enum Growth {
   SnowyPine,
   #[assoc(variants = 4)]
   Birch,
+  #[assoc(variants = 5)]
+  Gnarl,
   #[assoc(variants = 3)]
   Snag,
   #[assoc(variants = 3)]
@@ -536,10 +860,11 @@ enum Growth {
 }
 
 impl Growth {
-  const ALL: [Growth; 11] = [
+  const ALL: [Growth; 12] = [
     Growth::Pine,
     Growth::SnowyPine,
     Growth::Birch,
+    Growth::Gnarl,
     Growth::Snag,
     Growth::Stump,
     Growth::Log,
@@ -551,8 +876,14 @@ impl Growth {
   ];
 }
 
+#[derive(Clone, Copy)]
+enum Coat {
+  Plain(Stuff),
+  Fronds
+}
+
 struct Shape {
-  parts: Vec<(Stuff, Mesh)>,
+  parts: Vec<(Coat, Mesh)>,
   far: Option<Mesh>,
   collider: Option<Collider>,
   reach: f32
@@ -566,8 +897,8 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       let Tree { wood, crown, height, girth } = pine(variant as u32 + 100, snowy, false);
       let far = pine(variant as u32 + 100, snowy, true);
       Shape {
-        parts: vec![(Stuff::Bark, wood), (Stuff::Needles, crown)],
-        far: Some(model::merge([Piece(far.wood), Piece(far.crown)])),
+        parts: vec![(Coat::Plain(Stuff::Bark), wood), (Coat::Fronds, crown)],
+        far: Some(model::merge([solid(Piece(far.wood)), Piece(far.crown)])),
         collider: Some(trunk_collider(girth * 1.05, height * 0.9)),
         reach: NEAR_TREE
       }
@@ -575,16 +906,28 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     Growth::Birch => {
       let Tree { wood, crown, height, girth } = birch(seed);
       Shape {
-        parts: vec![(Stuff::Bark, wood), (Stuff::Needles, crown)],
+        parts: vec![
+          (Coat::Plain(Stuff::Bark), wood),
+          (Coat::Plain(Stuff::Needles), crown),
+        ],
         far: None,
         collider: Some(trunk_collider(girth, height * 0.8)),
         reach: FOREVER
       }
     }
+    Growth::Gnarl => {
+      let Tree { wood, crown, height, girth } = gnarl(seed);
+      Shape {
+        parts: vec![(Coat::Plain(Stuff::Bark), wood), (Coat::Fronds, crown)],
+        far: None,
+        collider: Some(trunk_collider(girth, height * 0.4)),
+        reach: 700.0
+      }
+    }
     Growth::Snag => {
       let (mesh, collider) = snag(seed);
       Shape {
-        parts: vec![(Stuff::Bark, mesh)],
+        parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
         far: None,
         collider: Some(collider),
         reach: 600.0
@@ -593,7 +936,7 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     Growth::Stump => {
       let (mesh, collider) = stump(seed);
       Shape {
-        parts: vec![(Stuff::Bark, mesh)],
+        parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
         far: None,
         collider: Some(collider),
         reach: 220.0
@@ -602,7 +945,7 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     Growth::Log => {
       let (mesh, collider) = log(seed);
       Shape {
-        parts: vec![(Stuff::Bark, mesh)],
+        parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
         far: None,
         collider: Some(collider),
         reach: 260.0
@@ -612,7 +955,7 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       let (mesh, collider) =
         boulder(variant as u32 + 300, growth == Growth::SnowyBoulder, 3);
       Shape {
-        parts: vec![(Stuff::Stone, mesh)],
+        parts: vec![(Coat::Plain(Stuff::Stone), mesh)],
         far: None,
         collider: Some(collider),
         reach: FOREVER
@@ -621,14 +964,14 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     Growth::Crag | Growth::SnowyCrag => {
       let (mesh, collider) = crag(variant as u32 + 500, growth == Growth::SnowyCrag);
       Shape {
-        parts: vec![(Stuff::Stone, mesh)],
+        parts: vec![(Coat::Plain(Stuff::Stone), mesh)],
         far: None,
         collider: Some(collider),
         reach: FOREVER
       }
     }
     Growth::Juniper => Shape {
-      parts: vec![(Stuff::Needles, juniper(seed))],
+      parts: vec![(Coat::Plain(Stuff::Needles), juniper(seed))],
       far: None,
       collider: None,
       reach: 200.0
@@ -859,7 +1202,31 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         })
     })
     .collect();
-  [trees, deadwood, boulders, outcrops, shrubs].into_iter().flatten().collect()
+  let gnarls: Vec<Plant> = (0..2)
+    .filter_map(|_| {
+      let at = anywhere(&mut roll);
+      let site = survey(ground, at);
+      let chance = 0.3
+        * smooth(0.22, 0.04, site.forest)
+        * (0.35 + tundra(at))
+        * site.treeline
+        * (1.0 - site.snow);
+      let (pick, variant, yaw, size) = (
+        roll.next(),
+        roll.below(Growth::Gnarl.variants()),
+        roll.range(0.0, TAU),
+        roll.range(0.8, 1.25)
+      );
+      (site.open && site.road > 4.5 && site.normal.y > 0.75 && pick < chance).then(|| {
+        Plant {
+          growth: Growth::Gnarl,
+          variant,
+          place: upright(site.spot, yaw, Vec2::ZERO, Vec3::splat(size))
+        }
+      })
+    })
+    .collect();
+  [trees, deadwood, boulders, outcrops, shrubs, gnarls].into_iter().flatten().collect()
 }
 
 fn foreground(ground: &Ground) -> Vec<Plant> {
@@ -943,13 +1310,25 @@ fn shapes() -> Vec<((Growth, usize), Shape)> {
 fn spawn_flora(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
+  mut images: ResMut<Assets<Image>>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
   stuffs: Res<Stuffs>,
   ground: Res<Ground>
 ) {
-  let (made, plants) = std::thread::scope(|scope| {
+  let (made, atlas, plants) = std::thread::scope(|scope| {
     let made = scope.spawn(shapes);
+    let atlas = scope.spawn(frond_atlas);
     let plants = sow(&ground);
-    (made.join().expect("flora shapes"), plants)
+    (made.join().expect("flora shapes"), atlas.join().expect("frond atlas"), plants)
+  });
+  let fronds = materials.add(StandardMaterial {
+    base_color_texture: Some(images.add(atlas)),
+    alpha_mode: AlphaMode::Mask(0.5),
+    perceptual_roughness: 0.9,
+    reflectance: 0.2,
+    double_sided: true,
+    cull_mode: None,
+    ..default()
   });
   let forms: HashMap<(Growth, usize), Form> = made
     .into_iter()
@@ -957,7 +1336,13 @@ fn spawn_flora(
       (key, Form {
         parts: parts
           .into_iter()
-          .map(|(stuff, mesh)| (stuffs.of(stuff), meshes.add(mesh)))
+          .map(|(coat, mesh)| {
+            let material = match coat {
+              Coat::Plain(stuff) => stuffs.of(stuff),
+              Coat::Fronds => fronds.clone()
+            };
+            (material, meshes.add(mesh))
+          })
           .collect(),
         far: far.map(|mesh| meshes.add(mesh)),
         collider,
@@ -965,7 +1350,6 @@ fn spawn_flora(
       })
     })
     .collect();
-  let needles = stuffs.of(Stuff::Needles);
   plants.iter().for_each(|&Plant { growth, variant, place }| {
     let form = &forms[&(growth, variant)];
     let near = VisibilityRange {
@@ -995,7 +1379,7 @@ fn spawn_flora(
     if let Some(far) = &form.far {
       commands.spawn((
         Mesh3d(far.clone()),
-        MeshMaterial3d(needles.clone()),
+        MeshMaterial3d(fronds.clone()),
         place,
         VisibilityRange {
           start_margin: form.reach..form.reach + FADE,
