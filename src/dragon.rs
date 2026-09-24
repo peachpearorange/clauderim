@@ -1,7 +1,7 @@
 use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              fx::Effects,
              humanoid::Motion,
-             model::{self, Piece, ball, cone, curve, taper, tube},
+             model::{self, Piece, ball, cone, curve, sculpt, taper, tube},
              opts::opts,
              player::{Player, View},
              shout::{self, Staggered, WispLook},
@@ -21,6 +21,7 @@ const ALTITUDE: f32 = 48.0;
 const STANCE: f32 = 2.5;
 const BREATH_REACH: f32 = 24.0;
 const BREATH_DPS: f32 = 16.0;
+const SHELTERED: f32 = 0.5;
 const HEALTH: f32 = 420.0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -189,84 +190,116 @@ fn build(
   let hide = srgb(0.3, 0.27, 0.24);
   let belly = srgb(0.62, 0.55, 0.42);
   let horn = srgb(0.5, 0.45, 0.38);
-  let lump = |seed: u32, size: Vec3, at: Vec3| {
-    scaled(
-      Piece::new(model::blob(seed, 0.06), hide).grained(3.0).sized(size).at(at),
-      hide,
-      belly
-    )
+  let claw = srgb(0.2, 0.18, 0.16);
+  let key = |x: f32, y: f32, z: f32, wide: f32, high: f32, deep: f32| {
+    (Vec3::new(x, y, z), Vec3::new(wide, high, deep))
   };
-  let spikes = |from: f32, to: f32, count: usize, top: f32, height: f32| {
+  let flesh = |keys: &[(Vec3, Vec3)], seed: u32| {
+    let mesh = model::ruffled(sculpt(keys, 6, 20), 0.035, Vec3::splat(2.6), seed);
+    scaled(Piece::new(mesh, hide).grained(3.0), hide, belly)
+  };
+  let fins = |from: Vec2, to: Vec2, count: usize, height: f32, shrink: f32| {
     (0..count)
       .map(|index| {
-        let z = from + (to - from) * index as f32 / (count.max(2) - 1) as f32;
-        Piece::new(cone(height * 0.35, height), horn * 0.8)
-          .pitched(0.5)
-          .at_xyz(0.0, top, z)
+        let t = index as f32 / (count.max(2) - 1) as f32;
+        let spot = from.lerp(to, t);
+        let tall = height * (1.0 - shrink * t);
+        Piece::new(cone(tall * 0.4, tall), horn * 0.8)
+          .sized(Vec3::new(0.3, 1.0, 1.0))
+          .pitched(0.75)
+          .at_xyz(0.0, spot.y, spot.x)
       })
       .collect::<Vec<_>>()
   };
   let mut parts: Vec<(Bone, Stuff, Vec<Piece>)> = vec![
-    (Bone::Body, Stuff::Leather, vec![
-      lump(1, Vec3::new(1.15, 1.0, 1.4), Vec3::new(0.0, 0.0, -0.4)),
-      lump(2, Vec3::new(1.0, 0.92, 1.6), Vec3::new(0.0, -0.08, 1.0)),
-      lump(3, Vec3::new(0.9, 0.85, 1.0), Vec3::new(0.0, 0.05, 2.3)),
-      lump(4, Vec3::new(0.55, 0.5, 0.7), Vec3::new(0.75, 0.45, -0.7)),
-      lump(5, Vec3::new(0.55, 0.5, 0.7), Vec3::new(-0.75, 0.45, -0.7)),
-    ]),
-    (Bone::Body, Stuff::Bone, spikes(-1.3, 2.8, 8, 0.95, 0.55)),
+    (Bone::Body, Stuff::Leather, vec![flesh(
+      &[
+        key(0.0, 0.5, -2.05, 0.02, 0.02, 0.02),
+        key(0.0, 0.48, -1.85, 0.56, 0.5, 0.56),
+        key(0.0, 0.36, -1.35, 0.8, 0.66, 0.85),
+        key(0.0, 0.2, -0.65, 1.02, 0.8, 1.2),
+        key(0.0, 0.1, 0.25, 0.95, 0.74, 1.02),
+        key(0.0, 0.08, 1.15, 0.76, 0.64, 0.72),
+        key(0.0, 0.12, 2.05, 0.9, 0.72, 0.78),
+        key(0.0, 0.12, 2.8, 0.7, 0.6, 0.6),
+        key(0.0, 0.1, 3.3, 0.52, 0.46, 0.46),
+        key(0.0, 0.1, 3.5, 0.02, 0.02, 0.02)
+      ],
+      1
+    )]),
+    (
+      Bone::Body,
+      Stuff::Bone,
+      fins(Vec2::new(-1.6, 0.98), Vec2::new(-0.4, 1.0), 4, 0.6, 0.0)
+        .into_iter()
+        .chain(fins(Vec2::new(0.1, 0.84), Vec2::new(3.0, 0.72), 7, 0.55, 0.3))
+        .collect()
+    ),
   ];
-  let segment = |length: f32, girth: f32, next: f32| {
-    let path = curve(Vec3::ZERO, Vec3::Z * length * 0.5, Vec3::Z * length, 6);
-    [
-      Piece::new(tube(&path, &taper(6, girth, next), 14), hide),
-      Piece::new(ball(girth), hide)
-    ]
-    .map(|piece| scaled(piece.sized(Vec3::new(1.0, 0.88, 1.0)), hide, belly))
-    .into()
+  let segment = |length: f32, girth: f32, next: f32, seed: u32| {
+    let lap = length.signum() * 0.3;
+    let ring =
+      |z: f32, radius: f32| key(0.0, 0.0, z, radius, radius * 0.86, radius * 0.94);
+    vec![flesh(
+      &[
+        ring(-lap, girth * 0.05),
+        ring(-lap * 0.6, girth * 0.96),
+        ring(length * 0.5, (girth + next) * 0.51),
+        ring(length, next),
+        ring(length + lap * 0.5, next * 0.9),
+        ring(length + lap * 0.8, next * 0.05)
+      ],
+      seed
+    )]
   };
-  [(Bone::Neck1, 0.62, 0.5), (Bone::Neck2, 0.5, 0.42), (Bone::Neck3, 0.42, 0.36)]
+  [(Bone::Neck1, 0.6, 0.48), (Bone::Neck2, 0.48, 0.4), (Bone::Neck3, 0.4, 0.34)]
     .into_iter()
-    .for_each(|(bone, girth, next)| {
-      parts.push((bone, Stuff::Leather, segment(-1.05, girth, next)));
-      parts.push((bone, Stuff::Bone, spikes(-0.2, -0.8, 2, girth * 0.85, 0.4)));
+    .enumerate()
+    .for_each(|(index, (bone, girth, next))| {
+      parts.push((bone, Stuff::Leather, segment(-1.05, girth, next, 10 + index as u32)));
+      parts.push((
+        bone,
+        Stuff::Bone,
+        fins(Vec2::new(-0.1, girth * 0.82), Vec2::new(-0.85, next * 0.85), 3, 0.34, 0.2)
+      ));
     });
-  let snout = model::lathe(
-    &[
-      Vec2::new(0.0, 0.0),
-      Vec2::new(0.3, 0.02),
-      Vec2::new(0.27, 0.4),
-      Vec2::new(0.2, 0.8),
-      Vec2::new(0.12, 1.0),
-      Vec2::new(0.0, 1.05)
-    ],
-    12
-  );
   let horn_path = |side: f32, lift: f32, sweep: f32| {
     curve(
-      Vec3::new(side * 0.22, 0.22 + lift, -0.15),
-      Vec3::new(side * 0.42, 0.4 + lift, 0.5),
-      Vec3::new(side * 0.35, 0.32 + lift * 2.0, 1.1 * sweep),
-      10
+      Vec3::new(side * 0.2, 0.3 + lift, -0.1),
+      Vec3::new(side * 0.42, 0.62 + lift, 0.4),
+      Vec3::new(side * 0.4, 0.85 + lift * 3.0, 1.2 * sweep),
+      12
     )
   };
   let horns: Vec<Piece> =
-    [(1.0, 0.0, 1.0), (-1.0, 0.0, 1.0), (1.0, -0.15, 0.75), (-1.0, -0.15, 0.75)]
+    [(1.0, 0.0, 1.0), (-1.0, 0.0, 1.0), (1.0, -0.15, 0.7), (-1.0, -0.15, 0.7)]
       .into_iter()
       .map(|(side, lift, sweep)| {
         Piece::new(
-          tube(&horn_path(side, lift, sweep), &taper(10, 0.11 * sweep, 0.01), 8),
+          tube(&horn_path(side, lift, sweep), &taper(12, 0.12 * sweep, 0.008), 10),
           horn
         )
       })
       .collect();
+  let cheek_spikes: Vec<Piece> = [1.0, -1.0]
+    .into_iter()
+    .flat_map(|side| {
+      [(0.0, 0.16), (0.18, 0.12), (0.34, 0.09)].map(|(z, tall)| {
+        Piece::new(cone(tall * 0.35, tall), horn * 0.85)
+          .pitched(1.9)
+          .rolled(-side * 0.5)
+          .at_xyz(side * 0.3, -0.02, z)
+      })
+    })
+    .collect();
   let fangs = |row: f32, down: f32| {
     (0..6)
       .flat_map(|index| {
-        let z = -0.55 - index as f32 * 0.12;
-        let spread = 0.22 - index as f32 * 0.02;
+        let z = -0.5 - index as f32 * 0.1;
+        let spread = 0.2 - index as f32 * 0.018;
+        let long = (index == 1).then_some(0.2).unwrap_or(0.12);
         [1.0, -1.0].map(|side| {
-          Piece::new(cone(0.035, 0.14), srgb(0.9, 0.86, 0.75)).pitched(down).at_xyz(
+          Piece::new(cone(0.03, long), srgb(0.9, 0.86, 0.75)).pitched(down).at_xyz(
             side * spread,
             row,
             z
@@ -275,50 +308,84 @@ fn build(
       })
       .collect::<Vec<_>>()
   };
+  let brows: Vec<Piece> = [1.0, -1.0]
+    .into_iter()
+    .map(|side| {
+      flesh(
+        &[
+          key(side * 0.2, 0.26, 0.05, 0.02, 0.02, 0.02),
+          key(side * 0.21, 0.27, -0.05, 0.08, 0.07, 0.05),
+          key(side * 0.24, 0.26, -0.35, 0.075, 0.06, 0.04),
+          key(side * 0.22, 0.22, -0.6, 0.04, 0.03, 0.03),
+          key(side * 0.2, 0.2, -0.7, 0.02, 0.02, 0.02)
+        ],
+        30
+      )
+    })
+    .collect();
+  let skull = flesh(
+    &[
+      key(0.0, 0.08, 0.32, 0.02, 0.02, 0.02),
+      key(0.0, 0.1, 0.18, 0.34, 0.3, 0.28),
+      key(0.0, 0.1, -0.2, 0.36, 0.3, 0.24),
+      key(0.0, 0.07, -0.5, 0.3, 0.24, 0.16),
+      key(0.0, 0.03, -0.85, 0.22, 0.17, 0.12),
+      key(0.0, 0.0, -1.12, 0.17, 0.13, 0.1),
+      key(0.0, -0.01, -1.24, 0.1, 0.08, 0.08),
+      key(0.0, -0.02, -1.28, 0.02, 0.02, 0.02)
+    ],
+    20
+  );
+  let jaw = flesh(
+    &[
+      key(0.0, 0.0, 0.42, 0.02, 0.02, 0.02),
+      key(0.0, 0.0, 0.3, 0.28, 0.1, 0.16),
+      key(0.0, -0.02, -0.15, 0.24, 0.08, 0.13),
+      key(0.0, 0.0, -0.65, 0.17, 0.06, 0.09),
+      key(0.0, 0.02, -0.92, 0.12, 0.05, 0.06),
+      key(0.0, 0.02, -1.0, 0.02, 0.02, 0.02)
+    ],
+    23
+  );
   parts.extend([
-    (Bone::Head, Stuff::Leather, vec![
-      lump(20, Vec3::new(0.42, 0.36, 0.55), Vec3::new(0.0, 0.05, -0.3)),
-      scaled(
-        Piece::new(snout, hide)
-          .sized(Vec3::new(1.0, 1.0, 0.6))
-          .pitched(-FRAC_PI_2)
-          .at_xyz(0.0, 0.02, -0.5),
-        hide,
-        belly
-      ),
-      lump(21, Vec3::new(0.13, 0.08, 0.3), Vec3::new(0.2, 0.25, -0.5)),
-      lump(22, Vec3::new(0.13, 0.08, 0.3), Vec3::new(-0.2, 0.25, -0.5)),
-    ]),
+    (Bone::Head, Stuff::Leather, [skull].into_iter().chain(brows).collect()),
     (
       Bone::Head,
       Stuff::Bone,
-      horns.into_iter().chain(fangs(-0.08, std::f32::consts::PI)).collect()
+      horns
+        .into_iter()
+        .chain(cheek_spikes)
+        .chain(fangs(-0.07, std::f32::consts::PI))
+        .chain(fins(Vec2::new(0.25, 0.38), Vec2::new(-0.3, 0.38), 3, 0.2, 0.4))
+        .collect()
     ),
     (Bone::Head, Stuff::Ember, vec![
-      Piece::new(ball(0.06), srgb(1.0, 0.7, 0.2)).at_xyz(0.24, 0.15, -0.55),
-      Piece::new(ball(0.06), srgb(1.0, 0.7, 0.2)).at_xyz(-0.24, 0.15, -0.55),
+      Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(0.25, 0.17, -0.42),
+      Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(-0.25, 0.17, -0.42),
     ]),
-    (Bone::Jaw, Stuff::Leather, vec![lump(
-      23,
-      Vec3::new(0.26, 0.1, 0.62),
-      Vec3::new(0.0, -0.02, -0.55)
-    )]),
-    (Bone::Jaw, Stuff::Bone, fangs(0.08, 0.0))
+    (Bone::Jaw, Stuff::Leather, vec![jaw]),
+    (Bone::Jaw, Stuff::Bone, fangs(0.06, 0.0))
   ]);
   [
-    (Bone::Tail1, 0.66, 0.48),
-    (Bone::Tail2, 0.48, 0.34),
-    (Bone::Tail3, 0.34, 0.22),
-    (Bone::Tail4, 0.22, 0.06)
+    (Bone::Tail1, 0.64, 0.46),
+    (Bone::Tail2, 0.46, 0.32),
+    (Bone::Tail3, 0.32, 0.2),
+    (Bone::Tail4, 0.2, 0.05)
   ]
   .into_iter()
   .enumerate()
   .for_each(|(index, (bone, girth, next))| {
-    parts.push((bone, Stuff::Leather, segment(1.55, girth, next)));
+    parts.push((bone, Stuff::Leather, segment(1.55, girth, next, 40 + index as u32)));
     parts.push((
       bone,
       Stuff::Bone,
-      spikes(0.3, 1.3, 2, girth * 0.8, 0.35 - index as f32 * 0.05)
+      fins(
+        Vec2::new(0.15, girth * 0.82),
+        Vec2::new(1.35, next * 0.85),
+        3,
+        0.36 - index as f32 * 0.06,
+        0.2
+      )
     ));
   });
   parts.push((Bone::Tail4, Stuff::Bone, vec![
@@ -326,21 +393,47 @@ fn build(
       model::fan(
         &[
           Vec2::new(0.0, 0.0),
-          Vec2::new(0.35, -0.5),
-          Vec2::new(0.0, -1.1),
-          Vec2::new(-0.35, -0.5)
+          Vec2::new(0.3, -0.35),
+          Vec2::new(0.18, -0.75),
+          Vec2::new(0.0, -1.2),
+          Vec2::new(-0.18, -0.75),
+          Vec2::new(-0.3, -0.35)
         ],
-        0.06
+        0.05
       ),
       horn
     )
     .pitched(-FRAC_PI_2)
-    .at_xyz(0.0, 0.0, 1.5),
+    .at_xyz(0.0, 0.0, 1.35),
   ]));
-  let wing_arm = tube(
-    &curve(Vec3::ZERO, Vec3::new(2.0, 0.35, 0.3), Vec3::new(4.0, 0.2, 0.3), 10),
-    &taper(10, 0.24, 0.13),
-    8
+  let arm_spine = model::spline(
+    &[
+      Vec3::new(-0.3, -0.1, 0.0),
+      Vec3::ZERO,
+      Vec3::new(0.95, 0.28, 0.35),
+      Vec3::new(1.8, 0.34, 0.55),
+      Vec3::new(3.0, 0.26, 0.42),
+      Vec3::new(4.0, 0.2, 0.3),
+      Vec3::new(4.15, 0.2, 0.3)
+    ],
+    6
+  );
+  let arm_girth = model::spline(
+    &[
+      Vec3::splat(0.36),
+      Vec3::new(0.34, 0.38, 0.4),
+      Vec3::new(0.26, 0.3, 0.3),
+      Vec3::new(0.2, 0.2, 0.2),
+      Vec3::new(0.14, 0.15, 0.15),
+      Vec3::new(0.14, 0.16, 0.16),
+      Vec3::splat(0.02)
+    ],
+    6
+  );
+  let wing_arm = scaled(
+    Piece::new(model::loft(&arm_spine, &arm_girth, 14), hide).grained(3.0),
+    hide,
+    belly
   );
   let finger_tips = [
     Vec3::new(1.3, 0.0, -0.6),
@@ -348,30 +441,23 @@ fn build(
     Vec3::new(-0.8, 0.0, 3.9),
     Vec3::new(-2.6, 0.0, 4.3)
   ];
+  let finger_path = |tip: Vec3| curve(Vec3::ZERO, tip * 0.5 + Vec3::Y * 0.15, tip, 10);
   let fingers: Vec<Piece> = finger_tips
     .iter()
-    .map(|&tip| {
-      Piece::new(
-        tube(
-          &curve(Vec3::ZERO, tip * 0.5 + Vec3::Y * 0.15, tip, 6),
-          &taper(6, 0.09, 0.02),
-          6
-        ),
-        hide * 0.8
-      )
+    .flat_map(|&tip| {
+      let path = finger_path(tip);
+      let knuckles = [0.35, 0.7].map(|t| {
+        Piece::new(ball(0.07 * (1.2 - t)), hide * 0.8).at(path[(t * 10.0) as usize])
+      });
+      [Piece::new(tube(&path, &taper(10, 0.1, 0.018), 8), hide * 0.8)]
+        .into_iter()
+        .chain(knuckles)
     })
+    .chain([Piece::new(cone(0.06, 0.32), claw).pitched(-1.4).at_xyz(0.05, 0.12, -0.15)])
     .collect();
   let skin = LinearRgba::from(srgb(0.36, 0.25, 0.2));
-  let sheet = |corners: &[Vec3]| {
-    Piece::new(
-      model::fan(
-        &corners.iter().map(|corner| Vec2::new(corner.x, -corner.z)).collect::<Vec<_>>(),
-        0.02
-      ),
-      srgb(0.36, 0.26, 0.22)
-    )
-    .pitched(-FRAC_PI_2)
-    .shaded(move |position, _| {
+  let webbing = move |grid: Vec<Vec<Vec3>>| {
+    Piece::new(model::sheet(&grid), srgb(0.36, 0.26, 0.22)).shaded(move |position, _| {
       let reach = position.length();
       let veins = (f32::atan2(position.z, position.x) * 7.0).sin().abs().powf(12.0);
       let blotch = crate::noise::value3(position * 1.7, 29) * 0.35 + 0.8;
@@ -379,41 +465,110 @@ fn build(
         .with_alpha(1.0)
     })
   };
-  let membranes: Vec<Piece> =
-    finger_tips.windows(2).map(|pair| sheet(&[Vec3::ZERO, pair[0], pair[1]])).collect();
-  let inner = sheet(&[
-    Vec3::ZERO,
-    Vec3::new(4.0, 0.0, 0.3),
-    Vec3::new(4.0 - 2.6, 0.0, 4.6),
-    Vec3::new(0.3, 0.0, 3.6)
-  ]);
-  let thigh = lump(40, Vec3::new(0.42, 0.85, 0.6), Vec3::new(0.0, -0.55, 0.05));
-  let shin = Piece::new(
-    tube(
-      &curve(Vec3::ZERO, Vec3::new(0.0, -0.5, 0.35), Vec3::new(0.0, -1.0, 0.1), 6),
-      &taper(6, 0.2, 0.13),
-      8
-    ),
-    hide
-  );
-  let foot = Piece::new(model::lump(41, 0.08, 1), hide)
-    .sized(Vec3::new(0.3, 0.12, 0.45))
-    .at_xyz(0.0, -1.05, -0.2);
-  let claws: Vec<Piece> = [-0.15, 0.0, 0.15]
-    .into_iter()
-    .map(|x| {
-      Piece::new(cone(0.05, 0.22), srgb(0.2, 0.18, 0.16))
-        .pitched(-1.3)
-        .at_xyz(x, -1.1, -0.6)
+  let across =
+    |columns: usize| (0..=columns).map(move |column| column as f32 / columns as f32);
+  let membranes: Vec<Piece> = finger_tips
+    .windows(2)
+    .map(|pair| {
+      let (lead, trail) = (finger_path(pair[0]), finger_path(pair[1]));
+      webbing(
+        lead
+          .iter()
+          .zip(&trail)
+          .enumerate()
+          .map(|(row, (&lead, &trail))| {
+            let along = row as f32 / 10.0;
+            across(8)
+              .map(|s| {
+                let bow = (s * std::f32::consts::PI).sin();
+                lead.lerp(trail, s) * (1.0 - 0.28 * bow * along.powi(2))
+                  - Vec3::Y * 0.14 * bow * along
+              })
+              .collect()
+          })
+          .collect()
+      )
     })
     .collect();
+  let wrist = Bone::TipR.rest();
+  let (root, far) = (Vec3::new(0.2, -0.05, 3.3), wrist + finger_tips[3]);
+  let inner = webbing(
+    arm_spine[6..arm_spine.len() - 6]
+      .iter()
+      .enumerate()
+      .map(|(row, &lead)| {
+        let along = row as f32 / (arm_spine.len() - 13) as f32;
+        let edge = root.lerp(far, along)
+          + Vec3::NEG_Z * 0.6 * (along * std::f32::consts::PI).sin();
+        across(8)
+          .map(|s| lead.lerp(edge, s) - Vec3::Y * 0.2 * (s * std::f32::consts::PI).sin())
+          .collect()
+      })
+      .collect()
+  );
+  let thigh = flesh(
+    &[
+      key(0.0, 0.45, 0.05, 0.02, 0.02, 0.02),
+      key(0.0, 0.3, 0.05, 0.36, 0.42, 0.46),
+      key(0.0, -0.2, 0.12, 0.38, 0.44, 0.48),
+      key(0.0, -0.8, 0.14, 0.24, 0.26, 0.28),
+      key(0.0, -1.25, 0.15, 0.2, 0.2, 0.2),
+      key(0.0, -1.4, 0.15, 0.02, 0.02, 0.02)
+    ],
+    40
+  );
+  let shin = flesh(
+    &[
+      key(0.0, 0.14, 0.0, 0.02, 0.02, 0.02),
+      key(0.0, 0.0, 0.0, 0.2, 0.2, 0.2),
+      key(0.0, -0.45, 0.32, 0.14, 0.16, 0.13),
+      key(0.0, -0.8, 0.22, 0.12, 0.12, 0.12),
+      key(0.0, -1.02, 0.08, 0.14, 0.12, 0.12),
+      key(0.0, -1.1, -0.05, 0.12, 0.1, 0.1),
+      key(0.0, -1.14, -0.22, 0.02, 0.02, 0.02)
+    ],
+    41
+  );
+  let toes: Vec<Piece> = [-0.16, 0.0, 0.16]
+    .into_iter()
+    .map(|x| {
+      Piece::new(
+        tube(
+          &curve(
+            Vec3::new(x * 0.4, -1.04, 0.0),
+            Vec3::new(x, -1.08, -0.25),
+            Vec3::new(x * 1.3, -1.14, -0.45),
+            6
+          ),
+          &taper(6, 0.08, 0.05),
+          8
+        ),
+        hide
+      )
+    })
+    .collect();
+  let claws: Vec<Piece> = [-0.16, 0.0, 0.16]
+    .into_iter()
+    .map(|x| {
+      Piece::new(cone(0.05, 0.22), claw).pitched(-1.75).at_xyz(x * 1.3, -1.15, -0.5)
+    })
+    .collect();
+  let shoulder = flesh(
+    &[
+      key(-0.3, 0.1, 0.05, 0.02, 0.02, 0.02),
+      key(-0.2, 0.1, 0.05, 0.38, 0.38, 0.4),
+      key(0.35, 0.18, 0.15, 0.34, 0.3, 0.34),
+      key(0.7, 0.24, 0.25, 0.02, 0.02, 0.02)
+    ],
+    45
+  );
   let right_side: Vec<(Bone, Stuff, Vec<Piece>)> = vec![
-    (Bone::WingR, Stuff::Leather, vec![scaled(Piece::new(wing_arm, hide), hide, belly)]),
+    (Bone::WingR, Stuff::Leather, vec![wing_arm, shoulder]),
     (Bone::WingR, Stuff::Membrane, vec![inner]),
     (Bone::TipR, Stuff::Leather, fingers),
     (Bone::TipR, Stuff::Membrane, membranes),
     (Bone::LegR, Stuff::Leather, vec![thigh]),
-    (Bone::ShinR, Stuff::Leather, vec![shin, foot]),
+    (Bone::ShinR, Stuff::Leather, [shin].into_iter().chain(toes).collect()),
     (Bone::ShinR, Stuff::Bone, claws),
   ];
   right_side.into_iter().for_each(|(bone, stuff, pieces)| {
@@ -523,6 +678,8 @@ fn fly(
   let delta = time.delta_secs().min(0.05);
   let (hero, hero_at, hero_dead, hero_motion) = *player;
   let target = hero_at.translation;
+  let hidden = daylight.shelter > SHELTERED;
+  let exposed = !hero_dead && !hidden;
   let arrival = opts().dragon.unwrap_or(ARRIVAL);
   dragons.iter_mut().for_each(
     |(
@@ -605,7 +762,7 @@ fn fly(
           let ahead = Vec3::new(bearing.cos(), 0.0, bearing.sin()) * ORBIT + target;
           let goal = ahead.with_y(floor(ahead).max(floor(target)) + ALTITUDE);
           dragon.velocity = steer_toward(dragon.velocity, goal, at, CRUISE, 1.4, delta);
-          if circled > 10.0 && !hero_dead {
+          if circled > 10.0 && exposed {
             dragon.passes += 1;
             let heading = flat_gap.normalize_or(Vec3::X);
             let (from, to) = (target - heading * 110.0, target + heading * 120.0);
@@ -630,10 +787,10 @@ fn fly(
           let facing_player =
             dragon.velocity.normalize_or_zero().dot((target - at).normalize_or_zero())
               > 0.6;
-          if facing_player && distance < 60.0 && distance > 8.0 {
+          if exposed && facing_player && distance < 60.0 && distance > 8.0 {
             dragon.breath = 0.3;
           }
-          (progress > (to - from).with_y(0.0).length())
+          (hidden || progress > (to - from).with_y(0.0).length())
             .then_some(Flight::Circling(0.0))
             .unwrap_or(flight)
         }
@@ -644,7 +801,9 @@ fn fly(
           let speed = (horizontal * 0.8 + 4.0).min(CRUISE);
           dragon.velocity = steer_toward(dragon.velocity, goal, at, speed, 1.5, delta);
           let touched = at.y - (floor(at) + STANCE) < 0.6 && horizontal < 4.0;
-          if touched {
+          if hidden {
+            Flight::Rising(0.0)
+          } else if touched {
             shake.0 = shake.0.max(0.6);
             sounds.write(Sound::here(Cue::DragonRoar, at));
             dragon.velocity = Vec3::ZERO;
@@ -660,7 +819,7 @@ fn fly(
             && motion.swing.is_none()
             && !staggered;
           dragon.velocity = walking.then_some(facing * 3.2).unwrap_or(Vec3::ZERO);
-          if !hero_dead
+          if exposed
             && !staggered
             && distance < 8.5
             && dragon.bite_cooldown <= 0.0
@@ -669,7 +828,7 @@ fn fly(
             motion.swing = Some(0.0);
             dragon.bite_cooldown = 2.6;
           }
-          if !hero_dead
+          if exposed
             && !staggered
             && (8.5..BREATH_REACH).contains(&distance)
             && dragon.breath_cooldown <= 0.0
@@ -680,6 +839,7 @@ fn fly(
           }
           let restless = time_down > 28.0
             || (hero_dead && time_down > 4.0)
+            || (hidden && time_down > 1.5)
             || (vitals.health < HEALTH * 0.45 && !dragon.spent);
           if restless {
             dragon.spent = dragon.spent || vitals.health < HEALTH * 0.45;
@@ -768,9 +928,14 @@ fn fly(
       }
 
       let breathing = dragon.breath > 0.0 && !dead;
-      if breathing && !hero_dead {
+      if breathing && exposed {
         let mouth = at + transform.forward().as_vec3() * 5.5;
+        let chest = target + Vec3::Y;
         let reach = target - mouth;
+        let earthed = (1..12).any(|step| {
+          let probe = mouth.lerp(chest, step as f32 / 12.0);
+          probe.y < floor(probe) - 0.2
+        });
         let aimed = transform
           .forward()
           .as_vec3()
@@ -778,7 +943,11 @@ fn fly(
           .normalize_or_zero()
           .dot(reach.with_y(0.0).normalize_or_zero())
           > 0.85;
-        if aimed && reach.with_y(0.0).length() < BREATH_REACH && reach.y.abs() < 16.0 {
+        if aimed
+          && !earthed
+          && reach.with_y(0.0).length() < BREATH_REACH
+          && reach.y.abs() < 16.0
+        {
           let blocking = hero_motion.guard > 0.6;
           dragon.scorch += delta;
           if let Ok(mut vitals) = player_vitals.get_mut(hero) {

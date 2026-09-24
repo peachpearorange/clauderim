@@ -1,5 +1,6 @@
 use {crate::{humanoid::Motion,
-             model::{self, Piece, ball, curve, limb, tube},
+             model::{self, Piece, ball, sculpt},
+             noise,
              stuff::{Stuff, Stuffs}},
      bevy::prelude::*};
 
@@ -114,73 +115,216 @@ pub fn spawn_wolf(
       ))
       .id();
   });
-  let lump = |seed: u32, size: Vec3, at: Vec3| {
-    Piece::new(model::blob(seed, 0.05), coat).sized(size).at(at)
+  let pelt = |keys: &[(Vec3, Vec3)], shag: f32, seed: u32| {
+    let mesh =
+      model::ruffled(sculpt(keys, 6, 18), shag, Vec3::new(38.0, 22.0, 9.0), seed);
+    shaded_fur(Piece::new(mesh, coat), coat, belly)
+  };
+  let key = |x: f32, y: f32, z: f32, wide: f32, high: f32, deep: f32| {
+    (Vec3::new(x, y, z), Vec3::new(wide, high, deep))
   };
   let body = [
-    lump(1, Vec3::new(0.15, 0.2, 0.3), Vec3::new(0.0, -0.03, -0.2)),
-    lump(2, Vec3::new(0.12, 0.14, 0.3), Vec3::new(0.0, 0.02, 0.12)),
-    lump(3, Vec3::new(0.14, 0.17, 0.17), Vec3::new(0.0, 0.02, 0.33)),
-    Piece::new(model::blob(4, 0.05), coat)
-      .sized(Vec3::new(0.1, 0.11, 0.2))
-      .pitched(0.7)
-      .at_xyz(0.0, 0.1, -0.44),
-    lump(5, Vec3::new(0.15, 0.11, 0.2), Vec3::new(0.0, 0.13, -0.32))
-  ]
-  .map(|piece| shaded_fur(piece, coat, belly));
-  let muzzle = model::lathe(
-    &[
-      Vec2::new(0.0, -0.02),
-      Vec2::new(0.078, 0.0),
-      Vec2::new(0.068, 0.08),
-      Vec2::new(0.046, 0.17),
-      Vec2::new(0.03, 0.2),
-      Vec2::new(0.0, 0.21)
-    ],
-    10
-  );
-  let head = [
-    lump(6, Vec3::new(0.1, 0.095, 0.115), Vec3::new(0.0, 0.03, 0.0)),
-    Piece::new(muzzle, coat)
-      .sized(Vec3::new(1.0, 1.0, 0.82))
-      .pitched(-1.62)
-      .at_xyz(0.0, 0.0, -0.07),
-    Piece::new(model::cone(0.042, 0.12), coat * 0.75)
-      .sized(Vec3::new(1.0, 1.0, 0.45))
-      .rolled(-0.22)
-      .at_xyz(0.055, 0.12, 0.03),
-    Piece::new(model::cone(0.042, 0.12), coat * 0.75)
-      .sized(Vec3::new(1.0, 1.0, 0.45))
-      .rolled(0.22)
-      .at_xyz(-0.055, 0.12, 0.03)
-  ]
-  .map(|piece| shaded_fur(piece, coat, belly));
-  let jaw = Piece::new(model::blob(8, 0.05), coat)
-    .sized(Vec3::new(0.045, 0.025, 0.11))
-    .at_xyz(0.0, 0.0, -0.1);
-  let teeth = Piece::new(model::block(0.04, 0.012, 0.1), fur(0.9, 0.88, 0.8))
-    .at_xyz(0.0, 0.012, -0.1);
-  let nose = Piece::new(ball(0.022), fur(0.05, 0.05, 0.05)).at_xyz(0.0, 0.012, -0.28);
-  let eyes = [0.048, -0.048]
-    .map(|side| Piece::new(ball(0.014), fur(0.9, 0.7, 0.2)).at_xyz(side, 0.045, -0.075));
-  let tail_path =
-    curve(Vec3::ZERO, Vec3::new(0.0, -0.05, 0.22), Vec3::new(0.0, -0.4, 0.34), 8);
-  let tail = shaded_fur(
-    Piece::new(
-      tube(&tail_path, &[0.035, 0.055, 0.07, 0.075, 0.075, 0.07, 0.06, 0.04, 0.008], 8),
-      coat
+    pelt(
+      &[
+        key(0.0, 0.09, -0.49, 0.004, 0.004, 0.004),
+        key(0.0, 0.07, -0.45, 0.075, 0.085, 0.11),
+        key(0.0, 0.02, -0.34, 0.118, 0.1, 0.19),
+        key(0.0, -0.03, -0.18, 0.124, 0.095, 0.225),
+        key(0.0, -0.03, -0.02, 0.112, 0.085, 0.18),
+        key(0.0, 0.0, 0.14, 0.088, 0.078, 0.11),
+        key(0.0, 0.01, 0.28, 0.098, 0.082, 0.12),
+        key(0.0, -0.005, 0.4, 0.096, 0.08, 0.125),
+        key(0.0, -0.02, 0.49, 0.055, 0.055, 0.07),
+        key(0.0, -0.025, 0.52, 0.004, 0.004, 0.004)
+      ],
+      0.016,
+      1
     ),
-    coat,
-    belly
+    pelt(
+      &[
+        key(0.0, -0.02, -0.24, 0.004, 0.004, 0.004),
+        key(0.0, 0.0, -0.3, 0.1, 0.1, 0.16),
+        key(0.0, 0.08, -0.42, 0.095, 0.1, 0.15),
+        key(0.0, 0.16, -0.52, 0.08, 0.085, 0.11),
+        key(0.0, 0.2, -0.57, 0.062, 0.068, 0.08),
+        key(0.0, 0.21, -0.6, 0.004, 0.004, 0.004)
+      ],
+      0.03,
+      2
+    )
+  ];
+  let head = [
+    pelt(
+      &[
+        key(0.0, 0.035, 0.075, 0.004, 0.004, 0.004),
+        key(0.0, 0.04, 0.05, 0.055, 0.05, 0.05),
+        key(0.0, 0.042, 0.0, 0.072, 0.062, 0.058),
+        key(0.0, 0.034, -0.06, 0.066, 0.05, 0.052),
+        key(0.0, 0.014, -0.11, 0.044, 0.036, 0.044),
+        key(0.0, 0.004, -0.17, 0.034, 0.03, 0.034),
+        key(0.0, -0.001, -0.23, 0.028, 0.025, 0.028),
+        key(0.0, -0.004, -0.268, 0.021, 0.019, 0.021),
+        key(0.0, -0.005, -0.282, 0.004, 0.004, 0.004)
+      ],
+      0.004,
+      3
+    ),
+    pelt(
+      &[
+        key(0.0, -0.01, 0.04, 0.004, 0.004, 0.004),
+        key(0.0, -0.01, 0.02, 0.078, 0.045, 0.06),
+        key(0.0, -0.005, -0.04, 0.07, 0.035, 0.04),
+        key(0.0, 0.0, -0.08, 0.004, 0.004, 0.004)
+      ],
+      0.02,
+      4
+    )
+  ];
+  let ears = [1.0, -1.0].map(|side| {
+    Piece::new(model::cone(0.044, 0.12), coat * 0.7)
+      .sized(Vec3::new(1.0, 1.0, 0.42))
+      .pitched(0.25)
+      .rolled(-side * 0.28)
+      .at_xyz(side * 0.042, 0.11, 0.02)
+  });
+  let jaw = pelt(
+    &[
+      key(0.0, 0.0, 0.04, 0.004, 0.004, 0.004),
+      key(0.0, 0.0, 0.02, 0.036, 0.018, 0.022),
+      key(0.0, 0.0, -0.05, 0.034, 0.014, 0.024),
+      key(0.0, 0.001, -0.14, 0.025, 0.012, 0.018),
+      key(0.0, 0.003, -0.2, 0.018, 0.01, 0.013),
+      key(0.0, 0.004, -0.214, 0.004, 0.004, 0.004)
+    ],
+    0.003,
+    5
   );
-  let upper = |front: bool| {
-    let thick = front.then_some(0.052).unwrap_or(0.072);
-    shaded_fur(Piece::new(limb(thick, 0.034, UPPER), coat), coat, belly)
+  let fangs = |down: f32, height: f32, reach: f32| {
+    [1.0, -1.0].map(|side| {
+      Piece::new(model::cone(0.006, 0.026), fur(0.9, 0.88, 0.8)).pitched(down).at_xyz(
+        side * 0.017,
+        height,
+        reach
+      )
+    })
   };
-  let lower = Piece::new(limb(0.03, 0.024, LOWER), coat * 0.9);
-  let paw = Piece::new(model::lump(9, 0.06, 1), coat * 0.7)
-    .sized(Vec3::new(0.045, 0.03, 0.07))
-    .at_xyz(0.0, -LOWER, -0.03);
+  let (upper_fangs, lower_fangs) =
+    (fangs(std::f32::consts::PI, -0.03, -0.215), fangs(0.0, 0.018, -0.17));
+  let nose = Piece::new(ball(0.02), fur(0.05, 0.05, 0.05))
+    .sized(Vec3::new(1.0, 0.8, 1.0))
+    .at_xyz(0.0, 0.002, -0.278);
+  let eyes = [0.048, -0.048]
+    .map(|side| Piece::new(ball(0.012), fur(0.9, 0.7, 0.2)).at_xyz(side, 0.04, -0.088));
+  let tail_path = model::spline(
+    &[
+      Vec3::ZERO,
+      Vec3::new(0.0, -0.03, 0.12),
+      Vec3::new(0.0, -0.15, 0.25),
+      Vec3::new(0.0, -0.31, 0.31),
+      Vec3::new(0.0, -0.45, 0.32)
+    ],
+    5
+  );
+  let bushy = model::taper(tail_path.len() - 1, 0.0, 1.0)
+    .into_iter()
+    .map(|t| {
+      Vec3::splat(
+        0.03 * (1.0 - t)
+          + 0.075 * (std::f32::consts::PI * t.powf(0.7)).sin().max(0.0)
+          + 0.003
+      )
+    })
+    .collect::<Vec<_>>();
+  let tip = LinearRgba::from(coat) * 0.35;
+  let tail = Piece::new(
+    model::ruffled(
+      model::loft(&tail_path, &bushy, 14),
+      0.03,
+      Vec3::new(30.0, 12.0, 30.0),
+      6
+    ),
+    coat
+  )
+  .grained(3.0)
+  .shaded(move |position, normal| {
+    let brush = ((-position.y - 0.34) * 14.0).clamp(0.0, 1.0);
+    let under = ((-normal.y + 0.1) * 1.6).clamp(0.0, 1.0);
+    let shade = LinearRgba::from(coat)
+      * (1.0 - 0.15 * under + noise::value3(position * 9.0, 7) * 0.2);
+    (shade * (1.0 - brush) + tip * brush).with_alpha(1.0)
+  });
+  let upper = |bone: Bone, front: bool| {
+    let inward = -bone.rest().x.signum();
+    front
+      .then(|| {
+        pelt(
+          &[
+            key(inward * 0.045, 0.08, 0.0, 0.004, 0.004, 0.004),
+            key(inward * 0.04, 0.06, 0.0, 0.03, 0.05, 0.05),
+            key(inward * 0.015, -0.06, 0.0, 0.034, 0.055, 0.052),
+            key(0.0, -0.16, -0.005, 0.03, 0.042, 0.04),
+            key(0.0, -0.26, 0.0, 0.024, 0.03, 0.028),
+            key(0.0, -UPPER, 0.005, 0.021, 0.025, 0.024),
+            key(0.0, -UPPER - 0.03, 0.005, 0.004, 0.004, 0.004)
+          ],
+          0.006,
+          7
+        )
+      })
+      .unwrap_or_else(|| {
+        pelt(
+          &[
+            key(inward * 0.045, 0.08, 0.02, 0.004, 0.004, 0.004),
+            key(inward * 0.04, 0.06, 0.02, 0.035, 0.055, 0.055),
+            key(inward * 0.018, -0.05, 0.01, 0.042, 0.08, 0.072),
+            key(0.0, -0.16, -0.015, 0.036, 0.06, 0.05),
+            key(0.0, -0.27, -0.01, 0.028, 0.038, 0.032),
+            key(0.0, -UPPER, 0.0, 0.024, 0.028, 0.026),
+            key(0.0, -UPPER - 0.03, 0.0, 0.004, 0.004, 0.004)
+          ],
+          0.008,
+          8
+        )
+      })
+  };
+  let lower = |front: bool| {
+    front
+      .then(|| {
+        [
+          key(0.0, 0.02, 0.0, 0.004, 0.004, 0.004),
+          key(0.0, 0.0, 0.0, 0.021, 0.024, 0.024),
+          key(0.0, -0.14, 0.0, 0.019, 0.022, 0.02),
+          key(0.0, -0.26, 0.004, 0.017, 0.022, 0.019),
+          key(0.0, -0.3, -0.004, 0.016, 0.018, 0.018),
+          key(0.0, -LOWER + 0.01, -0.02, 0.018, 0.018, 0.018)
+        ]
+      })
+      .unwrap_or([
+        key(0.0, 0.02, 0.0, 0.004, 0.004, 0.004),
+        key(0.0, 0.0, 0.0, 0.028, 0.032, 0.034),
+        key(0.0, -0.09, 0.03, 0.024, 0.03, 0.026),
+        key(0.0, -0.16, 0.065, 0.016, 0.026, 0.016),
+        key(0.0, -0.26, 0.04, 0.015, 0.017, 0.016),
+        key(0.0, -LOWER + 0.01, 0.0, 0.018, 0.018, 0.018)
+      ])
+  };
+  let paw = |front: bool| {
+    let heel = front.then_some(-0.02).unwrap_or(0.0);
+    [Piece::new(ball(1.0), coat * 0.8).sized(Vec3::new(0.028, 0.02, 0.04)).at_xyz(
+      0.0,
+      -LOWER,
+      heel - 0.012
+    )]
+    .into_iter()
+    .chain([-0.018, -0.006, 0.006, 0.018].map(|x| {
+      Piece::new(ball(0.011), coat * 0.55).at_xyz(
+        x,
+        -LOWER - 0.008,
+        heel - 0.045 + (x * 40.0).abs() * 0.004
+      )
+    }))
+    .collect::<Vec<_>>()
+  };
 
   let mut spawn = |bone: Bone, stuff: Stuff, pieces: Vec<Piece>| {
     commands.spawn((
@@ -190,19 +334,33 @@ pub fn spawn_wolf(
     ));
   };
   spawn(Bone::Body, Stuff::Fur, body.into());
-  spawn(Bone::Head, Stuff::Fur, head.into());
+  spawn(Bone::Head, Stuff::Fur, head.into_iter().chain(ears).collect());
   spawn(Bone::Head, Stuff::Gloss, [nose].into_iter().chain(eyes).collect());
+  spawn(Bone::Head, Stuff::Bone, upper_fangs.into());
   spawn(Bone::Jaw, Stuff::Fur, vec![jaw]);
-  spawn(Bone::Jaw, Stuff::Bone, vec![teeth]);
+  spawn(Bone::Jaw, Stuff::Bone, lower_fangs.into());
   spawn(Bone::Tail, Stuff::Fur, vec![tail]);
-  [Bone::FrontL, Bone::FrontR]
-    .into_iter()
-    .for_each(|bone| spawn(bone, Stuff::Fur, vec![upper(true)]));
-  [Bone::BackL, Bone::BackR]
-    .into_iter()
-    .for_each(|bone| spawn(bone, Stuff::Fur, vec![upper(false)]));
-  [Bone::ShinFL, Bone::ShinFR, Bone::ShinBL, Bone::ShinBR].into_iter().for_each(|bone| {
-    spawn(bone, Stuff::Fur, vec![Piece(lower.0.clone()), Piece(paw.0.clone())])
+  [
+    (Bone::FrontL, true),
+    (Bone::FrontR, true),
+    (Bone::BackL, false),
+    (Bone::BackR, false)
+  ]
+  .into_iter()
+  .for_each(|(bone, front)| spawn(bone, Stuff::Fur, vec![upper(bone, front)]));
+  [
+    (Bone::ShinFL, true),
+    (Bone::ShinFR, true),
+    (Bone::ShinBL, false),
+    (Bone::ShinBR, false)
+  ]
+  .into_iter()
+  .for_each(|(bone, front)| {
+    spawn(
+      bone,
+      Stuff::Fur,
+      [pelt(&lower(front), 0.004, 9)].into_iter().chain(paw(front)).collect()
+    )
   });
   Beast { bones }
 }
