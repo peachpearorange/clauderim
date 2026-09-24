@@ -24,6 +24,31 @@ pub fn perlin(at: Vec2, seed: u32) -> f32 {
   bottom.lerp(top, v) * 1.4
 }
 
+pub fn perlin_slope(at: Vec2, seed: u32) -> (f32, Vec2) {
+  let cell = at.floor();
+  let (x, y) = (cell.x as i32, cell.y as i32);
+  let local = at - cell;
+  let corner = |dx: i32, dy: i32| {
+    let gradient = Vec2::from_angle(hash(x + dx, y + dy, seed) * std::f32::consts::TAU);
+    (gradient.dot(local - Vec2::new(dx as f32, dy as f32)), gradient)
+  };
+  let ((a, ga), (b, gb), (c, gc), (d, gd)) =
+    (corner(0, 0), corner(1, 0), corner(0, 1), corner(1, 1));
+  let fade_slope = |t: f32| 30.0 * t * t * (t * (t - 2.0) + 1.0);
+  let (u, v) = (fade(local.x), fade(local.y));
+  let twist = a - b - c + d;
+  let value = a + (b - a) * u + (c - a) * v + twist * u * v;
+  let slope = ga
+    + (gb - ga) * u
+    + (gc - ga) * v
+    + (ga - gb - gc + gd) * u * v
+    + Vec2::new(
+      fade_slope(local.x) * (b - a + twist * v),
+      fade_slope(local.y) * (c - a + twist * u)
+    );
+  (value * 1.4, slope * 1.4)
+}
+
 const TWIST: Mat2 = Mat2::from_cols_array(&[1.6, 1.2, -1.2, 1.6]);
 
 pub fn fbm(at: Vec2, octaves: u32, seed: u32) -> f32 {
@@ -40,15 +65,27 @@ pub fn fbm(at: Vec2, octaves: u32, seed: u32) -> f32 {
     / 1.2
 }
 
-pub fn ridged(at: Vec2, octaves: u32, seed: u32) -> f32 {
+pub fn crags(at: Vec2, octaves: u32, seed: u32, erosion: f32) -> f32 {
   (0..octaves)
-    .fold((0.0, at, 1.0, 0.0, 1.0), |(sum, at, amplitude, total, weight), octave| {
-      let crest = 1.0 - perlin(at, seed.wrapping_add(octave * 173)).abs();
-      let crest = crest * crest * weight;
-      (sum + crest * amplitude, TWIST * at, amplitude * 0.5, total + amplitude, crest)
-    })
+    .fold(
+      (0.0, at, Mat2::IDENTITY, Vec2::ZERO, 1.0, 1.0),
+      |(sum, at, frame, wear, amplitude, weight), octave| {
+        let (value, slope) = perlin_slope(at, seed.wrapping_add(octave * 173));
+        let crest = 1.0 - (value * value + 0.012).sqrt();
+        let ridge = crest * crest * weight;
+        (
+          sum + ridge * amplitude / (1.0 + erosion * wear.length_squared()),
+          TWIST * at,
+          TWIST * frame,
+          wear + frame.transpose() * slope * amplitude,
+          amplitude * 0.45,
+          ridge.clamp(0.0, 1.0)
+        )
+      }
+    )
     .0
-    / 1.9
+    * 0.94
+    - 0.15
 }
 
 pub fn value3(at: Vec3, seed: u32) -> f32 {
