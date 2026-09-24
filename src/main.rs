@@ -1,5 +1,6 @@
 mod audio;
 mod cave;
+mod cloud;
 mod combat;
 mod creature;
 mod dragon;
@@ -116,6 +117,7 @@ fn main() {
       terrain::plugin,
       flora::plugin,
       sky::plugin,
+      cloud::plugin,
       stuff::plugin,
       humanoid::plugin,
       walker::plugin,

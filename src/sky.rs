@@ -10,8 +10,13 @@ use {crate::opts::opts,
      std::f32::consts::PI};
 
 const DAY_EXPOSURE: f32 = 13.2;
-const NIGHT_EXPOSURE: f32 = 7.4;
-const MOONLIGHT: f32 = 90.0;
+const NIGHT_EXPOSURE: f32 = 6.2;
+const UNDERGROUND_EXPOSURE: f32 = 7.6;
+const BRIGHTENING: f32 = 1.4;
+const DARKENING: f32 = 0.45;
+const SUN_DISK: SunDisk = SunDisk { angular_size: 0.017, intensity: 1.0 };
+const MOON_DISK: SunDisk = SunDisk { angular_size: 0.03, intensity: 60.0 };
+pub const MOONLIGHT: f32 = 90.0;
 
 #[derive(Resource)]
 pub struct Clock {
@@ -65,7 +70,7 @@ fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>
       shadow_maps_enabled: true,
       ..default()
     },
-    SunDisk::EARTH,
+    SUN_DISK,
     CascadeShadowConfigBuilder {
       num_cascades: 4,
       first_cascade_far_bound: 14.0,
@@ -77,13 +82,18 @@ fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>
   ));
 }
 
-fn toward_sun(hour: f32) -> Vec3 {
+pub fn toward_sun(hour: f32) -> Vec3 {
   let arc = (hour - 6.0) / 12.0 * PI;
   Vec3::new(arc.cos(), arc.sin() * 0.62, arc.sin() * 0.5 + 0.12).normalize()
 }
 
+pub fn toward_moon(sun: Vec3) -> Vec3 {
+  Vec3::new(-sun.x, -sun.y, sun.z * 0.6 + 0.3).normalize()
+}
+
 fn cycle_day(
   time: Res<Time>,
+  mut adapted: Local<bool>,
   mut clock: ResMut<Clock>,
   mut daylight: ResMut<Daylight>,
   sun: Single<(&mut Transform, &mut DirectionalLight, &mut SunDisk), With<Sun>>,
@@ -94,19 +104,23 @@ fn cycle_day(
   let day = ((sun_ray.y + 0.06) / 0.2).clamp(0.0, 1.0);
   daylight.level = day;
   let (mut transform, mut light, mut disk) = sun.into_inner();
-  let moon_ray = Vec3::new(-sun_ray.x, -sun_ray.y, sun_ray.z * 0.6 + 0.3).normalize();
-  let ray = (day > 0.0).then_some(sun_ray).unwrap_or(moon_ray);
+  let ray = (day > 0.0).then_some(sun_ray).unwrap_or(toward_moon(sun_ray));
   *transform = Transform::default().looking_to(-ray, Vec3::Y);
   light.illuminance = (day > 0.0).then_some(lux::RAW_SUNLIGHT).unwrap_or(MOONLIGHT);
   light.color =
     (day > 0.0).then_some(Color::WHITE).unwrap_or(Color::srgb(0.62, 0.72, 1.0));
-  *disk = (day > 0.0)
-    .then_some(SunDisk::EARTH)
-    .unwrap_or(SunDisk { angular_size: 0.03, intensity: 60.0 });
+  *disk = (day > 0.0).then_some(SUN_DISK).unwrap_or(MOON_DISK);
   let outdoors = 1.0 - daylight.shelter;
+  let settled = NIGHT_EXPOSURE
+    .lerp(DAY_EXPOSURE, day.powf(0.5))
+    .lerp(UNDERGROUND_EXPOSURE, daylight.shelter);
+  let adapting = *adapted;
+  *adapted = !lenses.is_empty();
   lenses.iter_mut().for_each(|(mut exposure, mut fog, ambient)| {
-    exposure.ev100 =
-      NIGHT_EXPOSURE.lerp(DAY_EXPOSURE, day.powf(0.5)) - 4.2 * daylight.shelter;
+    let rate = (settled > exposure.ev100).then_some(BRIGHTENING).unwrap_or(DARKENING);
+    exposure.ev100 = adapting
+      .then(|| exposure.ev100.lerp(settled, 1.0 - (-rate * time.delta_secs()).exp()))
+      .unwrap_or(settled);
     if let Some(mut ambient) = ambient {
       ambient.intensity = 0.015 + 0.985 * outdoors.powf(2.0);
     }

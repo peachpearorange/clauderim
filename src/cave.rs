@@ -26,6 +26,8 @@ const WEB: Srgba = Srgba::rgb(0.82, 0.82, 0.80);
 const STRAW: Srgba = Srgba::rgb(0.62, 0.52, 0.30);
 const PELT: Srgba = Srgba::rgb(0.42, 0.37, 0.31);
 
+const FIRE_BOOST: f32 = 1.6;
+const LAMP_BOOST: f32 = 2.2;
 const ROCK_LIGHT: LinearRgba = terrain::srgb(0.50, 0.49, 0.47);
 const ROCK_DARK: LinearRgba = terrain::srgb(0.30, 0.30, 0.30);
 const MOSS: LinearRgba = terrain::srgb(0.30, 0.34, 0.16);
@@ -1710,11 +1712,11 @@ impl Kit<'_, '_, '_> {
           ChildOf(fire)
         ));
         self.commands.spawn((
-          Flicker { lumens, seed },
+          Flicker { lumens: lumens * FIRE_BOOST, seed },
           PointLight {
             color: Color::srgb(1.0, 0.62, 0.3),
-            intensity: lumens,
-            range: 6.0 + lumens.sqrt() * 0.05,
+            intensity: lumens * FIRE_BOOST,
+            range: 8.0 + lumens.sqrt() * 0.06,
             radius: 0.1 * size,
             shadow_maps_enabled: shadows,
             ..default()
@@ -1726,7 +1728,12 @@ impl Kit<'_, '_, '_> {
     );
     lamps.into_iter().for_each(|(at, color, lumens, range)| {
       self.commands.spawn((
-        PointLight { color, intensity: lumens, range, ..default() },
+        PointLight {
+          color,
+          intensity: lumens * LAMP_BOOST,
+          range: range * 1.2,
+          ..default()
+        },
         Transform::from_translation(at),
         ChildOf(root)
       ));

@@ -5,6 +5,7 @@ A Bevy 0.19.1 game meant to pass, for five minutes, as "Skyrim 2": a Nordic wild
 - `terrain.rs` — heightfield world (±768 m, 2 m grid), `Ground` resource (`height`, `normal`, `surface`), `forest(at)` density, lake, far mountains. `height_at` is the pure function.
 - `place.rs` — named places (`Place` enum with `name/spot/marker/flat/sunk`), `START`, lake, road polylines, `road_distance`.
 - `sky.rs` — physical atmosphere, sun/moon cycle, `Daylight { level, shelter }`. Set `shelter` toward 1 while the player is underground; exposure and ambient follow it.
+- `cloud.rs` + `cloud.wgsl` — procedural cloud layer (embedded shader on a plane at 1.9 km), lit from `sky::toward_sun/toward_moon` with sunset reddening.
 - `model.rs` — mesh toolkit: `Piece::new(mesh, color)` then `.at/.sized/.pitched/.yawed/.rolled/.span/.mirrored/.shaded`, `merge(pieces)`, shapes `lathe`, `tube` + `curve` + `taper`, `lump` (noisy flat-shaded rock), `blade`, `fan`, `ball`, `block`, `rod`, `cone`, `limb`.
 - `stuff.rs` — material palette `Stuff` (Skin, Fur, Leather, Cloth, Iron, Steel, Gold, Bone, Wood, Bark, Needles, Stone, Frost, Ember, Gloss, Membrane, Cinder); `Stuffs::of(stuff)` gives the shared material. Vertex colour tints; the material adds grain texture.
 - `texture.rs` — tiling procedural textures.
@@ -20,7 +21,7 @@ A Bevy 0.19.1 game meant to pass, for five minutes, as "Skyrim 2": a Nordic wild
 - `signal.rs` — shared messages/resources between modules: `Notice`, `Discovered`, `Prompt`, `Engaged`, `Sound { cue: Cue, at }`, `FoeSpawn { kind, dormant }` (spawn an entity with this + `Transform` and the creature module turns it into a creature), `WordWall`, `Shouts`.
 
 Physics: avian3d. Exact vertical rays can miss the heightfield collider; tilt them slightly or use shape casts.
-Lighting is physical: sun is `lux::RAW_SUNLIGHT`, exposure ev100 ≈ 13 outdoors, ≈ 9 underground. Emissive is NOT exposure-scaled: ~1–10 glows (see `Stuff::Frost`/`Ember`/`Cinder`), 50+ blows out to white. Point lights need ~100k+ lumens to matter outdoors, far less underground.
+Lighting is physical: sun is `lux::RAW_SUNLIGHT`, exposure ev100 ≈ 13 outdoors by day, ≈ 6.2 at night, ≈ 7.6 underground; the eye adapts toward that smoothly (fast to bright, slow to dark). Emissive is NOT exposure-scaled: ~1–10 glows (see `Stuff::Frost`/`Ember`/`Cinder`), 50+ blows out to white. Point lights need ~100k+ lumens to matter outdoors, far less underground.
 
 # Opts
 Env var `SKYRIM` holds JSON5 `opts::Opts`: `hour` (start hour, 9.5), `day` (secs per day), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` then exit), `at: '<place name fragment>'` (spawn near that place), `yaw`, `pitch`, `turn` (camera yaw offset, deg), `zoom` (camera distance), `pose: 'swing'|'guard'|'dead'|'run'`, `intro`, `first` (first person), `inside: [x,y,z]` (spawn at a spot), `foe: 'wolf'|'draugr'|'overlord'|'bandit'|'chief'` (inert specimen in front of the player), `foe: 'dragon'|'dragonaloft'|'dragonslain'` (dragon posed in front), `dragon: <secs>` (dragon arrival time, default 75), `press: [[secs, 'Z'|'E'|'F'|'W'|'A'|'S'|'D'|'I'|'Tab'|'Enter'|'Escape'|'Up'|'Down'|'Space'|'Shift'|'LMB'|'RMB'], …]` (inject input).
