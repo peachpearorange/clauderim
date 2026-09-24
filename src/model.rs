@@ -402,3 +402,109 @@ mod tests {
       .for_each(|(name, mesh)| println!("{name} {}", outwardness(&mesh)));
   }
 }
+
+pub fn spline(keys: &[Vec3], steps: usize) -> Vec<Vec3> {
+  let key = |index: isize| keys[index.clamp(0, keys.len() as isize - 1) as usize];
+  (0..keys.len() as isize - 1)
+    .flat_map(|segment| {
+      let [before, from, to, after] =
+        [key(segment - 1), key(segment), key(segment + 1), key(segment + 2)];
+      (0..steps).map(move |step| {
+        let t = step as f32 / steps as f32;
+        0.5
+          * (from * 2.0
+            + (to - before) * t
+            + (before * 2.0 - from * 5.0 + to * 4.0 - after) * t * t
+            + (from * 3.0 - before - to * 3.0 + after) * t * t * t)
+      })
+    })
+    .chain(keys.last().copied())
+    .collect()
+}
+
+pub fn loft(spine: &[Vec3], girth: &[Vec3], sides: u32) -> Mesh {
+  let count = spine.len();
+  let tangent = |index: usize| {
+    (spine[(index + 1).min(count - 1)] - spine[index.saturating_sub(1)])
+      .normalize_or(Vec3::NEG_Z)
+  };
+  let first = tangent(0);
+  let hint = (first.y.abs() > 0.9).then_some(Vec3::Z).unwrap_or(Vec3::Y);
+  let ups: Vec<Vec3> = (0..count)
+    .scan(hint, |up, index| {
+      *up = up.reject_from_normalized(tangent(index)).normalize_or(*up);
+      Some(*up)
+    })
+    .collect();
+  let (positions, normals, uvs) = (0..count)
+    .flat_map(|index| {
+      let (along, up) = (tangent(index), ups[index]);
+      let across = up.cross(along);
+      let Vec3 { x: wide, y: high, z: deep } = girth[index.min(girth.len() - 1)];
+      (0..=sides).map(move |step| {
+        let (sin, cos) = (step as f32 / sides as f32 * TAU).sin_cos();
+        let tall = (sin >= 0.0).then_some(high).unwrap_or(deep);
+        (
+          spine[index] + across * cos * wide + up * sin * tall,
+          (across * cos / wide.max(1e-4) + up * sin / tall.max(1e-4)).normalize_or(up),
+          Vec2::new(step as f32 / sides as f32, index as f32 / (count - 1) as f32)
+        )
+      })
+    })
+    .fold(
+      (Vec::new(), Vec::new(), Vec::new()),
+      |(mut positions, mut normals, mut uvs), (position, normal, uv)| {
+        positions.push(position);
+        normals.push(normal);
+        uvs.push(uv);
+        (positions, normals, uvs)
+      }
+    );
+  assemble(positions, normals, uvs, grid_indices(count as u32 - 1, sides))
+}
+
+pub fn sculpt(keys: &[(Vec3, Vec3)], steps: usize, sides: u32) -> Mesh {
+  let (spine, girth): (Vec<Vec3>, Vec<Vec3>) = keys.iter().copied().unzip();
+  let girth: Vec<Vec3> = spline(&girth, steps).into_iter().map(Vec3::abs).collect();
+  loft(&spline(&spine, steps), &girth, sides)
+}
+
+pub fn ruffled(mut mesh: Mesh, depth: f32, stretch: Vec3, seed: u32) -> Mesh {
+  let normals = points(&mesh, Mesh::ATTRIBUTE_NORMAL);
+  let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
+    .into_iter()
+    .zip(normals)
+    .map(|(position, normal)| {
+      position + normal * noise::fbm3(position * stretch, 3, seed) * depth
+    })
+    .collect();
+  mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+  mesh
+}
+
+pub fn sheet(grid: &[Vec<Vec3>]) -> Mesh {
+  let (rows, columns) = (grid.len(), grid[0].len());
+  let at = |row: usize, column: usize| grid[row.min(rows - 1)][column.min(columns - 1)];
+  let (positions, normals, uvs) = (0..rows)
+    .flat_map(|row| {
+      (0..columns).map(move |column| {
+        let across = at(row, column + 1) - at(row, column.saturating_sub(1));
+        let along = at(row + 1, column) - at(row.saturating_sub(1), column);
+        (
+          at(row, column),
+          across.cross(along).normalize_or(Vec3::Y),
+          Vec2::new(column as f32 / (columns - 1) as f32, row as f32 / (rows - 1) as f32)
+        )
+      })
+    })
+    .fold(
+      (Vec::new(), Vec::new(), Vec::new()),
+      |(mut positions, mut normals, mut uvs), (position, normal, uv)| {
+        positions.push(position);
+        normals.push(normal);
+        uvs.push(uv);
+        (positions, normals, uvs)
+      }
+    );
+  assemble(positions, normals, uvs, grid_indices(rows as u32 - 1, columns as u32 - 1))
+}
