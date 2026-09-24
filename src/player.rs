@@ -1,7 +1,6 @@
 use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
              opts::opts,
-             place,
-             sky,
+             place, sky,
              stuff::Stuffs,
              terrain::Ground,
              walker::Walker},
@@ -76,14 +75,27 @@ fn spawn_player(
       Motion::default(),
       crate::combat::Vitals::new(120.0, 110.0),
       crate::combat::Side::Hero,
-      crate::combat::Fighter { reach: 2.1, damage: 18.0, swing_time: 0.62, cone: 1.0, girth: 0.35 },
+      crate::combat::Fighter {
+        reach: 2.1,
+        damage: 18.0,
+        swing_time: 0.62,
+        cone: 1.0,
+        girth: 0.35
+      },
       Collider::capsule(CAPSULE_RADIUS, CAPSULE_HEIGHT - 2.0 * CAPSULE_RADIUS),
-      Transform::from_translation(ground.surface(spot) + Vec3::Y * (capsule_offset() + 0.3))
-        .with_rotation(Quat::from_rotation_y(yaw))
+      Transform::from_translation(
+        opts().inside.map_or(ground.surface(spot), Vec3::from_array)
+          + Vec3::Y * (capsule_offset() + 0.3)
+      )
+      .with_rotation(Quat::from_rotation_y(yaw))
     ))
     .id();
   let body = commands
-    .spawn((Transform::from_xyz(0.0, -capsule_offset(), 0.0), Visibility::Inherited, ChildOf(player)))
+    .spawn((
+      Transform::from_xyz(0.0, -capsule_offset(), 0.0),
+      Visibility::Inherited,
+      ChildOf(player)
+    ))
     .id();
   let rig = humanoid::spawn_body(
     &mut commands,
@@ -101,7 +113,7 @@ fn spawn_player(
     yaw: yaw + opts().turn.to_radians(),
     pitch: opts().pitch.unwrap_or(-8.0).to_radians(),
     distance: opts().zoom.unwrap_or(3.2),
-    first_person: false,
+    first_person: opts().first,
     captured: true,
     combat: 0.0
   });
@@ -133,7 +145,8 @@ fn capture_cursor(
     view.captured = true;
   }
   cursor.visible = !view.captured;
-  cursor.grab_mode = view.captured.then_some(CursorGrabMode::Locked).unwrap_or(CursorGrabMode::None);
+  cursor.grab_mode =
+    view.captured.then_some(CursorGrabMode::Locked).unwrap_or(CursorGrabMode::None);
 }
 
 fn steer(
@@ -154,7 +167,8 @@ fn steer(
   }
   if view.captured {
     view.yaw -= motion.delta.x * LOOK_SPEED;
-    view.pitch = (view.pitch - motion.delta.y * LOOK_SPEED).clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    view.pitch =
+      (view.pitch - motion.delta.y * LOOK_SPEED).clamp(-PITCH_LIMIT, PITCH_LIMIT);
   }
   view.distance = (view.distance * 1.15f32.powf(-scroll.delta.y)).clamp(1.4, 9.0);
   if keys.just_pressed(KeyCode::KeyF) {
@@ -165,12 +179,18 @@ fn steer(
   let alive = body.fallen < 0.1;
   let forward = view.flat_forward();
   let right = Vec3::new(-forward.z, 0.0, forward.x);
-  let heading = [(KeyCode::KeyW, forward), (KeyCode::KeyS, -forward), (KeyCode::KeyD, right), (KeyCode::KeyA, -right)]
-    .into_iter()
-    .filter(|&(key, _)| keys.pressed(key))
-    .fold(Vec3::ZERO, |sum, (_, direction)| sum + direction)
-    .normalize_or_zero();
-  let sprinting = keys.pressed(KeyCode::ShiftLeft) && vitals.stamina > 1.0 && body.guard < 0.3;
+  let heading = [
+    (KeyCode::KeyW, forward),
+    (KeyCode::KeyS, -forward),
+    (KeyCode::KeyD, right),
+    (KeyCode::KeyA, -right)
+  ]
+  .into_iter()
+  .filter(|&(key, _)| keys.pressed(key))
+  .fold(Vec3::ZERO, |sum, (_, direction)| sum + direction)
+  .normalize_or_zero();
+  let sprinting =
+    keys.pressed(KeyCode::ShiftLeft) && vitals.stamina > 1.0 && body.guard < 0.3;
   let pace = if sprinting {
     SPRINT_SPEED
   } else if keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::CapsLock) {
@@ -190,6 +210,8 @@ fn steer(
 pub fn sprinting(walker: &Walker) -> bool { walker.wish.length() > RUN_SPEED + 0.5 }
 
 fn follow(
+  time: Res<Time>,
+  mut shake: ResMut<crate::combat::Shake>,
   view: Res<View>,
   spatial: SpatialQuery,
   player: Single<(Entity, &Transform), With<Player>>,
@@ -210,19 +232,63 @@ fn follow(
   let reach = Dir3::new(gap)
     .ok()
     .and_then(|direction| {
-      spatial.cast_ray(eye, direction, gap.length(), true, &SpatialQueryFilter::from_excluded_entities([entity]))
+      spatial.cast_ray(
+        eye,
+        direction,
+        gap.length(),
+        true,
+        &SpatialQueryFilter::from_excluded_entities([entity])
+      )
     })
     .map_or(gap.length(), |hit| (hit.distance - 0.25).max(0.1));
-  camera.translation = eye + gap.normalize_or_zero() * reach;
+  let tremor = shake.0 * shake.0 * 0.25;
+  let jitter = Vec3::new(
+    (time.elapsed_secs() * 71.0).sin(),
+    (time.elapsed_secs() * 83.0).cos(),
+    (time.elapsed_secs() * 59.0).sin()
+  ) * tremor;
+  shake.0 = (shake.0 - time.delta_secs() * 1.6).max(0.0);
+  camera.translation = eye + gap.normalize_or_zero() * reach + jitter;
   camera.rotation = rotation;
   hidden.iter_mut().for_each(|mut visibility| {
-    *visibility = view.first_person.then_some(Visibility::Hidden).unwrap_or(Visibility::Inherited);
+    *visibility =
+      view.first_person.then_some(Visibility::Hidden).unwrap_or(Visibility::Inherited);
   });
+}
+
+fn revive(
+  time: Res<Time>,
+  mut commands: Commands,
+  ground: Res<Ground>,
+  mut since: Local<f32>,
+  player: Single<
+    (
+      Entity,
+      &mut Transform,
+      &mut crate::combat::Vitals,
+      &mut Motion,
+      Has<crate::combat::Dead>
+    ),
+    With<Player>
+  >
+) {
+  let (entity, mut transform, mut vitals, mut motion, dead) = player.into_inner();
+  *since = dead.then_some(*since + time.delta_secs()).unwrap_or(0.0);
+  if *since > 6.0 {
+    commands.entity(entity).remove::<crate::combat::Dead>();
+    vitals.health = vitals.health_max;
+    vitals.stamina = vitals.stamina_max;
+    motion.fallen = 0.0;
+    transform.translation =
+      ground.surface(place::START) + Vec3::Y * (capsule_offset() + 0.3);
+    *since = 0.0;
+  }
 }
 
 pub fn plugin(app: &mut App) {
   app
     .add_systems(Startup, spawn_player)
     .add_systems(Update, (capture_cursor, steer).chain().before(crate::walker::Walking))
+    .add_systems(Update, revive)
     .add_systems(PostUpdate, follow.before(TransformSystems::Propagate));
 }

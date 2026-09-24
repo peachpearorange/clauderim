@@ -24,15 +24,6 @@ pub fn perlin(at: Vec2, seed: u32) -> f32 {
   bottom.lerp(top, v) * 1.4
 }
 
-pub fn value(at: Vec2, seed: u32) -> f32 {
-  let cell = at.floor();
-  let (x, y) = (cell.x as i32, cell.y as i32);
-  let (u, v) = (fade(at.x - cell.x), fade(at.y - cell.y));
-  let bottom = hash(x, y, seed).lerp(hash(x + 1, y, seed), u);
-  let top = hash(x, y + 1, seed).lerp(hash(x + 1, y + 1, seed), u);
-  bottom.lerp(top, v)
-}
-
 const TWIST: Mat2 = Mat2::from_cols_array(&[1.6, 1.2, -1.2, 1.6]);
 
 pub fn fbm(at: Vec2, octaves: u32, seed: u32) -> f32 {
@@ -65,7 +56,11 @@ pub fn value3(at: Vec3, seed: u32) -> f32 {
   let local = at - cell;
   let (x, y, z) = (cell.x as i32, cell.y as i32, cell.z as i32);
   let corner = |dx: i32, dy: i32, dz: i32| {
-    hash(x + dx, (y + dy).wrapping_mul(8191).wrapping_add((z + dz).wrapping_mul(131_071)), seed)
+    hash(
+      x + dx,
+      (y + dy).wrapping_mul(8191).wrapping_add((z + dz).wrapping_mul(131_071)),
+      seed
+    )
   };
   let (u, v, w) = (fade(local.x), fade(local.y), fade(local.z));
   let plane = |dz: i32| {

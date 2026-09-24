@@ -81,8 +81,11 @@ pub struct Shouts {
   pub cooldown: f32
 }
 
+fn forget_prompt(mut prompt: ResMut<Prompt>) { prompt.0 = None; }
+
 pub fn plugin(app: &mut App) {
   app
+    .add_systems(First, forget_prompt)
     .add_message::<Notice>()
     .add_message::<Discovered>()
     .add_message::<Sound>()

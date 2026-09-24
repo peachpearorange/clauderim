@@ -2,8 +2,8 @@ use {crate::opts::opts,
      bevy::{anti_alias::fxaa::Fxaa,
             camera::Exposure,
             core_pipeline::tonemapping::Tonemapping,
-            light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder, SunDisk,
-                    atmosphere::ScatteringMedium, light_consts::lux},
+            light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
+                    SunDisk, atmosphere::ScatteringMedium, light_consts::lux},
             pbr::{AtmosphereSettings, DistanceFog, FogFalloff},
             post_process::bloom::Bloom,
             prelude::*},
@@ -55,7 +55,8 @@ pub fn lens() -> impl Bundle {
 }
 
 fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>) {
-  commands.spawn(bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))));
+  commands
+    .spawn(bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))));
   commands.spawn((
     Name::new("Sun"),
     Sun,
@@ -86,7 +87,7 @@ fn cycle_day(
   mut clock: ResMut<Clock>,
   mut daylight: ResMut<Daylight>,
   sun: Single<(&mut Transform, &mut DirectionalLight, &mut SunDisk), With<Sun>>,
-  mut lenses: Query<(&mut Exposure, &mut AtmosphereEnvironmentMapLight, &mut DistanceFog)>
+  mut lenses: Query<(&mut Exposure, &mut DistanceFog, Option<&mut EnvironmentMapLight>)>
 ) {
   clock.hour = (clock.hour + clock.hours_per_second * time.delta_secs()).rem_euclid(24.0);
   let sun_ray = toward_sun(clock.hour);
@@ -97,17 +98,18 @@ fn cycle_day(
   let ray = (day > 0.0).then_some(sun_ray).unwrap_or(moon_ray);
   *transform = Transform::default().looking_to(-ray, Vec3::Y);
   light.illuminance = (day > 0.0).then_some(lux::RAW_SUNLIGHT).unwrap_or(MOONLIGHT);
-  light.color = (day > 0.0)
-    .then_some(Color::WHITE)
-    .unwrap_or(Color::srgb(0.62, 0.72, 1.0));
+  light.color =
+    (day > 0.0).then_some(Color::WHITE).unwrap_or(Color::srgb(0.62, 0.72, 1.0));
   *disk = (day > 0.0)
     .then_some(SunDisk::EARTH)
     .unwrap_or(SunDisk { angular_size: 0.03, intensity: 60.0 });
   let outdoors = 1.0 - daylight.shelter;
-  lenses.iter_mut().for_each(|(mut exposure, mut ambient, mut fog)| {
+  lenses.iter_mut().for_each(|(mut exposure, mut fog, ambient)| {
     exposure.ev100 =
       NIGHT_EXPOSURE.lerp(DAY_EXPOSURE, day.powf(0.5)) - 4.2 * daylight.shelter;
-    ambient.intensity = 0.04 + 0.96 * outdoors;
+    if let Some(mut ambient) = ambient {
+      ambient.intensity = 0.015 + 0.985 * outdoors.powf(2.0);
+    }
     fog.color = Color::srgba(0.62, 0.68, 0.76, outdoors * (0.25 + 0.75 * day));
   });
 }

@@ -10,28 +10,35 @@ impl Piece {
   pub fn new(mesh: impl Into<Mesh>, color: Srgba) -> Self {
     let mut mesh: Mesh = mesh.into();
     mesh.remove_attribute(Mesh::ATTRIBUTE_TANGENT);
-    if let Some(Indices::U16(short)) = mesh.indices() {
-      let long = short.iter().map(|&index| u32::from(index)).collect();
-      mesh.insert_indices(Indices::U32(long));
-    }
+    let long = match mesh.indices() {
+      Some(Indices::U16(short)) => short.iter().map(|&index| u32::from(index)).collect(),
+      Some(Indices::U32(long)) => long.clone(),
+      None => (0..mesh.count_vertices() as u32).collect()
+    };
+    mesh.insert_indices(Indices::U32(long));
     let count = mesh.count_vertices();
     if mesh.attribute(Mesh::ATTRIBUTE_UV_0).is_none() {
       mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, vec![[0.0f32, 0.0]; count]);
     }
-    mesh.insert_attribute(
-      Mesh::ATTRIBUTE_COLOR,
-      vec![LinearRgba::from(color).to_f32_array(); count]
-    );
+    mesh.insert_attribute(Mesh::ATTRIBUTE_COLOR, vec![
+      LinearRgba::from(color)
+        .to_f32_array();
+      count
+    ]);
     Self(mesh)
   }
 
-  pub fn at(self, offset: Vec3) -> Self { self.moved(Transform::from_translation(offset)) }
+  pub fn at(self, offset: Vec3) -> Self {
+    self.moved(Transform::from_translation(offset))
+  }
 
   pub fn at_xyz(self, x: f32, y: f32, z: f32) -> Self { self.at(Vec3::new(x, y, z)) }
 
   pub fn sized(self, scale: Vec3) -> Self { self.moved(Transform::from_scale(scale)) }
 
-  pub fn turned(self, rotation: Quat) -> Self { self.moved(Transform::from_rotation(rotation)) }
+  pub fn turned(self, rotation: Quat) -> Self {
+    self.moved(Transform::from_rotation(rotation))
+  }
 
   pub fn pitched(self, angle: f32) -> Self { self.turned(Quat::from_rotation_x(angle)) }
 
@@ -39,7 +46,9 @@ impl Piece {
 
   pub fn rolled(self, angle: f32) -> Self { self.turned(Quat::from_rotation_z(angle)) }
 
-  pub fn moved(self, transform: Transform) -> Self { Self(self.0.transformed_by(transform)) }
+  pub fn moved(self, transform: Transform) -> Self {
+    Self(self.0.transformed_by(transform))
+  }
 
   pub fn span(self, from: Vec3, to: Vec3) -> Self {
     let gap = to - from;
@@ -50,7 +59,8 @@ impl Piece {
   }
 
   pub fn mirrored(&self) -> Self {
-    let mut mesh = self.0.clone().transformed_by(Transform::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
+    let mut mesh =
+      self.0.clone().transformed_by(Transform::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
     if let Some(Indices::U32(indices)) = mesh.indices_mut() {
       indices.chunks_exact_mut(3).for_each(|triangle| triangle.swap(1, 2));
     }
@@ -66,6 +76,15 @@ impl Piece {
       .map(|(&position, &normal)| shade(position, normal).to_f32_array())
       .collect();
     self.0.insert_attribute(Mesh::ATTRIBUTE_COLOR, colors);
+    self
+  }
+
+  pub fn grained(mut self, repeats: f32) -> Self {
+    if let Some(VertexAttributeValues::Float32x2(uvs)) =
+      self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    {
+      uvs.iter_mut().for_each(|uv| *uv = uv.map(|coordinate| coordinate * repeats));
+    }
     self
   }
 }
@@ -165,7 +184,8 @@ pub fn lathe(profile: &[Vec2], sides: u32) -> Mesh {
 pub fn tube(path: &[Vec3], radii: &[f32], sides: u32) -> Mesh {
   let count = path.len();
   let tangent = |index: usize| {
-    (path[(index + 1).min(count - 1)] - path[index.saturating_sub(1)]).normalize_or(Vec3::Y)
+    (path[(index + 1).min(count - 1)] - path[index.saturating_sub(1)])
+      .normalize_or(Vec3::Y)
   };
   let frames: Vec<(Vec3, Vec3)> = (0..count)
     .scan(tangent(0).any_orthonormal_vector(), |normal, index| {
@@ -213,7 +233,7 @@ pub fn taper(steps: usize, from: f32, to: f32) -> Vec<f32> {
   (0..=steps).map(|step| from.lerp(to, step as f32 / steps as f32)).collect()
 }
 
-pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
+fn bulged(seed: u32, roughness: f32, detail: u32) -> Mesh {
   let mut mesh = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
   let bulge = |point: Vec3| {
     let lumpy = noise::fbm3(point * 1.3 + Vec3::splat(seed as f32 * 7.31), 4, seed);
@@ -223,8 +243,19 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   let positions: Vec<Vec3> =
     points(&mesh, Mesh::ATTRIBUTE_POSITION).into_iter().map(bulge).collect();
   mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+  mesh
+}
+
+pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
+  let mut mesh = bulged(seed, roughness, detail);
   mesh.duplicate_vertices();
   mesh.compute_flat_normals();
+  mesh
+}
+
+pub fn blob(seed: u32, roughness: f32) -> Mesh {
+  let mut mesh = bulged(seed, roughness, 3);
+  mesh.compute_smooth_normals();
   mesh
 }
 
@@ -259,7 +290,8 @@ pub fn blade(length: f32, width: f32, thickness: f32, tip: f32) -> Mesh {
     .iter()
     .flat_map(|&[a, b, c]| [(b - a).cross(c - a).normalize_or(Vec3::Z); 3])
     .collect();
-  let uvs = positions.iter().map(|position| Vec2::new(position.x * 4.0, position.y)).collect();
+  let uvs =
+    positions.iter().map(|position| Vec2::new(position.x * 4.0, position.y)).collect();
   let indices = (0..positions.len() as u32).collect();
   assemble(positions, normals, uvs, indices)
 }
@@ -294,9 +326,13 @@ pub fn ball(radius: f32) -> Mesh { Sphere::new(radius).mesh().uv(16, 12) }
 
 pub fn block(x: f32, y: f32, z: f32) -> Mesh { Cuboid::new(x, y, z).into() }
 
-pub fn rod(radius: f32, length: f32) -> Mesh { Cylinder::new(radius, length).mesh().resolution(12).into() }
+pub fn rod(radius: f32, length: f32) -> Mesh {
+  Cylinder::new(radius, length).mesh().resolution(12).into()
+}
 
-pub fn cone(radius: f32, height: f32) -> Mesh { Cone { radius, height }.mesh().resolution(14).into() }
+pub fn cone(radius: f32, height: f32) -> Mesh {
+  Cone { radius, height }.mesh().resolution(14).into()
+}
 
 pub fn limb(top: f32, bottom: f32, length: f32) -> Mesh {
   lathe(
@@ -311,4 +347,58 @@ pub fn limb(top: f32, bottom: f32, length: f32) -> Mesh {
     ],
     12
   )
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn outwardness(mesh: &Mesh) -> f32 {
+    let positions = points(mesh, Mesh::ATTRIBUTE_POSITION);
+    let center = positions.iter().sum::<Vec3>() / positions.len() as f32;
+    let Some(Indices::U32(indices)) = mesh.indices() else { panic!("u32 indices") };
+    indices
+      .chunks_exact(3)
+      .map(|triangle| {
+        let [a, b, c] = [0, 1, 2].map(|corner| positions[triangle[corner] as usize]);
+        (b - a)
+          .cross(c - a)
+          .normalize_or_zero()
+          .dot(((a + b + c) / 3.0 - center).normalize_or_zero())
+      })
+      .sum::<f32>()
+      / (indices.len() / 3) as f32
+  }
+
+  #[test]
+  fn windings_face_outward() {
+    let up = lathe(
+      &[
+        Vec2::new(0.0, -0.02),
+        Vec2::new(0.066, 0.0),
+        Vec2::new(0.036, 0.18),
+        Vec2::new(0.0, 0.215)
+      ],
+      10
+    );
+    let down = limb(0.06, 0.04, 0.3);
+    let pipe = tube(
+      &curve(Vec3::ZERO, Vec3::new(0.2, 0.3, 0.0), Vec3::new(0.3, 0.6, -0.1), 8),
+      &[0.05],
+      8
+    );
+    let edge = blade(0.8, 0.06, 0.014, 0.14);
+    let plate = fan(
+      &[
+        Vec2::new(0.0, 0.0),
+        Vec2::new(0.2, 0.0),
+        Vec2::new(0.2, 0.1),
+        Vec2::new(0.0, 0.1)
+      ],
+      0.02
+    );
+    [("up", up), ("down", down), ("tube", pipe), ("blade", edge), ("fan", plate)]
+      .into_iter()
+      .for_each(|(name, mesh)| println!("{name} {}", outwardness(&mesh)));
+  }
 }

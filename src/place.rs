@@ -16,9 +16,9 @@ pub enum Marker {
 #[func(pub const fn flat(self) -> f32)]
 #[func(pub const fn sunk(self) -> f32 { 0.0 })]
 pub enum Place {
-  #[assoc(name = "Hollowcrag Barrow", spot = Vec2::new(-250.0, -170.0), marker = Marker::Barrow, flat = 38.0, sunk = 14.0)]
+  #[assoc(name = "Hollowcrag Barrow", spot = Vec2::new(-250.0, -170.0), marker = Marker::Barrow, flat = 36.0, sunk = 9.0)]
   Hollowcrag,
-  #[assoc(name = "Fellhound Den", spot = Vec2::new(300.0, -210.0), marker = Marker::Cave, flat = 26.0, sunk = 10.0)]
+  #[assoc(name = "Fellhound Den", spot = Vec2::new(302.8, -216.2), marker = Marker::Cave, flat = 24.0, sunk = 6.0)]
   Fellhound,
   #[assoc(name = "Greymoor Watch", spot = Vec2::new(175.0, 70.0), marker = Marker::Tower, flat = 16.0)]
   Greymoor,
@@ -29,8 +29,13 @@ pub enum Place {
 }
 
 impl Place {
-  pub const ALL: [Place; 5] =
-    [Place::Hollowcrag, Place::Fellhound, Place::Greymoor, Place::WarriorStone, Place::Rotfen];
+  pub const ALL: [Place; 5] = [
+    Place::Hollowcrag,
+    Place::Fellhound,
+    Place::Greymoor,
+    Place::WarriorStone,
+    Place::Rotfen
+  ];
 }
 
 pub const START: Vec2 = Vec2::new(70.0, 290.0);
@@ -48,8 +53,8 @@ pub const ROAD: [Vec2; 9] = [
   Vec2::new(-70.0, 30.0),
   Vec2::new(-140.0, -60.0),
   Vec2::new(-200.0, -120.0),
-  Vec2::new(-232.0, -148.0),
-  Vec2::new(-240.0, -156.0)
+  Vec2::new(-205.0, -125.0),
+  Vec2::new(-215.0, -135.0)
 ];
 
 pub const TRAIL: [Vec2; 6] = [

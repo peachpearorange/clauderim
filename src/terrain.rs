@@ -73,7 +73,9 @@ pub fn height_at(at: Vec2) -> f32 {
 pub fn forest(at: Vec2) -> f32 {
   let clearing = Place::ALL
     .into_iter()
-    .map(|place| smooth(place.flat() * 2.2, place.flat() * 1.2, at.distance(place.spot())))
+    .map(|place| {
+      smooth(place.flat() * 2.2, place.flat() * 1.2, at.distance(place.spot()))
+    })
     .fold(smooth(10.0, 4.0, place::road_distance(at)), f32::max);
   (smooth(-0.1, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
 }
@@ -81,7 +83,8 @@ pub fn forest(at: Vec2) -> f32 {
 fn paint(at: Vec2, height: f32, normal: Vec3) -> LinearRgba {
   let patch = smooth(-0.3, 0.4, noise::fbm(at / 120.0, 4, 41));
   let grass = MEADOW.mix(&TUNDRA, patch).mix(&FOREST_FLOOR, forest(at) * 0.8);
-  let road = smooth(3.4, 1.8, place::road_distance(at) + noise::fbm(at / 6.0, 2, 43) * 1.2);
+  let road =
+    smooth(3.4, 1.8, place::road_distance(at) + noise::fbm(at / 6.0, 2, 43) * 1.2);
   let shore = smooth(LAKE_LEVEL + 2.2, LAKE_LEVEL + 0.6, height);
   let drowned = smooth(LAKE_LEVEL - 0.5, LAKE_LEVEL - 4.0, height);
   let snow_line = 150.0 + 40.0 * noise::fbm(at / 200.0, 3, 45);
@@ -105,7 +108,8 @@ impl Ground {
   }
 
   pub fn height(&self, at: Vec2) -> f32 {
-    let grid = ((at + HALF) / SPACING).clamp(Vec2::ZERO, Vec2::splat(CELLS as f32 - 0.001));
+    let grid =
+      ((at + HALF) / SPACING).clamp(Vec2::ZERO, Vec2::splat(CELLS as f32 - 0.001));
     let (column, row) = (grid.x as usize, grid.y as usize);
     let (fx, fy) = (grid.x.fract(), grid.y.fract());
     let near = self.sample(column, row).lerp(self.sample(column + 1, row), fx);
@@ -115,7 +119,8 @@ impl Ground {
 
   pub fn normal(&self, at: Vec2) -> Vec3 {
     let slope = |offset: Vec2| self.height(at + offset) - self.height(at - offset);
-    Vec3::new(-slope(Vec2::X * SPACING), 2.0 * SPACING, -slope(Vec2::Y * SPACING)).normalize()
+    Vec3::new(-slope(Vec2::X * SPACING), 2.0 * SPACING, -slope(Vec2::Y * SPACING))
+      .normalize()
   }
 
   pub fn surface(&self, at: Vec2) -> Vec3 { at.extend(self.height(at)).xzy() }
@@ -151,9 +156,12 @@ fn surface_mesh(
   normal: impl Fn(usize, usize) -> Vec3
 ) -> Mesh {
   let cells = (0..corners).flat_map(|row| (0..corners).map(move |column| (column, row)));
-  let positions: Vec<Vec3> =
-    cells.clone().map(|(column, row)| spot(column, row).extend(lift(column, row)).xzy()).collect();
-  let normals: Vec<Vec3> = cells.clone().map(|(column, row)| normal(column, row)).collect();
+  let positions: Vec<Vec3> = cells
+    .clone()
+    .map(|(column, row)| spot(column, row).extend(lift(column, row)).xzy())
+    .collect();
+  let normals: Vec<Vec3> =
+    cells.clone().map(|(column, row)| normal(column, row)).collect();
   let colors: Vec<[f32; 4]> = positions
     .iter()
     .zip(&normals)
@@ -232,9 +240,7 @@ fn far_mesh() -> Mesh {
 
 #[derive(Resource)]
 pub struct Surfaces {
-  pub rock: Handle<StandardMaterial>,
-  pub rock_grain: Handle<Image>,
-  pub rock_bumps: Handle<Image>
+  pub rock: Handle<StandardMaterial>
 }
 
 fn spawn_terrain(
@@ -253,13 +259,15 @@ fn spawn_terrain(
   });
 
   let chunks = (CELLS / CHUNK) as u32;
-  (0..chunks).flat_map(|z| (0..chunks).map(move |x| UVec2::new(x, z))).for_each(|chunk| {
-    commands.spawn((
-      Name::new("Terrain Chunk"),
-      Mesh3d(meshes.add(chunk_mesh(&ground, chunk))),
-      MeshMaterial3d(material.clone())
-    ));
-  });
+  (0..chunks).flat_map(|z| (0..chunks).map(move |x| UVec2::new(x, z))).for_each(
+    |chunk| {
+      commands.spawn((
+        Name::new("Terrain Chunk"),
+        Mesh3d(meshes.add(chunk_mesh(&ground, chunk))),
+        MeshMaterial3d(material.clone())
+      ));
+    }
+  );
 
   commands.spawn((
     Name::new("Distant Lands"),
@@ -278,18 +286,14 @@ fn spawn_terrain(
     Friction::new(0.8)
   ));
 
-  let rock_grain = images.add(texture::rock());
-  let rock_bumps = images.add(texture::rock_bumps());
   commands.insert_resource(Surfaces {
     rock: materials.add(StandardMaterial {
-      base_color_texture: Some(rock_grain.clone()),
-      normal_map_texture: Some(rock_bumps.clone()),
+      base_color_texture: Some(images.add(texture::rock())),
+      normal_map_texture: Some(images.add(texture::rock_bumps())),
       perceptual_roughness: 0.9,
       reflectance: 0.25,
       ..default()
-    }),
-    rock_grain,
-    rock_bumps
+    })
   });
   commands.insert_resource(ground);
 }
@@ -374,7 +378,11 @@ mod tests {
           )
           .expect("ray hits terrain");
         let found = 2000.0 - hit.0;
-        assert!((found - ground.height(at)).abs() < 0.5, "{at} {found} {}", ground.height(at));
+        assert!(
+          (found - ground.height(at)).abs() < 0.5,
+          "{at} {found} {}",
+          ground.height(at)
+        );
       });
   }
 }

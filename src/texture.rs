@@ -8,7 +8,8 @@ pub fn tile_noise(u: f32, v: f32, period: i32, seed: u32) -> f32 {
 }
 
 pub fn stretched_noise(u: f32, v: f32, across: i32, along: i32, seed: u32) -> f32 {
-  let hash = |x: i32, y: i32| crate::noise::hash(x.rem_euclid(across), y.rem_euclid(along), seed);
+  let hash =
+    |x: i32, y: i32| crate::noise::hash(x.rem_euclid(across), y.rem_euclid(along), seed);
   let (x, y) = (u * across as f32, v * along as f32);
   let (column, row) = (x.floor() as i32, y.floor() as i32);
   let ease = |t: f32| t * t * (3.0 - 2.0 * t);
@@ -30,7 +31,11 @@ pub fn tile_fbm(u: f32, v: f32, base: i32, octaves: u32, seed: u32) -> f32 {
     / (0..octaves).map(|octave| 0.55f32.powi(octave as i32)).sum::<f32>()
 }
 
-fn image(size: u32, format: TextureFormat, pixels: impl Fn(f32, f32) -> [u8; 4]) -> Image {
+fn image(
+  size: u32,
+  format: TextureFormat,
+  pixels: impl Fn(f32, f32) -> [u8; 4]
+) -> Image {
   let data = (0..size * size)
     .flat_map(|index| {
       pixels((index % size) as f32 / size as f32, (index / size) as f32 / size as f32)
@@ -59,13 +64,6 @@ pub fn shade(size: u32, pixels: impl Fn(f32, f32) -> f32) -> Image {
   })
 }
 
-pub fn tint(size: u32, pixels: impl Fn(f32, f32) -> Vec3) -> Image {
-  image(size, TextureFormat::Rgba8UnormSrgb, |u, v| {
-    let color = pixels(u, v).clamp(Vec3::ZERO, Vec3::ONE) * 255.0;
-    [color.x as u8, color.y as u8, color.z as u8, 255]
-  })
-}
-
 pub fn bumps(size: u32, strength: f32, height: impl Fn(f32, f32) -> f32) -> Image {
   let step = 1.0 / size as f32;
   image(size, TextureFormat::Rgba8Unorm, |u, v| {
@@ -91,13 +89,22 @@ pub fn ground() -> Image { shade(512, |u, v| 0.8 + 0.3 * (ground_grain(u, v) - 0
 pub fn ground_bumps() -> Image { bumps(512, 0.005, ground_grain) }
 
 pub fn rock_grain(u: f32, v: f32) -> f32 {
-  let strata = (v * 3.0 * std::f32::consts::TAU + 2.5 * tile_fbm(u, v, 4, 3, 41)).sin() * 0.5 + 0.5;
+  let strata =
+    (v * 3.0 * std::f32::consts::TAU + 2.5 * tile_fbm(u, v, 4, 3, 41)).sin() * 0.5 + 0.5;
   0.5 * tile_fbm(u, v, 6, 5, 40) + 0.3 * strata + 0.2 * tile_noise(u, v, 128, 44)
 }
 
 pub fn rock() -> Image { shade(512, |u, v| 0.64 + 0.5 * (rock_grain(u, v) - 0.5)) }
 
 pub fn rock_bumps() -> Image { bumps(512, 0.02, rock_grain) }
+
+pub fn cracks() -> Image {
+  shade(256, |u, v| {
+    let ridge = 1.0 - (2.0 * tile_fbm(u, v, 5, 4, 91) - 1.0).abs();
+    let finer = 1.0 - (2.0 * tile_fbm(u, v, 11, 3, 92) - 1.0).abs();
+    0.06 + 0.94 * (ridge.powf(9.0) + 0.6 * finer.powf(14.0)).min(1.0)
+  })
+}
 
 pub fn fur() -> Image {
   shade(256, |u, v| {
@@ -116,7 +123,9 @@ pub fn bark() -> Image {
 }
 
 pub fn leather() -> Image {
-  shade(256, |u, v| 0.78 + 0.22 * tile_fbm(u, v, 32, 3, 91) - 0.1 * tile_noise(u, v, 8, 92))
+  shade(256, |u, v| {
+    0.78 + 0.22 * tile_fbm(u, v, 32, 3, 91) - 0.1 * tile_noise(u, v, 8, 92)
+  })
 }
 
 pub fn metal() -> Image {
@@ -129,7 +138,8 @@ pub fn metal() -> Image {
 
 pub fn wood() -> Image {
   shade(256, |u, v| {
-    let rings = ((u * 11.0 + 1.6 * tile_fbm(u, v, 4, 3, 111)) * std::f32::consts::TAU).sin();
+    let rings =
+      ((u * 11.0 + 1.6 * tile_fbm(u, v, 4, 3, 111)) * std::f32::consts::TAU).sin();
     0.62 + 0.18 * rings + 0.2 * stretched_noise(u, v, 6, 64, 112)
   })
 }

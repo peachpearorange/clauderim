@@ -10,6 +10,7 @@ use {crate::texture,
 #[func(pub const fn tiling(self) -> f32 { 1.0 })]
 #[func(pub const fn glow(self) -> LinearRgba { LinearRgba::BLACK })]
 #[func(pub const fn two_sided(self) -> bool { false })]
+#[func(pub const fn glow_follows_grain(self) -> bool { false })]
 pub enum Stuff {
   #[assoc(roughness = 0.75, grain = Grain::Plain)]
   Skin,
@@ -35,16 +36,20 @@ pub enum Stuff {
   Needles,
   #[assoc(roughness = 0.88, grain = Grain::Rock, tiling = 1.0)]
   Stone,
-  #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(700.0, 2400.0, 5200.0))]
+  #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(1.4, 4.8, 10.4))]
   Frost,
-  #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(9000.0, 3200.0, 600.0))]
+  #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(18.0, 6.4, 1.2))]
   Ember,
   #[assoc(roughness = 0.2, grain = Grain::Plain, reflectance = 0.5)]
-  Gloss
+  Gloss,
+  #[assoc(roughness = 0.75, grain = Grain::Leather, tiling = 4.0, two_sided = true)]
+  Membrane,
+  #[assoc(roughness = 0.9, grain = Grain::Cracks, tiling = 2.0, glow = LinearRgba::rgb(9.0, 2.6, 0.35), glow_follows_grain = true)]
+  Cinder
 }
 
 impl Stuff {
-  pub const ALL: [Stuff; 15] = [
+  pub const ALL: [Stuff; 17] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -59,7 +64,9 @@ impl Stuff {
     Stuff::Stone,
     Stuff::Frost,
     Stuff::Ember,
-    Stuff::Gloss
+    Stuff::Gloss,
+    Stuff::Membrane,
+    Stuff::Cinder
   ];
 }
 
@@ -72,7 +79,8 @@ pub enum Grain {
   Wood,
   Bark,
   Needles,
-  Rock
+  Rock,
+  Cracks
 }
 
 #[derive(Resource)]
@@ -101,27 +109,29 @@ fn prepare(
     (Grain::Wood, texture::wood()),
     (Grain::Bark, texture::bark()),
     (Grain::Needles, texture::needles()),
-    (Grain::Rock, texture::rock())
+    (Grain::Rock, texture::rock()),
+    (Grain::Cracks, texture::cracks())
   ]
   .map(|(grain, image)| (grain, images.add(image)));
   let made = Stuff::ALL
     .into_iter()
     .map(|stuff| {
       let grain = stuff.grain();
+      let texture =
+        grains.iter().find(|(each, _)| *each == grain).map(|(_, handle)| handle.clone());
       (
         stuff,
         materials.add(StandardMaterial {
-          base_color_texture: grains
-            .iter()
-            .find(|(each, _)| *each == grain)
-            .map(|(_, handle)| handle.clone()),
+          emissive_texture: texture.clone().filter(|_| stuff.glow_follows_grain()),
+          base_color_texture: texture,
           uv_transform: Affine2::from_scale(Vec2::splat(stuff.tiling())),
           perceptual_roughness: stuff.roughness(),
           metallic: stuff.metallic(),
           reflectance: stuff.reflectance(),
           emissive: stuff.glow(),
           double_sided: stuff.two_sided(),
-          cull_mode: (!stuff.two_sided()).then_some(bevy::render::render_resource::Face::Back),
+          cull_mode: (!stuff.two_sided())
+            .then_some(bevy::render::render_resource::Face::Back),
           ..default()
         })
       )
