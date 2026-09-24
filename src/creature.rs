@@ -178,7 +178,9 @@ fn raise(
       },
       Transform::from_translation(center).with_rotation(facing),
       match spawn.kind {
-        FoeKind::Wolf => Collider::sphere(stats.radius),
+        FoeKind::Wolf => {
+          Collider::capsule_endpoints(stats.radius, Vec3::Z * -0.3, Vec3::Z * 0.3)
+        }
         _ => Collider::capsule(stats.radius, stats.height - 2.0 * stats.radius)
       }
     ));

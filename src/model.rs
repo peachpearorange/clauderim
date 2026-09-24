@@ -253,12 +253,6 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   mesh
 }
 
-pub fn blob(seed: u32, roughness: f32) -> Mesh {
-  let mut mesh = bulged(seed, roughness, 3);
-  mesh.compute_smooth_normals();
-  mesh
-}
-
 pub fn blade(length: f32, width: f32, thickness: f32, tip: f32) -> Mesh {
   let rows: Vec<(f32, f32)> = [0.0, 0.3, 0.6, 1.0 - tip, 1.0]
     .into_iter()
@@ -332,21 +326,6 @@ pub fn rod(radius: f32, length: f32) -> Mesh {
 
 pub fn cone(radius: f32, height: f32) -> Mesh {
   Cone { radius, height }.mesh().resolution(14).into()
-}
-
-pub fn limb(top: f32, bottom: f32, length: f32) -> Mesh {
-  lathe(
-    &[
-      Vec2::new(0.0, 0.0),
-      Vec2::new(top * 0.8, -0.02 * length),
-      Vec2::new(top, -0.12 * length),
-      Vec2::new((top + bottom) * 0.5 * 1.04, -0.5 * length),
-      Vec2::new(bottom, -0.9 * length),
-      Vec2::new(bottom * 0.8, -1.0 * length),
-      Vec2::new(0.0, -1.03 * length)
-    ],
-    12
-  )
 }
 
 #[derive(Clone, Copy)]
@@ -468,7 +447,6 @@ mod tests {
       ],
       10
     );
-    let down = limb(0.06, 0.04, 0.3);
     let pipe = tube(
       &curve(Vec3::ZERO, Vec3::new(0.2, 0.3, 0.0), Vec3::new(0.3, 0.6, -0.1), 8),
       &[0.05],
@@ -484,7 +462,7 @@ mod tests {
       ],
       0.02
     );
-    [("up", up), ("down", down), ("tube", pipe), ("blade", edge), ("fan", plate)]
+    [("up", up), ("tube", pipe), ("blade", edge), ("fan", plate)]
       .into_iter()
       .for_each(|(name, mesh)| println!("{name} {}", outwardness(&mesh)));
   }
@@ -509,7 +487,7 @@ pub fn spline(keys: &[Vec3], steps: usize) -> Vec<Vec3> {
     .collect()
 }
 
-pub fn loft(spine: &[Vec3], girth: &[Vec3], sides: u32) -> Mesh {
+pub fn sweep(spine: &[Vec3], girth: &[Vec3], sides: u32) -> Mesh {
   let count = spine.len();
   let tangent = |index: usize| {
     (spine[(index + 1).min(count - 1)] - spine[index.saturating_sub(1)])
@@ -553,7 +531,7 @@ pub fn loft(spine: &[Vec3], girth: &[Vec3], sides: u32) -> Mesh {
 pub fn sculpt(keys: &[(Vec3, Vec3)], steps: usize, sides: u32) -> Mesh {
   let (spine, girth): (Vec<Vec3>, Vec<Vec3>) = keys.iter().copied().unzip();
   let girth: Vec<Vec3> = spline(&girth, steps).into_iter().map(Vec3::abs).collect();
-  loft(&spline(&spine, steps), &girth, sides)
+  sweep(&spline(&spine, steps), &girth, sides)
 }
 
 pub fn ruffled(mut mesh: Mesh, depth: f32, stretch: Vec3, seed: u32) -> Mesh {

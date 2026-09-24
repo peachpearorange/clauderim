@@ -431,7 +431,7 @@ fn build(
     6
   );
   let wing_arm = scaled(
-    Piece::new(model::loft(&arm_spine, &arm_girth, 14), hide).grained(3.0),
+    Piece::new(model::sweep(&arm_spine, &arm_girth, 14), hide).grained(3.0),
     hide,
     belly
   );

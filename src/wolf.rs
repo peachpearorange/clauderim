@@ -238,7 +238,7 @@ pub fn spawn_wolf(
   let tip = LinearRgba::from(coat) * 0.35;
   let tail = Piece::new(
     model::ruffled(
-      model::loft(&tail_path, &bushy, 14),
+      model::sweep(&tail_path, &bushy, 14),
       0.03,
       Vec3::new(30.0, 12.0, 30.0),
       6
