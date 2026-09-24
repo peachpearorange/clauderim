@@ -11,6 +11,7 @@ use {crate::texture,
 #[func(pub const fn glow(self) -> LinearRgba { LinearRgba::BLACK })]
 #[func(pub const fn two_sided(self) -> bool { false })]
 #[func(pub const fn glow_follows_grain(self) -> bool { false })]
+#[func(pub const fn translucency(self) -> f32 { 0.0 })]
 pub enum Stuff {
   #[assoc(roughness = 0.75, grain = Grain::Plain)]
   Skin,
@@ -42,14 +43,16 @@ pub enum Stuff {
   Ember,
   #[assoc(roughness = 0.2, grain = Grain::Plain, reflectance = 0.5)]
   Gloss,
-  #[assoc(roughness = 0.75, grain = Grain::Leather, tiling = 4.0, two_sided = true)]
+  #[assoc(roughness = 0.75, grain = Grain::Leather, tiling = 4.0, two_sided = true, translucency = 0.6)]
   Membrane,
+  #[assoc(roughness = 0.62, grain = Grain::Scales, reflectance = 0.4)]
+  Scales,
   #[assoc(roughness = 0.9, grain = Grain::Cracks, tiling = 2.0, glow = LinearRgba::rgb(9.0, 2.6, 0.35), glow_follows_grain = true)]
   Cinder
 }
 
 impl Stuff {
-  pub const ALL: [Stuff; 17] = [
+  pub const ALL: [Stuff; 18] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -66,6 +69,7 @@ impl Stuff {
     Stuff::Ember,
     Stuff::Gloss,
     Stuff::Membrane,
+    Stuff::Scales,
     Stuff::Cinder
   ];
 }
@@ -80,7 +84,8 @@ pub enum Grain {
   Bark,
   Needles,
   Rock,
-  Cracks
+  Cracks,
+  Scales
 }
 
 #[derive(Resource)]
@@ -110,9 +115,11 @@ fn prepare(
     (Grain::Bark, texture::bark()),
     (Grain::Needles, texture::needles()),
     (Grain::Rock, texture::rock()),
-    (Grain::Cracks, texture::cracks())
+    (Grain::Cracks, texture::cracks()),
+    (Grain::Scales, texture::scales())
   ]
   .map(|(grain, image)| (grain, images.add(image)));
+  let scale_bumps = images.add(texture::scale_bumps());
   let made = Stuff::ALL
     .into_iter()
     .map(|stuff| {
@@ -129,6 +136,8 @@ fn prepare(
           metallic: stuff.metallic(),
           reflectance: stuff.reflectance(),
           emissive: stuff.glow(),
+          normal_map_texture: (grain == Grain::Scales).then(|| scale_bumps.clone()),
+          diffuse_transmission: stuff.translucency(),
           double_sided: stuff.two_sided(),
           cull_mode: (!stuff.two_sided())
             .then_some(bevy::render::render_resource::Face::Back),
