@@ -349,6 +349,93 @@ pub fn limb(top: f32, bottom: f32, length: f32) -> Mesh {
   )
 }
 
+#[derive(Clone, Copy)]
+pub struct Hoop {
+  pub at: Vec3,
+  pub wide: f32,
+  pub front: f32,
+  pub back: f32
+}
+
+impl Hoop {
+  pub const fn new(y: f32, wide: f32, front: f32, back: f32) -> Self {
+    Self { at: Vec3::new(0.0, y, 0.0), wide, front, back }
+  }
+
+  pub const fn pole(y: f32) -> Self { Self::new(y, 0.0, 0.0, 0.0) }
+
+  pub const fn shifted(self, x: f32, z: f32) -> Self {
+    Self { at: Vec3::new(self.at.x + x, self.at.y, self.at.z + z), ..self }
+  }
+
+  pub fn scaled(self, scale: f32) -> Self {
+    Self {
+      at: self.at,
+      wide: self.wide * scale,
+      front: self.front * scale,
+      back: self.back * scale
+    }
+  }
+
+  pub fn lerp(self, other: Hoop, amount: f32) -> Self {
+    Self {
+      at: self.at.lerp(other.at, amount),
+      wide: self.wide.lerp(other.wide, amount),
+      front: self.front.lerp(other.front, amount),
+      back: self.back.lerp(other.back, amount)
+    }
+  }
+
+  fn point(&self, angle: f32) -> Vec3 {
+    let (sin, cos) = angle.sin_cos();
+    let depth = (sin < 0.0).then_some(self.front).unwrap_or(self.back);
+    self.at + Vec3::new(self.wide * cos, 0.0, depth * sin)
+  }
+}
+
+pub fn loft(hoops: &[Hoop], sides: u32) -> Mesh {
+  let rows = hoops.len();
+  let last = rows - 1;
+  let upward = hoops[last].at.y > hoops[0].at.y;
+  let flip = upward.then_some(1.0).unwrap_or(-1.0);
+  let angle = |side: u32| side as f32 / sides as f32 * TAU;
+  let grid: Vec<Vec<Vec3>> = hoops
+    .iter()
+    .map(|hoop| (0..=sides).map(|side| hoop.point(angle(side))).collect())
+    .collect();
+  let (positions, normals, uvs) = (0..rows)
+    .flat_map(|row| {
+      let grid = &grid;
+      let (below, above) = (row.saturating_sub(1), (row + 1).min(last));
+      let pole =
+        (hoops[row].at - hoops[row.checked_sub(1).unwrap_or(1)].at).normalize_or(Vec3::Y);
+      (0..=sides).map(move |side| {
+        let (before, after) = ((side + sides - 1) % sides, (side + 1) % sides);
+        let around = grid[row][after as usize] - grid[row][before as usize];
+        let along = grid[above][side as usize] - grid[below][side as usize];
+        (
+          grid[row][side as usize],
+          (along.cross(around) * flip).normalize_or(pole),
+          Vec2::new(side as f32 / sides as f32, row as f32 / last as f32)
+        )
+      })
+    })
+    .fold(
+      (Vec::new(), Vec::new(), Vec::new()),
+      |(mut positions, mut normals, mut uvs), (position, normal, uv)| {
+        positions.push(position);
+        normals.push(normal);
+        uvs.push(uv);
+        (positions, normals, uvs)
+      }
+    );
+  let mut indices = grid_indices(last as u32, sides);
+  if upward {
+    indices.chunks_exact_mut(3).for_each(|triangle| triangle.swap(1, 2));
+  }
+  assemble(positions, normals, uvs, indices)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
