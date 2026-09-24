@@ -270,7 +270,7 @@ fn blend_beds(
   let delta = time.delta_secs();
   beds.iter_mut().for_each(|(mut bed, mut sink)| {
     let (target, rate) = match bed.clip {
-      Clip::Wind => (0.3 * outdoors, 0.6),
+      Clip::Wind => (0.18 * outdoors, 0.6),
       Clip::Night => (0.2 * (1.0 - level) * outdoors, 0.4),
       Clip::Cave => (0.4 * (1.0 - outdoors), 0.6),
       Clip::Explore => (0.2 * (1.0 - fight), 0.3),

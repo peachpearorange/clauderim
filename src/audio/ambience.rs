@@ -28,13 +28,13 @@ pub fn wind() -> Wave {
           let blow = gust(t, SPAN, 3).clamp(0.05, 1.0) * 0.85
             + gust(t, SPAN, seed).clamp(0.0, 1.0) * 0.15;
           if index % 16 == 0 {
-            body.tune(180.0 + 750.0 * blow * blow, 0.6);
-            whistle.tune(520.0 + 520.0 * blow, 9.0)
+            body.tune(140.0 + 380.0 * blow * blow, 0.5);
+            whistle.tune(380.0 + 260.0 * blow, 2.5)
           }
           let x = rng.signed();
-          body.step(x).band * (0.25 + 0.75 * blow)
-            + whistle.step(x).band * blow.powi(3) * 0.5
-            + rumble.step(x) * 3.0 * blow
+          body.step(x).low * (0.3 + 0.7 * blow)
+            + whistle.step(x).band * blow.powi(3) * 0.12
+            + rumble.step(x) * 2.0 * blow
         })
         .collect(),
       len(SPAN)
