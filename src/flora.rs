@@ -18,11 +18,11 @@ use {crate::{model::{self, Piece},
      enum_assoc::Assoc,
      std::f32::consts::{FRAC_PI_2, PI, TAU}};
 
-const MEADOW: LinearRgba = srgb(0.36, 0.42, 0.20);
-const TUNDRA: LinearRgba = srgb(0.56, 0.52, 0.30);
-const FOREST_FLOOR: LinearRgba = srgb(0.27, 0.27, 0.15);
-const MEADOW_TIP: LinearRgba = srgb(0.60, 0.64, 0.27);
-const TUNDRA_TIP: LinearRgba = srgb(0.82, 0.73, 0.43);
+const MEADOW: LinearRgba = srgb(0.33, 0.36, 0.23);
+const TUNDRA: LinearRgba = srgb(0.47, 0.42, 0.30);
+const FOREST_FLOOR: LinearRgba = srgb(0.25, 0.24, 0.18);
+const MEADOW_TIP: LinearRgba = srgb(0.50, 0.52, 0.33);
+const TUNDRA_TIP: LinearRgba = srgb(0.60, 0.54, 0.38);
 const NEEDLE_DEEP: LinearRgba = srgb(0.06, 0.11, 0.09);
 const NEEDLE: LinearRgba = srgb(0.14, 0.23, 0.18);
 const NEEDLE_TIP: LinearRgba = srgb(0.25, 0.35, 0.24);

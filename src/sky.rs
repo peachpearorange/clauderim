@@ -6,16 +6,38 @@ use {crate::opts::opts,
                     SunDisk, atmosphere::ScatteringMedium, light_consts::lux},
             pbr::{AtmosphereSettings, DistanceFog, FogFalloff},
             post_process::bloom::Bloom,
-            prelude::*},
+            prelude::*,
+            render::view::{ColorGrading, ColorGradingGlobal, ColorGradingSection}},
      std::f32::consts::PI};
 
 const DAY_EXPOSURE: f32 = 13.2;
 const NIGHT_EXPOSURE: f32 = 6.2;
+const EXPOSURE_BY_ELEVATION: [(f32, f32); 7] = [
+  (-0.25, NIGHT_EXPOSURE),
+  (-0.15, 6.6),
+  (-0.065, 7.1),
+  (0.0, 10.0),
+  (0.06, 11.6),
+  (0.2, 12.7),
+  (0.45, DAY_EXPOSURE)
+];
 const UNDERGROUND_EXPOSURE: f32 = 7.6;
 const BRIGHTENING: f32 = 1.4;
 const DARKENING: f32 = 0.45;
 const SUN_DISK: SunDisk = SunDisk { angular_size: 0.017, intensity: 1.0 };
 const MOON_DISK: SunDisk = SunDisk { angular_size: 0.03, intensity: 60.0 };
+const SUNRISE: f32 = 5.0;
+const SUNSET: f32 = 20.0;
+const DAYLIGHT_DEPTH: Vec3 = Vec3::new(0.014, 0.038, 0.1);
+const SKY_FILL: f32 = 1.9;
+const HAZE_VISIBILITY: f32 = 1100.0;
+const DAY_HAZE: Vec3 = Vec3::new(0.70, 0.74, 0.81);
+const DUSK_HAZE: Vec3 = Vec3::new(0.80, 0.66, 0.64);
+const NIGHT_HAZE: Vec3 = Vec3::new(0.09, 0.14, 0.19);
+const COOL: f32 = -0.025;
+const WARM: f32 = 0.08;
+const BLUSH: f32 = 0.02;
+const MOON_TINT: Color = Color::srgb(0.62, 0.74, 1.0);
 pub const MOONLIGHT: f32 = 90.0;
 
 #[derive(Resource)]
@@ -37,21 +59,41 @@ pub struct Daylight {
 #[derive(Component)]
 struct Sun;
 
+fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
+  let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+  t * t * (3.0 - 2.0 * t)
+}
+
 pub fn lens() -> impl Bundle {
   (
     AtmosphereSettings { aerial_view_lut_max_distance: 1.2e4, ..default() },
     AtmosphereEnvironmentMapLight::default(),
     Exposure { ev100: DAY_EXPOSURE },
     Tonemapping::AcesFitted,
+    ColorGrading {
+      global: ColorGradingGlobal {
+        temperature: COOL,
+        post_saturation: 0.88,
+        ..default()
+      },
+      shadows: ColorGradingSection {
+        saturation: 0.82,
+        lift: 0.01,
+        gamma: 1.06,
+        ..default()
+      },
+      midtones: ColorGradingSection { saturation: 0.88, ..default() },
+      highlights: ColorGradingSection { saturation: 0.9, ..default() }
+    },
     Bloom { intensity: 0.12, ..Bloom::NATURAL },
     DistanceFog {
-      color: Color::srgba(0.62, 0.68, 0.76, 1.0),
+      color: Color::srgb(DAY_HAZE.x, DAY_HAZE.y, DAY_HAZE.z),
       directional_light_color: Color::srgba(1.0, 0.92, 0.78, 0.4),
-      directional_light_exponent: 24.0,
+      directional_light_exponent: 12.0,
       falloff: FogFalloff::from_visibility_colors(
-        3200.0,
-        Color::srgb(0.42, 0.48, 0.56),
-        Color::srgb(0.78, 0.82, 0.88)
+        HAZE_VISIBILITY,
+        Color::srgb(0.46, 0.50, 0.58),
+        Color::srgb(0.80, 0.84, 0.90)
       )
     },
     Msaa::Off,
@@ -83,12 +125,23 @@ fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>
 }
 
 pub fn toward_sun(hour: f32) -> Vec3 {
-  let arc = (hour - 6.0) / 12.0 * PI;
+  let (span, since_rise) = (SUNSET - SUNRISE, (hour - SUNRISE).rem_euclid(24.0));
+  let arc = (since_rise < span)
+    .then(|| since_rise / span * PI)
+    .unwrap_or_else(|| PI + (since_rise - span) / (24.0 - span) * PI);
   Vec3::new(arc.cos(), arc.sin() * 0.62, arc.sin() * 0.5 + 0.12).normalize()
 }
 
 pub fn toward_moon(sun: Vec3) -> Vec3 {
   Vec3::new(-sun.x, -sun.y, sun.z * 0.6 + 0.3).normalize()
+}
+
+pub fn reddened(ray: Vec3, zenith_depth: Vec3) -> Vec3 {
+  let elevation = ray.y.max(0.008).asin();
+  let air_mass = |elevation: f32| {
+    1.0 / (elevation.sin() + 0.50572 * (elevation.to_degrees() + 6.07995).powf(-1.6364))
+  };
+  (-(air_mass(elevation) - air_mass(PI / 2.0)) * zenith_depth).exp()
 }
 
 fn cycle_day(
@@ -97,34 +150,59 @@ fn cycle_day(
   mut clock: ResMut<Clock>,
   mut daylight: ResMut<Daylight>,
   sun: Single<(&mut Transform, &mut DirectionalLight, &mut SunDisk), With<Sun>>,
-  mut lenses: Query<(&mut Exposure, &mut DistanceFog, Option<&mut EnvironmentMapLight>)>
+  mut lenses: Query<(
+    &mut Exposure,
+    &mut DistanceFog,
+    &mut ColorGrading,
+    Option<&mut EnvironmentMapLight>
+  )>
 ) {
   clock.hour = (clock.hour + clock.hours_per_second * time.delta_secs()).rem_euclid(24.0);
   let sun_ray = toward_sun(clock.hour);
-  let day = ((sun_ray.y + 0.06) / 0.2).clamp(0.0, 1.0);
-  daylight.level = day;
+  let day = smooth(-0.3, 0.3, sun_ray.y);
+  let sunlit = smooth(-0.045, 0.02, sun_ray.y);
+  let moonlit = smooth(-0.045, -0.1, sun_ray.y);
+  let golden = smooth(0.3, 0.04, sun_ray.y) * smooth(-0.16, -0.02, sun_ray.y);
+  let dark = smooth(-0.02, -0.2, sun_ray.y);
+  daylight.level = smooth(-0.06, 0.14, sun_ray.y);
   let (mut transform, mut light, mut disk) = sun.into_inner();
-  let ray = (day > 0.0).then_some(sun_ray).unwrap_or(toward_moon(sun_ray));
+  let above = sunlit > 0.0;
+  let warmth = reddened(sun_ray, DAYLIGHT_DEPTH);
+  let ray = above.then_some(sun_ray).unwrap_or(toward_moon(sun_ray));
   *transform = Transform::default().looking_to(-ray, Vec3::Y);
-  light.illuminance = (day > 0.0).then_some(lux::RAW_SUNLIGHT).unwrap_or(MOONLIGHT);
+  light.illuminance =
+    above.then_some(lux::RAW_SUNLIGHT * sunlit).unwrap_or(MOONLIGHT * moonlit);
   light.color =
-    (day > 0.0).then_some(Color::WHITE).unwrap_or(Color::srgb(0.62, 0.72, 1.0));
-  *disk = (day > 0.0).then_some(SUN_DISK).unwrap_or(MOON_DISK);
+    above.then(|| Color::linear_rgb(warmth.x, warmth.y, warmth.z)).unwrap_or(MOON_TINT);
+  *disk = above.then_some(SUN_DISK).unwrap_or(MOON_DISK);
   let outdoors = 1.0 - daylight.shelter;
-  let settled = NIGHT_EXPOSURE
-    .lerp(DAY_EXPOSURE, day.powf(0.5))
+  let settled = EXPOSURE_BY_ELEVATION
+    .windows(2)
+    .find(|pair| sun_ray.y <= pair[1].0)
+    .map_or(DAY_EXPOSURE, |pair| {
+      let ((low, dim), (high, bright)) = (pair[0], pair[1]);
+      dim.lerp(bright, ((sun_ray.y - low) / (high - low)).clamp(0.0, 1.0))
+    })
     .lerp(UNDERGROUND_EXPOSURE, daylight.shelter);
+  let haze = DAY_HAZE.lerp(DUSK_HAZE, golden).lerp(NIGHT_HAZE, dark);
+  let glow = Vec3::new(1.0, 0.9, 0.76).lerp(warmth / warmth.max_element(), golden);
   let adapting = *adapted;
   *adapted = !lenses.is_empty();
-  lenses.iter_mut().for_each(|(mut exposure, mut fog, ambient)| {
+  lenses.iter_mut().for_each(|(mut exposure, mut fog, mut grading, ambient)| {
     let rate = (settled > exposure.ev100).then_some(BRIGHTENING).unwrap_or(DARKENING);
     exposure.ev100 = adapting
       .then(|| exposure.ev100.lerp(settled, 1.0 - (-rate * time.delta_secs()).exp()))
       .unwrap_or(settled);
     if let Some(mut ambient) = ambient {
-      ambient.intensity = 0.015 + 0.985 * outdoors.powf(2.0);
+      ambient.intensity = 0.015
+        + (SKY_FILL * (1.0 + 1.2 * golden + 1.5 * dark) - 0.015) * outdoors.powf(2.0);
     }
-    fog.color = Color::srgba(0.62, 0.68, 0.76, outdoors * (0.25 + 0.75 * day));
+    fog.color = Color::srgba(haze.x, haze.y, haze.z, outdoors * (0.6 + 0.4 * day));
+    fog.directional_light_color =
+      Color::linear_rgba(glow.x, glow.y, glow.z, (0.35 + 0.5 * golden) * sunlit);
+    fog.directional_light_exponent = 12.0.lerp(5.0, golden);
+    grading.global.temperature = COOL.lerp(WARM, golden * outdoors);
+    grading.global.tint = golden * outdoors * BLUSH;
   });
 }
 

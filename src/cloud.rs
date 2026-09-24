@@ -55,14 +55,6 @@ fn spawn_clouds(
   ));
 }
 
-fn reddened(ray: Vec3) -> Vec3 {
-  let elevation = ray.y.max(0.008).asin();
-  let air_mass = |elevation: f32| {
-    1.0 / (elevation.sin() + 0.50572 * (elevation.to_degrees() + 6.07995).powf(-1.6364))
-  };
-  (-(air_mass(elevation) - air_mass(PI / 2.0)) * ZENITH_DEPTH).exp()
-}
-
 fn light_clouds(
   time: Res<Time>,
   clock: Res<Clock>,
@@ -75,7 +67,9 @@ fn light_clouds(
   let day = (sun.y / 0.35).clamp(0.0, 1.0);
   let twilight = ((sun.y + 0.2) / 0.2).clamp(0.0, 1.0);
   let (toward_light, light) = (sun.y > -0.08)
-    .then(|| (sun, reddened(sun) * lux::RAW_SUNLIGHT * sunset * sunset))
+    .then(|| {
+      (sun, sky::reddened(sun, ZENITH_DEPTH) * lux::RAW_SUNLIGHT * sunset * sunset)
+    })
     .unwrap_or((moon, Vec3::new(0.62, 0.72, 1.0) * sky::MOONLIGHT));
   let ambient = Vec3::new(0.55, 0.64, 0.82) * 9000.0 * day.powf(1.3)
     + Vec3::new(0.62, 0.5, 0.55) * 900.0 * twilight * twilight * (1.0 - day)

@@ -27,9 +27,9 @@ pub const fn srgb(red: f32, green: f32, blue: f32) -> LinearRgba {
   LinearRgba::rgb(decode(red), decode(green), decode(blue))
 }
 
-const MEADOW: LinearRgba = srgb(0.36, 0.42, 0.20);
-const TUNDRA: LinearRgba = srgb(0.56, 0.52, 0.30);
-const FOREST_FLOOR: LinearRgba = srgb(0.27, 0.27, 0.15);
+const MEADOW: LinearRgba = srgb(0.33, 0.36, 0.23);
+const TUNDRA: LinearRgba = srgb(0.47, 0.42, 0.30);
+const FOREST_FLOOR: LinearRgba = srgb(0.25, 0.24, 0.18);
 const DIRT: LinearRgba = srgb(0.40, 0.33, 0.24);
 const PEBBLES: LinearRgba = srgb(0.46, 0.44, 0.40);
 const ROCK: LinearRgba = srgb(0.43, 0.43, 0.43);
