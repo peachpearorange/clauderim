@@ -1,5 +1,6 @@
 use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
              humanoid::{self, Grip, MAN, Motion},
+             inventory::{Inventory, Item, Loot},
              noise::Roll,
              player::{Player, View},
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
@@ -118,24 +119,27 @@ impl Foe {
   pub fn hunting(&self) -> bool { self.mind == Mind::Hunt }
 }
 
-fn loot(kind: FoeKind, roll: &mut Roll) -> Vec<String> {
-  let gold = |low: f32, high: f32, roll: &mut Roll| {
-    format!("Gold ({})", roll.range(low, high) as u32)
-  };
+fn loot(kind: FoeKind, roll: &mut Roll) -> Vec<Loot> {
+  let gold =
+    |low: f32, high: f32, roll: &mut Roll| Loot::Gold(roll.range(low, high) as u32);
   match kind {
-    FoeKind::Wolf => vec!["Wolf Pelt".into()],
-    FoeKind::Draugr => vec![gold(3.0, 18.0, roll), "Ancient Nord War Axe".into()],
+    FoeKind::Wolf => vec![Loot::one(Item::WolfPelt)],
+    FoeKind::Draugr => vec![gold(3.0, 18.0, roll), Loot::one(Item::AncientNordWarAxe)],
     FoeKind::DraugrOverlord => vec![
       gold(40.0, 90.0, roll),
-      "Ancient Nord Helmet".into(),
-      "Draugr Overlord's Key".into(),
+      Loot::one(Item::AncientNordHelmet),
+      Loot::one(Item::OverlordsKey),
     ],
-    FoeKind::Bandit => {
-      vec![gold(5.0, 30.0, roll), "Fur Armor".into(), "Potion of Minor Healing".into()]
-    }
-    FoeKind::BanditChief => {
-      vec![gold(60.0, 120.0, roll), "Steel War Axe".into(), "Note: Rotfen Plans".into()]
-    }
+    FoeKind::Bandit => vec![
+      gold(5.0, 30.0, roll),
+      Loot::one(Item::FurArmor),
+      Loot::one(Item::PotionOfMinorHealing),
+    ],
+    FoeKind::BanditChief => vec![
+      gold(60.0, 120.0, roll),
+      Loot::one(Item::SteelWarAxe),
+      Loot::one(Item::RotfenPlans),
+    ]
   }
 }
 
@@ -349,10 +353,11 @@ fn search(
   mut prompt: ResMut<Prompt>,
   mut notices: MessageWriter<Notice>,
   mut sounds: MessageWriter<Sound>,
-  player: Single<&Transform, (With<Player>, Without<Dead>)>,
+  player: Single<(&Transform, &mut Inventory), (With<Player>, Without<Dead>)>,
   mut corpses: Query<(&mut Foe, &Transform, &Name), With<Dead>>
 ) {
-  let at = player.translation;
+  let (hero, mut inventory) = player.into_inner();
+  let at = hero.translation;
   let forward = view.flat_forward();
   let nearest = corpses
     .iter_mut()
@@ -366,8 +371,9 @@ fn search(
     if keys.just_pressed(KeyCode::KeyE) {
       foe.looted = true;
       let kind = foe.kind;
-      loot(kind, &mut foe.roll).into_iter().for_each(|line| {
-        notices.write(Notice(format!("{line} added")));
+      loot(kind, &mut foe.roll).into_iter().for_each(|loot| {
+        notices.write(Notice(format!("{loot} added")));
+        inventory.take(loot);
       });
       sounds.write(Sound::here(Cue::Coins, transform.translation));
     }

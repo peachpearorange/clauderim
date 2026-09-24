@@ -1,4 +1,5 @@
-use {crate::{model::{self, Piece},
+use {crate::{inventory::{Inventory, Item, Loot},
+             model::{self, Piece},
              noise::{self, Roll},
              place::{self, Place},
              player::{Player, View},
@@ -62,14 +63,18 @@ const DEN_SLOPE: f32 = 0.58;
 const DEN_MOUTH: f32 = 21.0;
 const SHAFT: Vec2 = Vec2::new(4.5, -3.0);
 
-const HOLLOWCRAG_LOOT: &[&str] = &[
-  "Gold (143)",
-  "Iron Dagger",
-  "Potion of Minor Healing",
-  "Amethyst",
-  "Ancient Nord Helmet"
+const HOLLOWCRAG_LOOT: &[Loot] = &[
+  Loot::Gold(143),
+  Loot::one(Item::IronDagger),
+  Loot::one(Item::PotionOfMinorHealing),
+  Loot::one(Item::Amethyst),
+  Loot::one(Item::AncientNordHelmet)
 ];
-const FELLHOUND_LOOT: &[&str] = &["Gold (37)", "Potion of Minor Healing", "Lockpick (2)"];
+const FELLHOUND_LOOT: &[Loot] = &[
+  Loot::Gold(37),
+  Loot::one(Item::PotionOfMinorHealing),
+  Loot::Goods(Item::Lockpick, 2)
+];
 
 fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -102,7 +107,7 @@ struct Hoard {
   at: Transform,
   size: f32,
   noun: &'static str,
-  loot: &'static [&'static str]
+  loot: &'static [Loot]
 }
 
 #[derive(Default)]
@@ -1601,7 +1606,7 @@ struct Flame {
 #[derive(Component)]
 struct Chest {
   noun: &'static str,
-  loot: &'static [&'static str],
+  loot: &'static [Loot],
   opened: bool
 }
 
@@ -1882,13 +1887,14 @@ fn flicker(
 fn open_chests(
   keys: Res<ButtonInput<KeyCode>>,
   view: Res<View>,
-  player: Single<&Transform, With<Player>>,
+  player: Single<(&Transform, &mut Inventory), With<Player>>,
   mut chests: Query<(&GlobalTransform, &mut Chest)>,
   mut prompt: ResMut<Prompt>,
   mut notices: MessageWriter<Notice>,
   mut sounds: MessageWriter<Sound>
 ) {
-  let feet = player.translation - Vec3::Y * 0.9;
+  let (hero, mut inventory) = player.into_inner();
+  let feet = hero.translation - Vec3::Y * 0.9;
   let forward = view.flat_forward();
   if let Some((spot, mut chest)) = chests
     .iter_mut()
@@ -1905,8 +1911,9 @@ fn open_chests(
     prompt.0 = Some(Prompting { verb: "Open".into(), noun: chest.noun.into() });
     if keys.just_pressed(KeyCode::KeyE) {
       chest.opened = true;
-      chest.loot.iter().for_each(|&line| {
-        notices.write(Notice(line.into()));
+      chest.loot.iter().for_each(|&loot| {
+        notices.write(Notice(loot.to_string()));
+        inventory.take(loot);
       });
       sounds.write(Sound::here(Cue::ChestOpen, spot));
     }

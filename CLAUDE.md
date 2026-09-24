@@ -16,14 +16,14 @@ A Bevy 0.19.1 game meant to pass, for five minutes, as "Skyrim 2": a Nordic wild
 - `dragon.rs` — the dragon: 18-bone rig, `Flight` state machine (arrive, circle, strafe with fire breath, land, fight, rise, fall, slain → soul absorbed).
 - `shout.rs` — Unrelenting Force (Z), word walls, soul wisps. `fx.rs` — bevy_hanabi particle `Effects`.
 - `flora.rs` — trees, rocks, grass and scatter. `cave.rs` + `sdf.rs` — SDF-meshed Hollowcrag Barrow and Fellhound Den. `landmark.rs` — watchtower, camp, standing stones.
-- `hud.rs` — compass, bars, notices, prompts, intro. `audio.rs` + `audio/` — all sound synthesised at startup.
+- `hud.rs` — compass, bars, notices, prompts, intro. `inventory.rs` — `Item` (name/kind/value/weight/power), `Loot`, player `Inventory` (`take(loot)`), Tab/I menu. `audio.rs` + `audio/` — all sound synthesised at startup.
 - `signal.rs` — shared messages/resources between modules: `Notice`, `Discovered`, `Prompt`, `Engaged`, `Sound { cue: Cue, at }`, `FoeSpawn { kind, dormant }` (spawn an entity with this + `Transform` and the creature module turns it into a creature), `WordWall`, `Shouts`.
 
 Physics: avian3d. Exact vertical rays can miss the heightfield collider; tilt them slightly or use shape casts.
 Lighting is physical: sun is `lux::RAW_SUNLIGHT`, exposure ev100 ≈ 13 outdoors, ≈ 9 underground. Emissive is NOT exposure-scaled: ~1–10 glows (see `Stuff::Frost`/`Ember`/`Cinder`), 50+ blows out to white. Point lights need ~100k+ lumens to matter outdoors, far less underground.
 
 # Opts
-Env var `SKYRIM` holds JSON5 `opts::Opts`: `hour` (start hour, 9.5), `day` (secs per day), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` then exit), `at: '<place name fragment>'` (spawn near that place), `yaw`, `pitch`, `turn` (camera yaw offset, deg), `zoom` (camera distance), `pose: 'swing'|'guard'|'dead'|'run'`, `intro`, `first` (first person), `inside: [x,y,z]` (spawn at a spot), `foe: 'wolf'|'draugr'|'overlord'|'bandit'|'chief'` (inert specimen in front of the player), `foe: 'dragon'|'dragonaloft'|'dragonslain'` (dragon posed in front), `dragon: <secs>` (dragon arrival time, default 75), `press: [[secs, 'Z'|'E'|'F'|'W'|'Space'|'Shift'|'LMB'|'RMB'], …]` (inject input).
+Env var `SKYRIM` holds JSON5 `opts::Opts`: `hour` (start hour, 9.5), `day` (secs per day), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` then exit), `at: '<place name fragment>'` (spawn near that place), `yaw`, `pitch`, `turn` (camera yaw offset, deg), `zoom` (camera distance), `pose: 'swing'|'guard'|'dead'|'run'`, `intro`, `first` (first person), `inside: [x,y,z]` (spawn at a spot), `foe: 'wolf'|'draugr'|'overlord'|'bandit'|'chief'` (inert specimen in front of the player), `foe: 'dragon'|'dragonaloft'|'dragonslain'` (dragon posed in front), `dragon: <secs>` (dragon arrival time, default 75), `press: [[secs, 'Z'|'E'|'F'|'W'|'A'|'S'|'D'|'I'|'Tab'|'Enter'|'Escape'|'Up'|'Down'|'Space'|'Shift'|'LMB'|'RMB'], …]` (inject input).
 e.g. `SKYRIM='{shot: 5, at: "hollow"}' SHOT_NAME=barrow cargo run`. Screenshots are the way to check visuals — always look at them.
 
 # Style

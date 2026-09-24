@@ -7,6 +7,7 @@ mod flora;
 mod fx;
 mod hud;
 mod humanoid;
+mod inventory;
 mod landmark;
 mod model;
 mod noise;
@@ -71,6 +72,15 @@ fn press(
       "E" => Ok(KeyCode::KeyE),
       "F" => Ok(KeyCode::KeyF),
       "Z" => Ok(KeyCode::KeyZ),
+      "A" => Ok(KeyCode::KeyA),
+      "S" => Ok(KeyCode::KeyS),
+      "D" => Ok(KeyCode::KeyD),
+      "I" => Ok(KeyCode::KeyI),
+      "Tab" => Ok(KeyCode::Tab),
+      "Enter" => Ok(KeyCode::Enter),
+      "Escape" => Ok(KeyCode::Escape),
+      "Up" => Ok(KeyCode::ArrowUp),
+      "Down" => Ok(KeyCode::ArrowDown),
       other => panic!("press: unknown key {other}")
     };
     match (key, start, stop) {
@@ -115,10 +125,19 @@ fn main() {
       wolf::plugin,
       landmark::plugin
     ))
-    .add_plugins((fx::plugin, shout::plugin, dragon::plugin, hud::plugin))
+    .add_plugins((
+      fx::plugin,
+      shout::plugin,
+      dragon::plugin,
+      hud::plugin,
+      inventory::plugin
+    ))
     .add_plugins(cave::plugin)
     .add_plugins(audio::plugin)
     .add_systems(Update, snapshot)
-    .add_systems(PreUpdate, press.after(bevy::input::InputSystems))
+    .add_systems(
+      PreUpdate,
+      press.after(bevy::input::InputSystems).before(inventory::browse)
+    )
     .run();
 }

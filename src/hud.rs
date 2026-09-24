@@ -22,10 +22,10 @@ const BANNER_TIME: f32 = 4.2;
 const NOTICE_TIME: f32 = 4.2;
 const INTRO_TIME: f32 = 6.4;
 
-const INK: Color = Color::srgba(0.95, 0.94, 0.91, 0.96);
-const PALE: Color = Color::srgba(0.84, 0.83, 0.8, 0.82);
-const DIM: Color = Color::srgba(0.8, 0.79, 0.76, 0.5);
-const FRAME: Color = Color::srgba(0.74, 0.73, 0.7, 0.55);
+pub const INK: Color = Color::srgba(0.95, 0.94, 0.91, 0.96);
+pub const PALE: Color = Color::srgba(0.84, 0.83, 0.8, 0.82);
+pub const DIM: Color = Color::srgba(0.8, 0.79, 0.76, 0.5);
+pub const FRAME: Color = Color::srgba(0.74, 0.73, 0.7, 0.55);
 const TRACK: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
 const GLOOM: Color = Color::srgba(0.0, 0.0, 0.0, 0.58);
 const HOSTILE: Color = Color::srgb(0.86, 0.12, 0.08);
@@ -59,15 +59,15 @@ struct Rival {
 }
 
 #[derive(Resource, Clone)]
-struct Fonts {
-  sans: Handle<Font>,
-  light: Handle<Font>,
-  serif: Handle<Font>,
-  serif_light: Handle<Font>
+pub struct Fonts {
+  pub sans: Handle<Font>,
+  pub light: Handle<Font>,
+  pub serif: Handle<Font>,
+  pub serif_light: Handle<Font>
 }
 
 #[derive(Component)]
-struct Hud;
+pub struct Hud;
 
 #[derive(Component)]
 struct Fade(f32);
@@ -206,7 +206,7 @@ fn approach(from: f32, to: f32, step: f32) -> f32 {
 
 fn bearing(toward: Vec2) -> f32 { toward.x.atan2(-toward.y) }
 
-fn at(left: f32, top: f32) -> Node {
+pub fn at(left: f32, top: f32) -> Node {
   Node {
     position_type: PositionType::Absolute,
     left: Percent(left),
@@ -215,9 +215,11 @@ fn at(left: f32, top: f32) -> Node {
   }
 }
 
-fn centred() -> UiTransform { UiTransform::from_translation(Val2::percent(-50.0, -50.0)) }
+pub fn centred() -> UiTransform {
+  UiTransform::from_translation(Val2::percent(-50.0, -50.0))
+}
 
-fn words(
+pub fn words(
   font: &Handle<Font>,
   size: f32,
   color: Color,
@@ -235,11 +237,11 @@ fn words(
   )
 }
 
-fn spaced(vmin: f32) -> impl Bundle {
+pub fn spaced(vmin: f32) -> impl Bundle {
   (Tracking(vmin), Node { padding: UiRect::left(VMin(vmin)), ..default() })
 }
 
-fn diamond(size: f32, place: Node) -> impl Bundle {
+pub fn diamond(size: f32, place: Node) -> impl Bundle {
   (
     Node { width: VMin(size), height: VMin(size), border: UiRect::all(Px(1.0)), ..place },
     BackgroundColor(Color::srgba(0.06, 0.06, 0.06, 0.85)),
@@ -248,7 +250,7 @@ fn diamond(size: f32, place: Node) -> impl Bundle {
   )
 }
 
-fn fading_line(horizontal: bool, color: Color) -> BackgroundGradient {
+pub fn fading_line(horizontal: bool, color: Color) -> BackgroundGradient {
   let stops = vec![
     ColorStop::new(Color::NONE, Percent(0.0)),
     ColorStop::new(color, Percent(18.0)),
