@@ -202,7 +202,7 @@ fn steer(
   walker.wish = heading * pace * slowed * alive as u8 as f32;
   let fighting = view.combat > 0.0 || view.first_person;
   walker.facing = (alive && fighting).then_some(forward);
-  if keys.just_pressed(KeyCode::Space) && walker.grounded && alive {
+  if keys.just_pressed(KeyCode::Space) && (walker.grounded || walker.swimming) && alive {
     walker.leap = Some(1.1);
   }
 }
@@ -213,6 +213,7 @@ fn follow(
   time: Res<Time>,
   mut shake: ResMut<crate::combat::Shake>,
   view: Res<View>,
+  ground: Res<Ground>,
   spatial: SpatialQuery,
   player: Single<(Entity, &Transform), With<Player>>,
   mut camera: Single<&mut Transform, (With<MainCamera>, Without<Player>)>,
@@ -248,7 +249,12 @@ fn follow(
     (time.elapsed_secs() * 59.0).sin()
   ) * tremor;
   shake.0 = (shake.0 - time.delta_secs() * 1.6).max(0.0);
-  camera.translation = eye + gap.normalize_or_zero() * reach + jitter;
+  let placed = eye + gap.normalize_or_zero() * reach + jitter;
+  let over_lake = placed.xz().distance(place::LAKE) < place::LAKE_RADIUS * 2.0
+    && ground.height(placed.xz()) < place::LAKE_LEVEL;
+  camera.translation = over_lake
+    .then(|| placed.with_y(placed.y.max(place::LAKE_LEVEL + 0.25)))
+    .unwrap_or(placed);
   camera.rotation = rotation;
   hidden.iter_mut().for_each(|mut visibility| {
     *visibility =

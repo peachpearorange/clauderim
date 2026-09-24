@@ -144,6 +144,7 @@ pub struct Motion {
   pub fallen: f32,
   pub flinch: f32,
   pub airborne: f32,
+  pub swim: f32,
   pub shout: f32,
   pub breath: f32
 }
@@ -231,6 +232,25 @@ fn shouting(base: Pose) -> Pose {
     .with(Joint::ElbowR, Vec3::new(0.5, 0.0, 0.0))
 }
 
+fn swimming(base: Pose, motion: &Motion) -> Pose {
+  let pace = (motion.speed / 2.5).min(1.0);
+  let stroke = motion.stride;
+  let reach = |phase: f32| Vec3::new(0.5 + pace - (0.4 + pace) * phase.cos(), 0.0, 0.0);
+  let bend = |phase: f32| Vec3::X * (0.3 + 0.9 * phase.sin().max(0.0));
+  let kick = |phase: f32| Vec3::X * (0.05 + 0.3 * (3.0 * phase).sin());
+  Pose { drop: -0.2 - 0.1 * pace, lean: -0.15 - 1.2 * pace, ..base }
+    .with(Joint::Chest, Vec3::new(0.05, 0.15 * stroke.sin(), 0.0))
+    .with(Joint::Head, Vec3::new(-0.3 - 0.6 * pace, 0.0, 0.0))
+    .with(Joint::ArmL, reach(stroke) + Vec3::Z * -0.25)
+    .with(Joint::ArmR, reach(stroke + std::f32::consts::PI) + Vec3::Z * 0.25)
+    .with(Joint::ElbowL, bend(stroke))
+    .with(Joint::ElbowR, bend(stroke + std::f32::consts::PI))
+    .with(Joint::LegL, kick(stroke) + Vec3::Z * -0.06)
+    .with(Joint::LegR, kick(stroke + std::f32::consts::PI) + Vec3::Z * 0.06)
+    .with(Joint::KneeL, Vec3::X * -0.25)
+    .with(Joint::KneeR, Vec3::X * -0.25)
+}
+
 fn fallen(base: Pose) -> Pose {
   Pose { drop: 0.82, lean: -1.45, ..base }
     .with(Joint::ArmL, Vec3::new(2.4, 0.0, -0.9))
@@ -253,7 +273,8 @@ pub fn posed(rig: &Rig, motion: &Motion) -> Pose {
     .with(Joint::LegR, Vec3::new(-0.1, 0.0, 0.0))
     .with(Joint::KneeR, Vec3::new(-0.5, 0.0, 0.0))
     .with(Joint::ArmL, Vec3::new(0.2, 0.0, -0.6));
-  let moved = walked.blend(&airborne, motion.airborne);
+  let moved =
+    walked.blend(&airborne, motion.airborne).blend(&swimming(base, motion), motion.swim);
   let guarded = moved.blend(&guarding(moved), motion.guard);
   let swung = motion
     .swing
