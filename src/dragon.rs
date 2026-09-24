@@ -109,6 +109,13 @@ impl Bone {
     }
   }
 
+  const fn size(self) -> f32 {
+    match self {
+      Bone::Head => 1.25,
+      _ => 1.0
+    }
+  }
+
   const fn right_twin(self) -> Option<Bone> {
     match self {
       Bone::WingR => Some(Bone::WingL),
@@ -159,16 +166,83 @@ struct DragonPart;
 #[derive(Component)]
 struct FoldsAway;
 
-fn srgb(red: f32, green: f32, blue: f32) -> Srgba { Srgba::new(red, green, blue, 1.0) }
-
-fn scaled(piece: Piece, back: Srgba, belly: Srgba) -> Piece {
-  let (back, belly) = (LinearRgba::from(back), LinearRgba::from(belly));
-  piece.shaded(move |position, normal| {
-    let under = ((-normal.y - 0.15) * 1.8).clamp(0.0, 1.0);
-    let mottle = crate::noise::value3(position * 2.3, 13) * 0.3 + 0.85;
-    (back * mottle).mix(&belly, under).with_alpha(1.0)
-  })
+const fn srgb(red: f32, green: f32, blue: f32) -> Srgba {
+  Srgba::new(red, green, blue, 1.0)
 }
+
+const SCALE_TILE: f32 = 2.6;
+const RIBS: f32 = 3.0;
+const FAN_TURN: f32 = 0.47;
+const FOLDED_TOWARD: Vec3 = Vec3::new(1.4, 1.6, 0.6);
+
+struct Hide {
+  flank: Srgba,
+  dorsal: Srgba,
+  belly: Srgba
+}
+
+impl Hide {
+  const BRONZE: Hide = Hide {
+    flank: srgb(0.3, 0.33, 0.24),
+    dorsal: srgb(0.11, 0.11, 0.09),
+    belly: srgb(0.95, 0.93, 0.8)
+  };
+
+  fn paint(&self, piece: Piece) -> Piece {
+    let (flank, dorsal, belly) = (
+      LinearRgba::from(self.flank),
+      LinearRgba::from(self.dorsal),
+      LinearRgba::from(self.belly)
+    );
+    piece.shaded(move |position, normal| {
+      let under = ((-normal.y - 0.1) * 2.4).clamp(0.0, 1.0);
+      let top = ((normal.y - 0.2) * 1.8).clamp(0.0, 1.0);
+      let rib = 0.4 + 0.6 * ((position.z * RIBS).rem_euclid(1.0) * 2.5).min(1.0);
+      let mottle = crate::noise::value3(position * 1.6, 13) * 0.35 + 0.82;
+      (flank * mottle)
+        .mix(&(dorsal * mottle), top)
+        .mix(&(belly * rib), under)
+        .with_alpha(1.0)
+    })
+  }
+}
+
+fn plated(mut mesh: Mesh) -> Mesh {
+  let read = |mesh: &Mesh, attribute| -> Vec<Vec3> {
+    mesh
+      .attribute(attribute)
+      .and_then(bevy::mesh::VertexAttributeValues::as_float3)
+      .map(|values| values.iter().copied().map(Vec3::from).collect())
+      .unwrap_or_default()
+  };
+  let (positions, normals): (Vec<Vec3>, Vec<Vec3>) =
+    read(&mesh, Mesh::ATTRIBUTE_POSITION)
+      .into_iter()
+      .zip(read(&mesh, Mesh::ATTRIBUTE_NORMAL))
+      .map(|(position, normal)| {
+        let belly = ((-normal.y - 0.2) * 2.5).clamp(0.0, 1.0);
+        let back = ((normal.y - 0.5) * 2.5).clamp(0.0, 1.0);
+        let lift = 0.05 * belly * (position.z * RIBS).rem_euclid(1.0)
+          + 0.04 * back * (position.z * 2.2).rem_euclid(1.0);
+        let slope = 0.05 * RIBS * belly + 0.09 * back;
+        (position + normal * lift, (normal - Vec3::Z * slope).normalize_or(normal))
+      })
+      .unzip();
+  mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+  mesh.insert_attribute(Mesh::ATTRIBUTE_NORMAL, normals);
+  mesh
+}
+
+fn tiled(mut piece: Piece, around: f32, along: f32) -> Piece {
+  if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
+    piece.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+  {
+    uvs.iter_mut().for_each(|uv| *uv = [uv[0] * around.max(0.5).round(), uv[1] * along]);
+  }
+  piece
+}
+
+fn mirrored(turn: Quat) -> Quat { Quat::from_xyzw(turn.x, -turn.y, -turn.z, turn.w) }
 
 fn build(
   commands: &mut Commands,
@@ -181,22 +255,31 @@ fn build(
     let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
     bones[bone as usize] = commands
       .spawn((
-        Transform::from_translation(bone.rest()),
+        Transform::from_translation(bone.rest()).with_scale(Vec3::splat(bone.size())),
         Visibility::Inherited,
         ChildOf(parent)
       ))
       .id();
   });
-  let hide = srgb(0.3, 0.27, 0.24);
-  let belly = srgb(0.62, 0.55, 0.42);
-  let horn = srgb(0.5, 0.45, 0.38);
-  let claw = srgb(0.2, 0.18, 0.16);
+  let hide = Hide::BRONZE.flank;
+  let horn = srgb(0.38, 0.35, 0.29);
+  let spike = srgb(0.2, 0.19, 0.16);
+  let claw = srgb(0.16, 0.14, 0.12);
   let key = |x: f32, y: f32, z: f32, wide: f32, high: f32, deep: f32| {
     (Vec3::new(x, y, z), Vec3::new(wide, high, deep))
   };
   let flesh = |keys: &[(Vec3, Vec3)], seed: u32| {
-    let mesh = model::ruffled(sculpt(keys, 6, 20), 0.035, Vec3::splat(2.6), seed);
-    scaled(Piece::new(mesh, hide).grained(3.0), hide, belly)
+    let length: f32 = keys.windows(2).map(|pair| pair[0].0.distance(pair[1].0)).sum();
+    let girth = keys
+      .iter()
+      .map(|&(_, Vec3 { x, y, z })| (x + (y + z) * 0.5) * 0.5 * TAU)
+      .fold(0.0, f32::max);
+    let mesh = plated(model::ruffled(sculpt(keys, 12, 24), 0.03, Vec3::splat(2.6), seed));
+    Hide::BRONZE.paint(tiled(
+      Piece::new(mesh, hide),
+      girth / SCALE_TILE,
+      length / SCALE_TILE
+    ))
   };
   let fins = |from: Vec2, to: Vec2, count: usize, height: f32, shrink: f32| {
     (0..count)
@@ -204,15 +287,15 @@ fn build(
         let t = index as f32 / (count.max(2) - 1) as f32;
         let spot = from.lerp(to, t);
         let tall = height * (1.0 - shrink * t);
-        Piece::new(cone(tall * 0.4, tall), horn * 0.8)
-          .sized(Vec3::new(0.3, 1.0, 1.0))
-          .pitched(0.75)
+        Piece::new(cone(tall * 0.42, tall), spike)
+          .sized(Vec3::new(0.28, 1.0, 1.0))
+          .pitched(0.8)
           .at_xyz(0.0, spot.y, spot.x)
       })
       .collect::<Vec<_>>()
   };
   let mut parts: Vec<(Bone, Stuff, Vec<Piece>)> = vec![
-    (Bone::Body, Stuff::Leather, vec![flesh(
+    (Bone::Body, Stuff::Scales, vec![flesh(
       &[
         key(0.0, 0.5, -2.05, 0.02, 0.02, 0.02),
         key(0.0, 0.48, -1.85, 0.56, 0.5, 0.56),
@@ -230,9 +313,9 @@ fn build(
     (
       Bone::Body,
       Stuff::Bone,
-      fins(Vec2::new(-1.6, 0.98), Vec2::new(-0.4, 1.0), 4, 0.6, 0.0)
+      fins(Vec2::new(-1.6, 0.98), Vec2::new(-0.4, 1.0), 4, 0.75, 0.0)
         .into_iter()
-        .chain(fins(Vec2::new(0.1, 0.84), Vec2::new(3.0, 0.72), 7, 0.55, 0.3))
+        .chain(fins(Vec2::new(0.1, 0.84), Vec2::new(3.0, 0.72), 7, 0.7, 0.35))
         .collect()
     ),
   ];
@@ -256,39 +339,77 @@ fn build(
     .into_iter()
     .enumerate()
     .for_each(|(index, (bone, girth, next))| {
-      parts.push((bone, Stuff::Leather, segment(-1.05, girth, next, 10 + index as u32)));
+      parts.push((bone, Stuff::Scales, segment(-1.05, girth, next, 10 + index as u32)));
       parts.push((
         bone,
         Stuff::Bone,
-        fins(Vec2::new(-0.1, girth * 0.82), Vec2::new(-0.85, next * 0.85), 3, 0.34, 0.2)
+        fins(Vec2::new(-0.1, girth * 0.82), Vec2::new(-0.85, next * 0.85), 3, 0.42, 0.2)
       ));
     });
-  let horn_path = |side: f32, lift: f32, sweep: f32| {
-    curve(
-      Vec3::new(side * 0.2, 0.3 + lift, -0.1),
-      Vec3::new(side * 0.42, 0.62 + lift, 0.4),
-      Vec3::new(side * 0.4, 0.85 + lift * 3.0, 1.2 * sweep),
-      12
-    )
-  };
-  let horns: Vec<Piece> =
-    [(1.0, 0.0, 1.0), (-1.0, 0.0, 1.0), (1.0, -0.15, 0.7), (-1.0, -0.15, 0.7)]
-      .into_iter()
-      .map(|(side, lift, sweep)| {
-        Piece::new(
-          tube(&horn_path(side, lift, sweep), &taper(12, 0.12 * sweep, 0.008), 10),
-          horn
-        )
-      })
-      .collect();
+  let crown: Vec<Piece> = (0..11)
+    .map(|index| {
+      let t = index as f32 / 5.0 - 1.0;
+      let angle = t * 1.8;
+      let outward = Vec3::new(angle.sin(), angle.cos(), 0.0);
+      let long = 0.5 + 0.75 * (1.0 - t.abs()).powf(0.6);
+      let root = Vec3::new(outward.x * 0.3, 0.1 + outward.y * 0.24, 0.1);
+      let tip = root + (Vec3::Z * 0.9 + outward * 0.85).normalize() * long;
+      let bend = root + outward * long * 0.4 + Vec3::Z * long * 0.25;
+      Piece::new(
+        tube(
+          &curve(root, bend, tip, 10),
+          &taper(10, 0.05 + 0.05 * (1.0 - t.abs()), 0.005),
+          8
+        ),
+        horn
+      )
+    })
+    .collect();
+  let brow_horns: Vec<Piece> = (0..7)
+    .map(|index| {
+      let t = index as f32 / 3.0 - 1.0;
+      let angle = t * 1.4;
+      let outward = Vec3::new(angle.sin(), angle.cos(), 0.0);
+      let long = 0.28 + 0.2 * (1.0 - t.abs());
+      let root = Vec3::new(outward.x * 0.3, 0.12 + outward.y * 0.18, -0.2);
+      let tip = root + (Vec3::Z + outward * 0.8).normalize() * long;
+      Piece::new(
+        tube(
+          &curve(root, root.lerp(tip, 0.5) + outward * 0.06, tip, 6),
+          &taper(6, 0.045, 0.004),
+          7
+        ),
+        spike
+      )
+    })
+    .collect();
   let cheek_spikes: Vec<Piece> = [1.0, -1.0]
     .into_iter()
     .flat_map(|side| {
-      [(0.0, 0.16), (0.18, 0.12), (0.34, 0.09)].map(|(z, tall)| {
-        Piece::new(cone(tall * 0.35, tall), horn * 0.85)
-          .pitched(1.9)
-          .rolled(-side * 0.5)
-          .at_xyz(side * 0.3, -0.02, z)
+      [
+        (0.1, -0.02, 0.34),
+        (-0.12, -0.06, 0.26),
+        (-0.34, -0.08, 0.2),
+        (-0.55, -0.08, 0.14)
+      ]
+      .map(|(z, y, long)| {
+        let root = Vec3::new(side * 0.27, y, z);
+        let tip = root + Vec3::new(side * 0.55, -0.35, 1.0).normalize() * long;
+        Piece::new(
+          tube(&curve(root, root.lerp(tip, 0.5), tip, 4), &taper(4, 0.04, 0.004), 6),
+          spike
+        )
+      })
+    })
+    .collect();
+  let chin_spikes: Vec<Piece> = [(0.0, 0.2), (-0.25, 0.16), (-0.5, 0.12)]
+    .into_iter()
+    .flat_map(|(z, long)| {
+      [1.0, -1.0].map(|side| {
+        Piece::new(cone(long * 0.25, long), spike)
+          .pitched(2.3)
+          .rolled(-side * 0.35)
+          .at_xyz(side * 0.14, -0.08, z)
       })
     })
     .collect();
@@ -348,23 +469,23 @@ fn build(
     23
   );
   parts.extend([
-    (Bone::Head, Stuff::Leather, [skull].into_iter().chain(brows).collect()),
+    (Bone::Head, Stuff::Scales, [skull].into_iter().chain(brows).collect()),
     (
       Bone::Head,
       Stuff::Bone,
-      horns
+      crown
         .into_iter()
+        .chain(brow_horns)
         .chain(cheek_spikes)
         .chain(fangs(-0.07, std::f32::consts::PI))
-        .chain(fins(Vec2::new(0.25, 0.38), Vec2::new(-0.3, 0.38), 3, 0.2, 0.4))
         .collect()
     ),
     (Bone::Head, Stuff::Ember, vec![
       Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(0.25, 0.17, -0.42),
       Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(-0.25, 0.17, -0.42),
     ]),
-    (Bone::Jaw, Stuff::Leather, vec![jaw]),
-    (Bone::Jaw, Stuff::Bone, fangs(0.06, 0.0))
+    (Bone::Jaw, Stuff::Scales, vec![jaw]),
+    (Bone::Jaw, Stuff::Bone, fangs(0.06, 0.0).into_iter().chain(chin_spikes).collect())
   ]);
   [
     (Bone::Tail1, 0.64, 0.46),
@@ -375,7 +496,7 @@ fn build(
   .into_iter()
   .enumerate()
   .for_each(|(index, (bone, girth, next))| {
-    parts.push((bone, Stuff::Leather, segment(1.55, girth, next, 40 + index as u32)));
+    parts.push((bone, Stuff::Scales, segment(1.55, girth, next, 40 + index as u32)));
     parts.push((
       bone,
       Stuff::Bone,
@@ -383,7 +504,7 @@ fn build(
         Vec2::new(0.15, girth * 0.82),
         Vec2::new(1.35, next * 0.85),
         3,
-        0.36 - index as f32 * 0.06,
+        0.46 - index as f32 * 0.09,
         0.2
       )
     ));
@@ -392,19 +513,21 @@ fn build(
     Piece::new(
       model::fan(
         &[
-          Vec2::new(0.0, 0.0),
-          Vec2::new(0.3, -0.35),
-          Vec2::new(0.18, -0.75),
-          Vec2::new(0.0, -1.2),
-          Vec2::new(-0.18, -0.75),
-          Vec2::new(-0.3, -0.35)
+          Vec2::new(0.0, 0.1),
+          Vec2::new(0.3, -0.25),
+          Vec2::new(0.58, -0.62),
+          Vec2::new(0.22, -0.62),
+          Vec2::new(0.0, -1.45),
+          Vec2::new(-0.22, -0.62),
+          Vec2::new(-0.58, -0.62),
+          Vec2::new(-0.3, -0.25)
         ],
-        0.05
+        0.06
       ),
-      horn
+      spike
     )
     .pitched(-FRAC_PI_2)
-    .at_xyz(0.0, 0.0, 1.35),
+    .at_xyz(0.0, 0.0, 1.3),
   ]));
   let arm_spine = model::spline(
     &[
@@ -425,43 +548,53 @@ fn build(
       Vec3::new(0.26, 0.3, 0.3),
       Vec3::new(0.2, 0.2, 0.2),
       Vec3::new(0.14, 0.15, 0.15),
-      Vec3::new(0.14, 0.16, 0.16),
+      Vec3::new(0.16, 0.17, 0.17),
       Vec3::splat(0.02)
     ],
     6
   );
-  let wing_arm = scaled(
-    Piece::new(model::sweep(&arm_spine, &arm_girth, 14), hide).grained(3.0),
-    hide,
-    belly
-  );
+  let wing_arm = Hide::BRONZE.paint(tiled(
+    Piece::new(model::sweep(&arm_spine, &arm_girth, 14), hide),
+    1.0,
+    4.5 / SCALE_TILE
+  ));
   let finger_tips = [
-    Vec3::new(1.3, 0.0, -0.6),
-    Vec3::new(0.6, 0.0, 2.6),
-    Vec3::new(-0.8, 0.0, 3.9),
-    Vec3::new(-2.6, 0.0, 4.3)
+    Vec3::new(3.1, 0.0, 1.0),
+    Vec3::new(2.2, 0.0, 2.9),
+    Vec3::new(0.8, 0.0, 3.9),
+    Vec3::new(-1.0, 0.0, 4.2)
   ];
   let finger_path = |tip: Vec3| curve(Vec3::ZERO, tip * 0.5 + Vec3::Y * 0.15, tip, 10);
+  let strut = hide * 0.62;
   let fingers: Vec<Piece> = finger_tips
     .iter()
     .flat_map(|&tip| {
       let path = finger_path(tip);
-      let knuckles = [0.35, 0.7].map(|t| {
-        Piece::new(ball(0.07 * (1.2 - t)), hide * 0.8).at(path[(t * 10.0) as usize])
+      let knuckles = [0.3, 0.6].map(|t| {
+        Piece::new(ball(0.085 * (1.25 - t)), strut).at(path[(t * 10.0) as usize])
       });
-      [Piece::new(tube(&path, &taper(10, 0.1, 0.018), 8), hide * 0.8)]
+      let talon = Piece::new(cone(0.035, 1.0), claw)
+        .span(tip, tip + (tip - path[8]).normalize() * 0.35);
+      [Piece::new(tube(&path, &taper(10, 0.12, 0.025), 8), strut), talon]
         .into_iter()
         .chain(knuckles)
     })
-    .chain([Piece::new(cone(0.06, 0.32), claw).pitched(-1.4).at_xyz(0.05, 0.12, -0.15)])
+    .chain([
+      Piece::new(cone(0.07, 0.4), claw).pitched(-1.4).at_xyz(0.05, 0.12, -0.2),
+      Piece::new(ball(0.2), strut)
+    ])
     .collect();
-  let skin = LinearRgba::from(srgb(0.36, 0.25, 0.2));
+  let skin = LinearRgba::from(srgb(0.52, 0.54, 0.44));
   let webbing = move |grid: Vec<Vec<Vec3>>| {
-    Piece::new(model::sheet(&grid), srgb(0.36, 0.26, 0.22)).shaded(move |position, _| {
+    Piece::new(model::sheet(&grid), srgb(0.52, 0.54, 0.44)).shaded(move |position, _| {
       let reach = position.length();
-      let veins = (f32::atan2(position.z, position.x) * 7.0).sin().abs().powf(12.0);
-      let blotch = crate::noise::value3(position * 1.7, 29) * 0.35 + 0.8;
-      (skin * blotch * (1.15 - reach * 0.08).max(0.55) * (1.0 - veins * 0.35))
+      let veins = (f32::atan2(position.z, position.x) * 11.0
+        + crate::noise::value3(position * 0.8, 31) * 3.0)
+        .sin()
+        .abs()
+        .powf(16.0);
+      let blotch = crate::noise::value3(position * 1.7, 29) * 0.3 + 0.82;
+      (skin * blotch * (1.0 - reach * 0.035).max(0.7) * (1.0 - veins * 0.4))
         .with_alpha(1.0)
     })
   };
@@ -478,11 +611,11 @@ fn build(
           .enumerate()
           .map(|(row, (&lead, &trail))| {
             let along = row as f32 / 10.0;
-            across(8)
+            across(10)
               .map(|s| {
                 let bow = (s * std::f32::consts::PI).sin();
-                lead.lerp(trail, s) * (1.0 - 0.28 * bow * along.powi(2))
-                  - Vec3::Y * 0.14 * bow * along
+                lead.lerp(trail, s) * (1.0 - 0.34 * bow * along.powi(2))
+                  - Vec3::Y * 0.16 * bow * along
               })
               .collect()
           })
@@ -490,6 +623,7 @@ fn build(
       )
     })
     .collect();
+  let fan_frame = Quat::from_rotation_y(-FAN_TURN);
   let wrist = Bone::TipR.rest();
   let (root, far) = (Vec3::new(0.2, -0.05, 3.3), wrist + finger_tips[3]);
   let inner = webbing(
@@ -499,8 +633,8 @@ fn build(
       .map(|(row, &lead)| {
         let along = row as f32 / (arm_spine.len() - 13) as f32;
         let edge = root.lerp(far, along)
-          + Vec3::NEG_Z * 0.6 * (along * std::f32::consts::PI).sin();
-        across(8)
+          + Vec3::NEG_Z * 0.7 * (along * std::f32::consts::PI).sin();
+        across(10)
           .map(|s| lead.lerp(edge, s) - Vec3::Y * 0.2 * (s * std::f32::consts::PI).sin())
           .collect()
       })
@@ -562,13 +696,16 @@ fn build(
     ],
     45
   );
+  let in_fan = |pieces: Vec<Piece>| -> Vec<Piece> {
+    pieces.into_iter().map(|piece| piece.turned(fan_frame)).collect()
+  };
   let right_side: Vec<(Bone, Stuff, Vec<Piece>)> = vec![
-    (Bone::WingR, Stuff::Leather, vec![wing_arm, shoulder]),
+    (Bone::WingR, Stuff::Scales, vec![wing_arm, shoulder]),
     (Bone::WingR, Stuff::Membrane, vec![inner]),
-    (Bone::TipR, Stuff::Leather, fingers),
-    (Bone::TipR, Stuff::Membrane, membranes),
-    (Bone::LegR, Stuff::Leather, vec![thigh]),
-    (Bone::ShinR, Stuff::Leather, [shin].into_iter().chain(toes).collect()),
+    (Bone::TipR, Stuff::Leather, in_fan(fingers)),
+    (Bone::TipR, Stuff::Membrane, in_fan(membranes)),
+    (Bone::LegR, Stuff::Scales, vec![thigh]),
+    (Bone::ShinR, Stuff::Scales, [shin].into_iter().chain(toes).collect()),
     (Bone::ShinR, Stuff::Bone, claws),
   ];
   right_side.into_iter().for_each(|(bone, stuff, pieces)| {
@@ -577,10 +714,14 @@ fn build(
     parts.push((bone, stuff, pieces));
   });
   parts.into_iter().for_each(|(bone, stuff, pieces)| {
+    let mesh = model::merge(pieces);
+    let mesh = (stuff == Stuff::Scales)
+      .then(|| mesh.clone().with_generated_tangents().expect("dragon hide has uvs"))
+      .unwrap_or(mesh);
     let part = commands
       .spawn((
         DragonPart,
-        Mesh3d(meshes.add(model::merge(pieces))),
+        Mesh3d(meshes.add(mesh)),
         MeshMaterial3d(stuffs.of(stuff)),
         ChildOf(bones[bone as usize])
       ))
@@ -1032,20 +1173,17 @@ fn pose(
             Vec3::new(0.12, 0.2 * wave, 0.0)
           }
         }
-        Bone::WingR if slain => Vec3::new(0.0, 0.3, -0.2),
-        Bone::WingL if slain => Vec3::new(0.0, -0.3, 0.2),
+        Bone::WingR if slain => Vec3::new(0.0, 0.3, -0.75),
+        Bone::WingL if slain => Vec3::new(0.0, -0.3, 0.45),
         Bone::WingR if flying => {
           Vec3::new(0.0, 0.0, beat * 0.75 * (dragon.flap_rate > 0.1) as u8 as f32 + 0.05)
         }
         Bone::WingL if flying => {
           Vec3::new(0.0, 0.0, -beat * 0.75 * (dragon.flap_rate > 0.1) as u8 as f32 - 0.05)
         }
-        Bone::WingR => Vec3::new(0.2, 0.9, -1.1),
-        Bone::WingL => Vec3::new(0.2, -0.9, 1.1),
-        Bone::TipR if flying => Vec3::new(0.0, 0.0, lag * 0.5),
-        Bone::TipL if flying => Vec3::new(0.0, 0.0, -lag * 0.5),
-        Bone::TipR => Vec3::new(0.0, 2.2, 1.2),
-        Bone::TipL => Vec3::new(0.0, -2.2, -1.2),
+        Bone::WingR => Vec3::new(0.2, 0.6, -1.15),
+        Bone::WingL => Vec3::new(0.2, -0.6, 1.15),
+        Bone::TipR | Bone::TipL => Vec3::ZERO,
         Bone::LegL | Bone::LegR if flying => Vec3::new(-1.1, 0.0, 0.0),
         Bone::ShinL | Bone::ShinR if flying => Vec3::new(1.0, 0.0, 0.0),
         Bone::LegL => Vec3::new(
@@ -1061,14 +1199,34 @@ fn pose(
         Bone::ShinL | Bone::ShinR => Vec3::new(-0.1, 0.0, 0.0)
       }
     };
-    let (spread, furl) = flying.then_some((1.0, 1.0)).unwrap_or((0.4, 0.25));
+    let euler = |bone: Bone| {
+      let Vec3 { x, y, z } = angles(bone);
+      Quat::from_euler(EulerRot::YXZ, y, x, z)
+    };
+    let fan = Quat::from_rotation_y(FAN_TURN);
+    let (tip, spread, furl) = if flying {
+      (Quat::from_rotation_z(lag * 0.5) * fan, Vec3::ONE, 1.0)
+    } else if slain {
+      (Quat::from_rotation_z(0.3) * fan, Vec3::splat(0.85), 1.0)
+    } else {
+      let wing = euler(Bone::WingR);
+      let wrist = Bone::WingR.rest() + wing * Bone::TipR.rest();
+      let along = (FOLDED_TOWARD - wrist).normalize();
+      let outward = Vec3::X.reject_from_normalized(along).normalize();
+      let folded =
+        Quat::from_mat3(&Mat3::from_cols(outward.cross(along), outward, along));
+      (wing.inverse() * folded, Vec3::new(0.13, 1.0, 0.95), 0.3)
+    };
     dragon.bones.iter().zip(Bone::ALL).for_each(|(&entity, bone)| {
       if let Ok(mut transform) = bones.get_mut(entity) {
-        let angles = angles(bone);
-        let target = Quat::from_euler(EulerRot::YXZ, angles.y, angles.x, angles.z);
+        let target = match bone {
+          Bone::TipR => tip,
+          Bone::TipL => mirrored(tip),
+          _ => euler(bone)
+        };
         transform.rotation = transform.rotation.slerp(target, blend);
         if matches!(bone, Bone::TipL | Bone::TipR) {
-          transform.scale = transform.scale.lerp(Vec3::splat(spread), blend);
+          transform.scale = transform.scale.lerp(spread, blend);
         }
       }
     });

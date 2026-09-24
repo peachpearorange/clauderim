@@ -106,6 +106,38 @@ pub fn cracks() -> Image {
   })
 }
 
+pub fn scale_grain(u: f32, v: f32) -> (f32, f32) {
+  const PERIOD: i32 = 16;
+  const REACH: f32 = 0.64;
+  let (x, y) = (u * PERIOD as f32, v * PERIOD as f32);
+  let row = (y * 2.0).floor() as i32;
+  (row - 2..=row + 1)
+    .flat_map(|rank| {
+      let shift = (rank.rem_euclid(2) as f32) * 0.5;
+      let column = (x - shift).round() as i32;
+      (column - 1..=column + 1).map(move |column| (rank, column, shift))
+    })
+    .find_map(|(rank, column, shift)| {
+      let reach =
+        Vec2::new(x - column as f32 - shift, y - rank as f32 * 0.5).length() / REACH;
+      (reach < 1.0).then(|| {
+        let tint =
+          crate::noise::hash(column.rem_euclid(PERIOD), rank.rem_euclid(PERIOD * 2), 133);
+        ((1.0 - reach.powi(3)).sqrt(), tint)
+      })
+    })
+    .unwrap_or((0.0, 0.5))
+}
+
+pub fn scales() -> Image {
+  shade(512, |u, v| {
+    let (swell, tint) = scale_grain(u, v);
+    0.48 + 0.36 * swell + 0.16 * (tint - 0.5) + 0.12 * (tile_fbm(u, v, 8, 3, 134) - 0.5)
+  })
+}
+
+pub fn scale_bumps() -> Image { bumps(512, 0.0035, |u, v| scale_grain(u, v).0) }
+
 pub fn fur() -> Image {
   shade(256, |u, v| {
     let strands = stretched_noise(u, v, 16, 256, 71);
