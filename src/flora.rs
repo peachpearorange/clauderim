@@ -2,6 +2,7 @@ use {crate::{model::{self, Piece},
              noise::{self, Roll},
              place::{self, LAKE_LEVEL, Place, START, START_FACING},
              player::{MainCamera, Player},
+             sky,
              stuff::{Stuff, Stuffs},
              terrain::{self, BOUND, Ground, HALF, srgb}},
      avian3d::prelude::*,
@@ -77,6 +78,7 @@ const RESTREAM_STEP: f32 = 8.0;
 const SLACK: f32 = RESTREAM_STEP + 2.0;
 const MERGE_LIMIT: f32 = 360.0;
 const MERGE_VERTICES: usize = 1200;
+const SHADOWLESS: f32 = sky::SHADOW_DISTANCE + 120.0;
 const FOREVER: f32 = 1.0e6;
 const SWARD_CELL: f32 = 16.0;
 const SWARD_REACH: f32 = 80.0;
@@ -1315,7 +1317,8 @@ struct Look {
   material: Handle<StandardMaterial>,
   place: Transform,
   range: VisibilityRange,
-  shown: Option<Entity>
+  shown: Option<Entity>,
+  shadowless: bool
 }
 
 impl Look {
@@ -1324,25 +1327,33 @@ impl Look {
     let live = wanted
       && distance >= self.range.start_margin.start - SLACK
       && distance < self.range.end_margin.end + SLACK;
+    let shadowless = distance > SHADOWLESS;
     match (live, self.shown) {
       (true, None) => {
-        self.shown = Some(
-          commands
-            .spawn((
-              Mesh3d(self.mesh.clone()),
-              MeshMaterial3d(self.material.clone()),
-              self.place,
-              self.range.clone()
-            ))
-            .id()
-        );
+        let mut shown = commands.spawn((
+          Mesh3d(self.mesh.clone()),
+          MeshMaterial3d(self.material.clone()),
+          self.place,
+          self.range.clone()
+        ));
+        if shadowless {
+          shown.insert(NotShadowCaster);
+        }
+        self.shown = Some(shown.id());
       }
       (false, Some(entity)) => {
         commands.entity(entity).despawn();
         self.shown = None;
       }
+      (true, Some(entity)) if shadowless != self.shadowless => {
+        match shadowless {
+          true => commands.entity(entity).insert(NotShadowCaster),
+          false => commands.entity(entity).remove::<NotShadowCaster>()
+        };
+      }
       _ => {}
     }
+    self.shadowless = shadowless;
   }
 }
 
@@ -1397,7 +1408,8 @@ struct Stand {
   looks: Vec<Look>,
   distant: Vec<Look>,
   batches: Vec<(Handle<StandardMaterial>, Handle<Mesh>, Aabb)>,
-  merged: Vec<Entity>
+  merged: Vec<Entity>,
+  shadowless: bool
 }
 
 #[derive(Resource)]
@@ -1423,20 +1435,23 @@ fn tend_woods(
         > stand.settled
           + RESTREAM_STEP
           + (stand.merged.is_empty() as u8 as f32) * CELL * 0.25;
+      let shadowless = gap > SHADOWLESS;
       match (far, stand.merged.is_empty()) {
         (true, true) => {
           stand.merged = stand
             .batches
             .iter()
             .map(|(material, mesh, aabb)| {
-              commands
-                .spawn((
-                  Mesh3d(mesh.clone()),
-                  MeshMaterial3d(material.clone()),
-                  Transform::from_translation(stand.origin),
-                  *aabb
-                ))
-                .id()
+              let mut batch = commands.spawn((
+                Mesh3d(mesh.clone()),
+                MeshMaterial3d(material.clone()),
+                Transform::from_translation(stand.origin),
+                *aabb
+              ));
+              if shadowless {
+                batch.insert(NotShadowCaster);
+              }
+              batch.id()
             })
             .collect();
         }
@@ -1445,6 +1460,15 @@ fn tend_woods(
         }
         _ => {}
       }
+      if shadowless != stand.shadowless {
+        stand.merged.iter().for_each(|&entity| {
+          match shadowless {
+            true => commands.entity(entity).insert(NotShadowCaster),
+            false => commands.entity(entity).remove::<NotShadowCaster>()
+          };
+        });
+      }
+      stand.shadowless = shadowless;
       stand.looks.iter_mut().for_each(|look| look.stream(&mut commands, eye, true));
       stand.distant.iter_mut().for_each(|look| look.stream(&mut commands, eye, !far));
     });
@@ -1560,7 +1584,8 @@ fn spawn_flora(
             material: material.clone(),
             place,
             range: VisibilityRange { start_margin, end_margin, use_aabb: false },
-            shown: None
+            shown: None,
+            shadowless: false
           };
           form
             .parts
@@ -1615,7 +1640,8 @@ fn spawn_flora(
         looks,
         distant,
         batches,
-        merged: Vec::new()
+        merged: Vec::new(),
+        shadowless: false
       }
     })
     .collect();

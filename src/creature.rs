@@ -25,6 +25,8 @@ struct Breed {
   height: f32
 }
 
+const UNWATCHED: f32 = 200.0;
+
 const fn breed(kind: FoeKind) -> Breed {
   match kind {
     FoeKind::Wolf => Breed {
@@ -264,7 +266,7 @@ fn think(
           foe.cooldown = 0.6;
           Mind::Hunt
         }
-        Mind::Idle(wait) if wait <= 0.0 => {
+        Mind::Idle(wait) if wait <= 0.0 && distance < UNWATCHED => {
           let wander =
             foe.home + Vec3::new(foe.roll.spread(14.0), 0.0, foe.roll.spread(14.0));
           Mind::Roam(wander)

@@ -101,6 +101,8 @@ pub fn lens() -> impl Bundle {
   )
 }
 
+pub const SHADOW_DISTANCE: f32 = 320.0;
+
 fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>) {
   commands
     .spawn(bevy::light::Atmosphere::earth(media.add(ScatteringMedium::earth(256, 256))));
@@ -117,7 +119,7 @@ fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>
     CascadeShadowConfigBuilder {
       num_cascades: 4,
       first_cascade_far_bound: 14.0,
-      maximum_distance: 320.0,
+      maximum_distance: SHADOW_DISTANCE,
       ..default()
     }
     .build(),
