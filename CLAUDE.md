@@ -28,4 +28,4 @@ Env var `SKYRIM` holds JSON5 `opts::Opts`: `hour` (start hour, 9.5), `day` (secs
 e.g. `SKYRIM='{shot: 5, at: "hollow"}' SHOT_NAME=barrow cargo run`. Screenshots are the way to check visuals — always look at them.
 
 # Style
-Follow ~/CLAUDE.md Rust style. rustfmt config is in ~/.rustfmt.toml (2-space). Avoid comments; name things well.
+Format with `cargo +nightly fmt` (repo `rustfmt.toml` uses nightly-only options; stable rustfmt ignores them and reflows everything). Avoid comments; name things well.

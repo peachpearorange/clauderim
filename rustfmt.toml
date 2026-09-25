@@ -1,0 +1,9 @@
+edition = "2024"
+tab_spaces = 2
+max_width = 90
+use_small_heuristics = "Max"
+trailing_comma = "Never"
+imports_indent = "Visual"
+imports_layout = "Mixed"
+fn_single_line = true
+overflow_delimited_expr = true

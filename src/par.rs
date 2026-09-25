@@ -14,7 +14,9 @@ impl<Made> Handle<Made> {
 
 #[cfg(target_arch = "wasm32")]
 impl Scope {
-  pub fn spawn<Made>(&self, work: impl FnOnce() -> Made) -> Handle<Made> { Handle(work()) }
+  pub fn spawn<Made>(&self, work: impl FnOnce() -> Made) -> Handle<Made> {
+    Handle(work())
+  }
 }
 
 #[cfg(target_arch = "wasm32")]
