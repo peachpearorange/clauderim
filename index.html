@@ -3,6 +3,25 @@
   <head>
     <meta charset="utf-8" />
     <title>The Vibe Scrolls V: Clauderim</title>
+    <script>
+      (() => {
+        const contexts = [];
+        const gestures = ["click", "mousedown", "pointerup", "touchend", "keydown"];
+        self.AudioContext = new Proxy(self.AudioContext, {
+          construct(target, args) {
+            const context = new target(...args);
+            contexts.push(context);
+            return context;
+          }
+        });
+        const resume = () => {
+          contexts.forEach((context) => context.state !== "running" && context.resume());
+          contexts.length > 0 && contexts.every((context) => context.state === "running") &&
+            gestures.forEach((name) => document.removeEventListener(name, resume));
+        };
+        gestures.forEach((name) => document.addEventListener(name, resume));
+      })();
+    </script>
     <link data-trunk rel="rust" data-wasm-opt="z" />
     <link data-trunk rel="copy-dir" href="assets" />
     <style>
