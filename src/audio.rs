@@ -88,7 +88,7 @@ fn loudness(cue: Cue) -> (f32, f32) {
     Cue::PowerSwing => (0.7, 6.0),
     Cue::Hit => (0.6, 8.0),
     Cue::Block => (0.6, 10.0),
-    Cue::Footstep => (0.18, 4.0),
+    Cue::Footstep => (0.08, 4.0),
     Cue::WolfGrowl => (0.3, 10.0),
     Cue::WolfBite => (0.8, 8.0),
     Cue::WolfDie => (0.45, 10.0),

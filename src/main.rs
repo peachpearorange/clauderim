@@ -99,7 +99,7 @@ fn main() {
     .add_plugins((
       DefaultPlugins.set(WindowPlugin {
         primary_window: Some(Window {
-          title: "Skyrim II".into(),
+          title: "The Vibe Scrolls V: Clauderim".into(),
           resolution: (1600, 900).into(),
           present_mode: opts::opts()
             .shot

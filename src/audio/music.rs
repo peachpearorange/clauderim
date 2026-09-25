@@ -7,53 +7,65 @@ pub struct Saws {
   pub detune: f32,
   pub floor: f32,
   pub tone: f32,
-  pub vibrato: f32
+  pub vibrato: f32,
+  pub scoop: f32,
+  pub blat: f32
 }
 
 impl Saws {
   pub const STRINGS: Saws = Saws {
     env: Adsr { attack: 1.6, decay: 2.0, sustain: 0.85, release: 0.9 },
-    voices: 3,
-    detune: 0.0035,
+    voices: 6,
+    detune: 0.0025,
     floor: 1.5,
-    tone: 5.0,
-    vibrato: 0.003
+    tone: 4.5,
+    vibrato: 0.004,
+    scoop: 0.0,
+    blat: 0.0
   };
   pub const BASS: Saws = Saws {
     env: Adsr { attack: 1.2, decay: 2.0, sustain: 0.9, release: 0.9 },
-    voices: 2,
+    voices: 3,
     detune: 0.002,
     floor: 2.0,
     tone: 4.0,
-    vibrato: 0.0
+    vibrato: 0.002,
+    scoop: 0.0,
+    blat: 0.0
   };
   pub const STACCATO: Saws = Saws {
-    env: Adsr { attack: 0.012, decay: 0.12, sustain: 0.55, release: 0.05 },
-    voices: 2,
+    env: Adsr { attack: 0.01, decay: 0.1, sustain: 0.45, release: 0.05 },
+    voices: 4,
     detune: 0.003,
-    floor: 2.0,
-    tone: 7.0,
-    vibrato: 0.0
+    floor: 1.5,
+    tone: 6.0,
+    vibrato: 0.0,
+    scoop: 0.0,
+    blat: 1.0
   };
   pub const HORN: Saws = Saws {
-    env: Adsr { attack: 0.14, decay: 0.8, sustain: 0.8, release: 0.3 },
-    voices: 2,
-    detune: 0.0015,
-    floor: 1.2,
-    tone: 5.5,
-    vibrato: 0.004
+    env: Adsr { attack: 0.12, decay: 0.8, sustain: 0.8, release: 0.3 },
+    voices: 4,
+    detune: 0.0018,
+    floor: 0.9,
+    tone: 3.2,
+    vibrato: 0.003,
+    scoop: 0.012,
+    blat: 0.6
   };
   pub const BRASS: Saws = Saws {
-    env: Adsr { attack: 0.02, decay: 0.2, sustain: 0.4, release: 0.12 },
+    env: Adsr { attack: 0.02, decay: 0.25, sustain: 0.5, release: 0.15 },
     voices: 3,
-    detune: 0.004,
-    floor: 1.5,
-    tone: 9.0,
-    vibrato: 0.0
+    detune: 0.003,
+    floor: 1.2,
+    tone: 6.0,
+    vibrato: 0.0,
+    scoop: 0.008,
+    blat: 1.8
   };
 
   pub fn play(&self, note: f32, held: f32, seed: u64) -> Vec<f32> {
-    let &Saws { env, voices, detune, floor, tone, vibrato } = self;
+    let &Saws { env, voices, detune, floor, tone, vibrato, scoop, blat } = self;
     let freq = midi(note);
     let mut rng = Rng::new(seed);
     let mut oscs: Vec<(Osc, f32)> = (0..voices)
@@ -69,9 +81,13 @@ impl Saws {
       .map(|index| {
         let t = time(index);
         let level = env.level(t, held);
-        let bend = 1.0 + vibrato * wobble.sine(rate) * smooth(t * 1.5 - 0.3);
+        let bend = (1.0 + vibrato * wobble.sine(rate) * smooth(t * 1.5 - 0.3))
+          * (1.0 - scoop * (-t / 0.05).exp());
         if index % 32 == 0 {
-          filter.tune(freq * (floor + tone * level * level), 0.8)
+          filter.tune(
+            freq * (floor + tone * level * level * (1.0 + blat * perc(t, 0.01, 0.08))),
+            0.8
+          )
         }
         let raw =
           oscs.iter_mut().map(|(osc, ratio)| osc.saw(freq * *ratio * bend)).sum::<f32>();
@@ -155,6 +171,108 @@ pub fn drum(pitch: f32, decay: f32, seed: u64) -> Vec<f32> {
         + over.sine(freq * 1.5) * perc(t, 0.002, decay * 0.45) * 0.45
         + high.sine(freq * 2.02) * perc(t, 0.002, decay * 0.25) * 0.2;
       drive(tone + skin.step(rng.signed()).low * perc(t, 0.001, 0.045) * 0.9, 1.6)
+    })
+    .collect()
+}
+
+pub fn harp(note: f32, seed: u64) -> Vec<f32> {
+  let freq = midi(note);
+  let mut rng = Rng::new(seed);
+  let span = ((RATE / freq - 0.5).round() as usize).max(2);
+  let ring = (4.0 - (note - 48.0) * 0.06).clamp(1.0, 4.5);
+  let loss = 10f32.powf(-3.0 * span as f32 / (ring * RATE));
+  let mut finger = Lag::new(freq * 5.0);
+  let pluck: Vec<f32> = (0..span).map(|_| finger.step(rng.signed())).collect();
+  let center = pluck.iter().sum::<f32>() / span as f32;
+  let mut string: Vec<f32> = pluck.iter().map(|x| x - center).collect();
+  let mut body = Svf::new(freq * 2.5, 0.6);
+  (0..len(ring * 1.3))
+    .map(|index| {
+      let at = index % span;
+      let out = string[at];
+      string[at] = loss * 0.5 * (out + string[(at + 1) % span]);
+      out + body.step(out).low * 0.4
+    })
+    .collect()
+}
+
+pub fn piano(note: f32, held: f32, seed: u64) -> Vec<f32> {
+  let freq = midi(note);
+  let mut rng = Rng::new(seed);
+  let ring = (7.0 - (note - 60.0) * 0.1).clamp(1.5, 9.0);
+  let mut partials: Vec<(Osc, Osc, f32, f32, f32)> = (1..=10)
+    .map(|harmonic| harmonic as f32)
+    .map(|n| {
+      (
+        Osc(rng.unit()),
+        Osc(rng.unit()),
+        freq * n * (1.0 + 0.0004 * n * n).sqrt(),
+        1.0 / n.powf(1.4),
+        ring / (1.0 + 0.6 * (n - 1.0))
+      )
+    })
+    .filter(|&(_, _, hz, _, _)| hz < RATE * 0.45)
+    .collect();
+  let mut hammer = Svf::new(freq * 4.0, 0.7);
+  (0..len(held.min(ring * 1.5) + 0.6))
+    .map(|index| {
+      let t = time(index);
+      let damper = (t < held).then_some(1.0).unwrap_or((-(t - held) / 0.12).exp());
+      let tone = partials
+        .iter_mut()
+        .map(|(one, two, hz, gain, decay)| {
+          (one.sine(*hz) + two.sine(*hz * 1.0008)) * 0.5 * *gain * perc(t, 0.002, *decay)
+        })
+        .sum::<f32>();
+      (tone + hammer.step(rng.signed()).band * perc(t, 0.001, 0.012) * 0.4) * damper
+    })
+    .collect()
+}
+
+pub fn timpani(note: f32, seed: u64) -> Vec<f32> {
+  const MODES: [(f32, f32, f32); 5] = [
+    (1.0, 1.0, 1.0),
+    (1.5, 0.55, 0.7),
+    (1.99, 0.35, 0.5),
+    (2.44, 0.2, 0.35),
+    (2.97, 0.12, 0.25)
+  ];
+  let freq = midi(note);
+  let mut rng = Rng::new(seed);
+  let mut heads = MODES.map(|_| Osc(rng.unit()));
+  let mut mallet = Svf::new(350.0, 0.7);
+  (0..len(4.0))
+    .map(|index| {
+      let t = time(index);
+      let glide = 1.0 + 0.015 * (-t / 0.06).exp();
+      let tone = heads
+        .iter_mut()
+        .zip(MODES)
+        .map(|(head, (ratio, gain, decay))| {
+          head.sine(freq * ratio * glide) * gain * perc(t, 0.003, decay * 1.4)
+        })
+        .sum::<f32>();
+      tone + mallet.step(rng.signed()).low * perc(t, 0.001, 0.03) * 1.2
+    })
+    .collect()
+}
+
+pub fn cymbal(swell: f32, seed: u64) -> Vec<f32> {
+  const SHIMMER: [(f32, f32); 3] = [(4800.0, 1.0), (7600.0, 0.8), (11000.0, 0.5)];
+  let mut rng = Rng::new(seed);
+  let mut bands = SHIMMER.map(|(hz, _)| Svf::new(hz, 1.2));
+  (0..len(swell + 3.0))
+    .map(|index| {
+      let t = time(index);
+      let level =
+        (t < swell).then(|| (t / swell).powi(3)).unwrap_or((-(t - swell) / 0.7).exp());
+      let hiss = rng.signed();
+      bands
+        .iter_mut()
+        .zip(SHIMMER)
+        .map(|(band, (_, gain))| band.step(hiss).band * gain)
+        .sum::<f32>()
+        * level
     })
     .collect()
 }
@@ -244,19 +362,17 @@ pub fn explore() -> Wave {
     (19.0, 1.0, 55.0),
     (20.0, 3.5, 57.0)
   ];
-  const DRUMS: [(f32, f32); 11] = [
-    (0.0, 1.0),
-    (30.5, 0.5),
-    (31.25, 0.6),
-    (32.0, 0.9),
-    (62.5, 0.5),
-    (63.25, 0.6),
-    (64.0, 0.9),
-    (93.5, 0.4),
-    (94.25, 0.5),
-    (95.0, 0.6),
-    (48.0, 0.5)
+  const TIMPANI: [(f32, f32, f32); 5] = [
+    (0.0, 38.0, 1.0),
+    (32.0, 38.0, 0.9),
+    (48.0, 33.0, 0.5),
+    (64.0, 38.0, 0.9),
+    (95.0, 33.0, 0.6)
   ];
+  const ROLLS: [(f32, f32, f32); 3] =
+    [(29.5, 2.5, 33.0), (61.5, 2.5, 33.0), (93.0, 2.0, 38.0)];
+  const HARP_STEPS: [usize; 8] = [0, 1, 2, 3, 4, 3, 2, 1];
+  const PIANO_STEPS: [(f32, usize); 3] = [(0.0, 2), (2.5, 1), (5.0, 0)];
   let mut score = Score::new(CHORD * CHORDS.len() as f32, 7);
   CHORDS.iter().enumerate().for_each(|(index, &(bass, pad))| {
     let at = index as f32 * CHORD;
@@ -282,6 +398,23 @@ pub fn explore() -> Wave {
         0.0
       )
     }
+    if index < 4 {
+      PIANO_STEPS.iter().for_each(|&(beat, voice)| {
+        let seed = score.seed();
+        score.place(at + beat, &piano(pad[voice] + 12.0, 2.5, seed), 0.22, 0.15)
+      })
+    } else {
+      let strings = [bass + 12.0, pad[0], pad[1], pad[2], pad[0] + 12.0];
+      (0..16).for_each(|step| {
+        let seed = score.seed();
+        score.place(
+          at + step as f32 * 0.5,
+          &harp(strings[HARP_STEPS[step % HARP_STEPS.len()]], seed),
+          0.14,
+          0.4
+        )
+      })
+    }
   });
   [(16.0, &HORN_CALL[..], 0.0), (72.0, &LOW_HORN[..], 0.0)].into_iter().for_each(
     |(start, line, shift)| {
@@ -295,9 +428,21 @@ pub fn explore() -> Wave {
     let seed = score.seed();
     score.place(40.0 + at, &flute(note, held, seed), 0.2, 0.3)
   });
-  DRUMS.iter().for_each(|&(at, gain)| {
+  TIMPANI.iter().for_each(|&(at, note, gain)| {
     let seed = score.seed();
-    score.place(at, &drum(midi(38.0) * 0.98, 0.5, seed), gain * 0.35, 0.1)
+    score.place(at, &timpani(note, seed), gain * 0.3, 0.1)
+  });
+  ROLLS.iter().for_each(|&(start, secs, note)| {
+    (0..(secs / 0.07) as usize).for_each(|stroke| {
+      let seed = score.seed();
+      let at = stroke as f32 * 0.07;
+      score.place(
+        start + at,
+        &timpani(note, seed),
+        0.02 + 0.08 * (at / secs).powi(2),
+        0.1
+      )
+    })
   });
   score.finish(Hall::new(0.9, 0.4, 1.35), 1.1)
 }
@@ -368,15 +513,41 @@ pub fn combat() -> Wave {
       let seed = score.seed();
       score.place(
         bar_at + beat * BEAT,
-        &drum(58.0, 0.3, seed),
-        if beat == 0.0 { 0.5 } else { 0.35 },
+        &drum(48.0, 0.45, seed),
+        if beat == 0.0 { 0.55 } else { 0.38 },
         0.05
       )
     });
+    [(0.0, root, 0.4), (2.0, root + 7.0, 0.28)].into_iter().for_each(
+      |(beat, note, gain)| {
+        let seed = score.seed();
+        score.place(bar_at + beat * BEAT, &timpani(note.max(33.0), seed), gain, -0.1)
+      }
+    );
     SMALL.iter().for_each(|&beat| {
       let seed = score.seed();
       score.place(bar_at + beat * BEAT, &drum(110.0, 0.14, seed), 0.2, -0.2)
     });
+    if bar % 8 == 6 {
+      let seed = score.seed();
+      score.place(bar_at, &cymbal(8.0 * BEAT, seed), 0.12, 0.3)
+    }
+    if bar >= 8 && bar % 4 == 0 {
+      let seed = score.seed();
+      let env = Adsr { attack: 0.6, decay: 2.0, sustain: 0.85, release: 0.8 };
+      score.place(
+        bar_at,
+        &choir(
+          &[root + 12.0, root + 19.0, root + 24.0],
+          15.0 * BEAT,
+          [Phone::O, Phone::A][bar / 4 % 2],
+          env,
+          seed
+        ),
+        0.3,
+        0.0
+      )
+    }
     if bar % 8 == 7 {
       (0..4).for_each(|tick| {
         let seed = score.seed();
@@ -389,7 +560,7 @@ pub fn combat() -> Wave {
       })
     }
     if bar % 2 == 0 {
-      let chord = [root + 12.0, root + 12.0 + third, root + 19.0, root + 24.0];
+      let chord = [root, root + 7.0, root + 12.0, root + 12.0 + third];
       [(0.0, 0.8), (2.5, 0.35), (6.5, 0.5)].into_iter().for_each(|(beat, held)| {
         chord.iter().for_each(|&note| {
           let seed = score.seed();
@@ -407,8 +578,15 @@ pub fn combat() -> Wave {
   });
   MELODY.iter().fold(64.0 * BEAT, |at, &(note, beats)| {
     if note > 0.0 {
-      let seed = score.seed();
-      score.place(at, &Saws::HORN.play(note, beats * BEAT * 0.92, seed), 0.3, -0.1)
+      [(0.0, 0.3), (-12.0, 0.22)].into_iter().for_each(|(octave, gain)| {
+        let seed = score.seed();
+        score.place(
+          at,
+          &Saws::HORN.play(note + octave, beats * BEAT * 0.92, seed),
+          gain,
+          -0.1
+        )
+      })
     }
     at + beats * BEAT
   });

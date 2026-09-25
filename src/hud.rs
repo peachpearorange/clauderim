@@ -709,10 +709,10 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
             }))
             .with_children(|title| {
               title.spawn((
-                words(&fonts.serif_light, 1.9, PALE, "THE ELDER SCROLLS"),
+                words(&fonts.serif_light, 1.9, PALE, "THE VIBE SCROLLS V"),
                 spaced(0.9)
               ));
-              title.spawn((words(&fonts.serif, 9.0, INK, "SKYRIM II"), spaced(1.3)));
+              title.spawn((words(&fonts.serif, 9.0, INK, "CLAUDERIM"), spaced(1.3)));
               title
                 .spawn(Node { width: VMin(46.0), height: VMin(1.4), ..default() })
                 .with_children(|rule| {
