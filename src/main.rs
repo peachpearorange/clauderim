@@ -27,7 +27,9 @@ mod wolf;
 
 use {avian3d::prelude::*,
      bevy::{prelude::*,
-            render::view::screenshot::{Screenshot, save_to_disk}}};
+            render::{RenderPlugin,
+                     settings::{InstanceFlags, RenderCreation, WgpuSettings},
+                     view::screenshot::{Screenshot, save_to_disk}}}};
 
 fn snapshot(
   time: Res<Time>,
@@ -97,19 +99,27 @@ fn press(
 fn main() {
   App::new()
     .add_plugins((
-      DefaultPlugins.set(WindowPlugin {
-        primary_window: Some(Window {
-          title: "The Vibe Scrolls V: Clauderim".into(),
-          resolution: (1600, 900).into(),
-          present_mode: opts::opts()
-            .shot
-            .map_or(bevy::window::PresentMode::AutoVsync, |_| {
-              bevy::window::PresentMode::AutoNoVsync
-            }),
+      DefaultPlugins
+        .set(RenderPlugin {
+          render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+            instance_flags: InstanceFlags::empty().with_env(),
+            ..default()
+          })),
+          ..default()
+        })
+        .set(WindowPlugin {
+          primary_window: Some(Window {
+            title: "The Vibe Scrolls V: Clauderim".into(),
+            resolution: (1600, 900).into(),
+            present_mode: opts::opts()
+              .shot
+              .map_or(bevy::window::PresentMode::AutoVsync, |_| {
+                bevy::window::PresentMode::AutoNoVsync
+              }),
+            ..default()
+          }),
           ..default()
         }),
-        ..default()
-      }),
       PhysicsPlugins::default()
     ))
     .add_plugins((
