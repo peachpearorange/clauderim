@@ -1,5 +1,5 @@
 use {crate::opts::opts,
-     bevy::{anti_alias::fxaa::Fxaa,
+     bevy::{anti_alias::smaa::{Smaa, SmaaPreset},
             camera::Exposure,
             core_pipeline::tonemapping::Tonemapping,
             light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
@@ -97,7 +97,7 @@ pub fn lens() -> impl Bundle {
       )
     },
     Msaa::Off,
-    Fxaa::default()
+    Smaa { preset: SmaaPreset::High }
   )
 }
 
@@ -113,6 +113,7 @@ fn spawn_sky(mut commands: Commands, mut media: ResMut<Assets<ScatteringMedium>>
       ..default()
     },
     SUN_DISK,
+    crate::humanoid::shadowing(),
     CascadeShadowConfigBuilder {
       num_cascades: 4,
       first_cascade_far_bound: 14.0,

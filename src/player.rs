@@ -5,7 +5,9 @@ use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
              terrain::Ground,
              walker::Walker},
      avian3d::prelude::*,
-     bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll},
+     bevy::{camera::visibility::RenderLayers,
+            input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll,
+                           MouseScrollUnit},
             prelude::*,
             window::{CursorGrabMode, CursorOptions}}};
 
@@ -18,6 +20,9 @@ const EYE: f32 = 1.66;
 const FOCUS: Vec3 = Vec3::new(0.42, 1.62, 0.0);
 const LOOK_SPEED: f32 = 0.0025;
 const PITCH_LIMIT: f32 = 1.35;
+const NEAREST: f32 = 1.4;
+const FARTHEST: f32 = 9.0;
+const ZOOM_STEP: f32 = 1.3;
 
 #[derive(Component)]
 pub struct Player;
@@ -107,6 +112,15 @@ fn spawn_player(
     0.0,
     humanoid::dragonborn()
   );
+  commands.entity(rig.bones[humanoid::Joint::Head as usize]).queue(
+    |head: EntityWorldMut| {
+      let parts =
+        head.get::<Children>().map(|children| children.to_vec()).unwrap_or_default();
+      head.into_world_mut().insert_batch(
+        parts.into_iter().map(|part| (part, (Hidden1st, RenderLayers::default())))
+      );
+    }
+  );
   commands.entity(player).insert(rig);
 
   commands.insert_resource(View {
@@ -170,7 +184,18 @@ fn steer(
     view.pitch =
       (view.pitch - motion.delta.y * LOOK_SPEED).clamp(-PITCH_LIMIT, PITCH_LIMIT);
   }
-  view.distance = (view.distance * 1.15f32.powf(-scroll.delta.y)).clamp(1.4, 9.0);
+  let notches = scroll.delta.y
+    * match scroll.unit {
+      MouseScrollUnit::Line => 1.0,
+      MouseScrollUnit::Pixel => 0.02
+    };
+  (view.first_person, view.distance) = match (view.first_person, notches) {
+    (true, out) if out < 0.0 => (false, NEAREST),
+    (false, into) if into > 0.0 && view.distance <= NEAREST => (true, NEAREST),
+    (first, _) => {
+      (first, (view.distance * ZOOM_STEP.powf(-notches)).clamp(NEAREST, FARTHEST))
+    }
+  };
   if keys.just_pressed(KeyCode::KeyF) {
     view.first_person = !view.first_person;
   }
@@ -217,17 +242,22 @@ fn follow(
   spatial: SpatialQuery,
   player: Single<(Entity, &Transform), With<Player>>,
   mut camera: Single<&mut Transform, (With<MainCamera>, Without<Player>)>,
-  mut hidden: Query<&mut Visibility, With<Hidden1st>>
+  mut shown: Local<Option<f32>>,
+  mut hidden: Query<&mut RenderLayers, With<Hidden1st>>
 ) {
   let (entity, body) = *player;
   let feet = body.translation - Vec3::Y * capsule_offset();
   let rotation = Quat::from_euler(EulerRot::YXZ, view.yaw, view.pitch, 0.0);
+  let distance = shown.map_or(view.distance, |shown| {
+    shown + (view.distance - shown) * (1.0 - (-time.delta_secs() * 12.0).exp())
+  });
+  *shown = Some(distance);
   let (eye, wanted) = if view.first_person {
     let eye = feet + Vec3::Y * EYE + view.flat_forward() * 0.12;
     (eye, eye)
   } else {
     let shoulder = feet + Quat::from_rotation_y(view.yaw) * FOCUS;
-    (shoulder, shoulder - rotation * Vec3::NEG_Z * view.distance)
+    (shoulder, shoulder - rotation * Vec3::NEG_Z * distance)
   };
   let gap = wanted - eye;
   let reach = Dir3::new(gap)
@@ -256,9 +286,9 @@ fn follow(
     .then(|| placed.with_y(placed.y.max(place::LAKE_LEVEL + 0.25)))
     .unwrap_or(placed);
   camera.rotation = rotation;
-  hidden.iter_mut().for_each(|mut visibility| {
-    *visibility =
-      view.first_person.then_some(Visibility::Hidden).unwrap_or(Visibility::Inherited);
+  hidden.iter_mut().for_each(|mut layers| {
+    layers
+      .set_if_neq(view.first_person.then_some(humanoid::SHADOW_ONLY).unwrap_or_default());
   });
 }
 

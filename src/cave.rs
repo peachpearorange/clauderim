@@ -1721,6 +1721,7 @@ impl Kit<'_, '_, '_> {
             shadow_maps_enabled: shadows,
             ..default()
           },
+          crate::humanoid::shadowing(),
           Transform::from_xyz(0.0, 0.45 * size, 0.0),
           ChildOf(fire)
         ));

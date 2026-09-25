@@ -484,6 +484,7 @@ fn raise_landmarks(
       shadow_maps_enabled: true,
       ..default()
     },
+    crate::humanoid::shadowing(),
     Transform::from_translation(camp_at + Vec3::Y * 0.8)
   ));
   commands.spawn((

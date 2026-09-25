@@ -1,7 +1,7 @@
 use {crate::{model::{self, Hoop, Piece, ball, block, curve, lathe, loft, rod, taper,
                      tube},
              stuff::{Stuff, Stuffs}},
-     bevy::{light::NotShadowCaster, prelude::*},
+     bevy::{camera::visibility::RenderLayers, light::NotShadowCaster, prelude::*},
      std::f32::consts::{FRAC_PI_2, PI}};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -340,6 +340,10 @@ impl Kit {
 #[derive(Component)]
 pub struct Hidden1st;
 
+pub const SHADOW_ONLY: RenderLayers = RenderLayers::layer(1);
+
+pub fn shadowing() -> RenderLayers { RenderLayers::layer(0).union(&SHADOW_ONLY) }
+
 pub fn spawn_body(
   commands: &mut Commands,
   meshes: &mut Assets<Mesh>,
@@ -378,9 +382,6 @@ pub fn spawn_body(
       MeshMaterial3d(stuffs.of(stuff)),
       ChildOf(bones[joint as usize])
     ));
-    if joint == Joint::Head {
-      part.insert(Hidden1st);
-    }
     if matches!(stuff, Stuff::Frost | Stuff::Ember) {
       part.insert(NotShadowCaster);
     }
