@@ -773,47 +773,35 @@ fn log(seed: u32) -> (Mesh, Collider) {
 
 fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
   let grain = noise::fbm3(point * 1.3, 3, seed);
-  let top = smooth(0.4, 0.85, normal.y + 0.5 * noise::fbm3(point * 2.3, 2, seed + 5));
-  let rock = STONE.mix(&DARK_STONE, smooth(-0.2, 0.25, grain));
-  rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.8 })
+  let strata = (point.y * 9.0 + 2.0 * noise::fbm3(point * 0.9, 2, seed + 2)).sin();
+  let top = smooth(0.55, 0.85, normal.y + 0.4 * noise::fbm3(point * 2.3, 2, seed + 5));
+  let rock = STONE
+    .mix(&DARK_STONE, smooth(-0.2, 0.25, grain))
+    .mix(&CRAG, smooth(0.3, 0.9, strata) * 0.35)
+    .mix(&LICHEN, smooth(0.3, 0.6, noise::fbm3(point * 3.0, 2, seed + 3)) * 0.12);
+  rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.35 })
 }
 
-fn boulder(seed: u32, snowy: bool, detail: u32) -> (Mesh, Collider) {
-  let lump = model::lump(seed, 0.2, detail);
-  let collider = lump
+fn rock_body(mesh: Mesh, snowy: bool, seed: u32) -> (Mesh, Collider) {
+  let collider = mesh
     .attribute(Mesh::ATTRIBUTE_POSITION)
     .and_then(|values| values.as_float3())
     .and_then(|points| {
       Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
     })
     .unwrap_or_else(|| Collider::sphere(1.0));
-  let mesh = Piece::new(lump, Srgba::WHITE)
+  let mesh = Piece::new(mesh, Srgba::WHITE)
     .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
     .0;
   (mesh, collider)
 }
 
+fn boulder(seed: u32, snowy: bool) -> (Mesh, Collider) {
+  rock_body(model::hewn(seed, 13, 0.07), snowy, seed)
+}
+
 fn crag(seed: u32, snowy: bool) -> (Mesh, Collider) {
-  let lump = model::lump(seed, 0.42, 2);
-  let collider = lump
-    .attribute(Mesh::ATTRIBUTE_POSITION)
-    .and_then(|values| values.as_float3())
-    .and_then(|points| {
-      Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
-    })
-    .unwrap_or_else(|| Collider::sphere(1.0));
-  let mesh = Piece::new(lump, Srgba::WHITE)
-    .shaded(|point, normal| {
-      let strata =
-        (point.y * 7.0 + 2.0 * noise::fbm3(point * 1.1, 2, seed)).sin() * 0.5 + 0.5;
-      let rock = CRAG
-        .mix(&DARK_STONE, strata * 0.6)
-        .mix(&LICHEN, smooth(0.35, 0.6, noise::fbm3(point * 3.0, 2, seed + 3)) * 0.4);
-      let top = smooth(0.55, 0.9, normal.y + 0.4 * noise::fbm3(point * 2.3, 2, seed + 5));
-      rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.5 })
-    })
-    .0;
-  (mesh, collider)
+  rock_body(model::hewn(seed, 9, 0.14), snowy, seed)
 }
 
 fn juniper(seed: u32) -> Mesh {
@@ -953,7 +941,7 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     }
     Growth::Boulder | Growth::SnowyBoulder => {
       let (mesh, collider) =
-        boulder(variant as u32 + 300, growth == Growth::SnowyBoulder, 3);
+        boulder(variant as u32 + 300, growth == Growth::SnowyBoulder);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Stone), mesh)],
         far: None,

@@ -21,6 +21,7 @@ const GRAIN_TILE: f32 = 7.0;
 const THROAT: Vec2 = Vec2::new(900.0, -2600.0);
 const THROAT_REACH: f32 = 1700.0;
 const THROAT_RISE: f32 = 1000.0;
+const LEDGE: f32 = 38.0;
 
 pub const fn srgb(red: f32, green: f32, blue: f32) -> LinearRgba {
   const fn decode(value: f32) -> f32 { value * value * (0.8 + 0.2 * value) }
@@ -36,7 +37,7 @@ const ROCK: LinearRgba = srgb(0.43, 0.43, 0.43);
 const DARK_ROCK: LinearRgba = srgb(0.30, 0.30, 0.31);
 const PALE_ROCK: LinearRgba = srgb(0.55, 0.54, 0.51);
 const RUST_ROCK: LinearRgba = srgb(0.42, 0.37, 0.32);
-const CRAG: LinearRgba = srgb(0.21, 0.21, 0.23);
+const CRAG: LinearRgba = srgb(0.29, 0.29, 0.31);
 const SNOW: LinearRgba = srgb(0.93, 0.95, 1.0);
 const SEABED: LinearRgba = srgb(0.24, 0.24, 0.20);
 
@@ -55,18 +56,33 @@ fn throat_height(at: Vec2, crags: f32) -> f32 {
   base + THROAT_RISE * cone.powf(2.4) + 220.0 * arete + 200.0 * (crags - 0.45) * cone
 }
 
+fn spires(at: Vec2) -> f32 {
+  let warp =
+    Vec2::new(noise::fbm(at / 900.0, 3, 81), noise::fbm(at / 900.0 + 4.7, 3, 82)) * 320.0;
+  noise::crags((at + warp) / 760.0, 8, 83, 1.0).max(0.0) * 900.0
+}
+
+fn ledged(height: f32, at: Vec2) -> f32 {
+  let shift = noise::fbm(at / 400.0, 2, 87);
+  let thickness = LEDGE * (1.0 + 0.45 * noise::fbm(at / 350.0, 2, 89));
+  let level = height / thickness + shift;
+  (level.floor() + smooth(0.0, 1.0, level.fract()) - shift) * thickness
+}
+
 fn wild_height(at: Vec2) -> f32 {
   let warp =
     Vec2::new(noise::fbm(at / 520.0, 3, 11), noise::fbm(at / 520.0 + 9.3, 3, 12)) * 110.0;
   let bent = at + warp;
+  let far = smooth(BOUND, BOUND + 400.0, at.abs().max_element());
   let ring = smooth(0.5, 1.05, (bent / Vec2::new(780.0, 690.0)).length());
   let hills = noise::fbm(bent / 300.0, 5, 3) * 32.0 + noise::fbm(bent / 70.0, 4, 5) * 3.5;
-  let crags = noise::crags(bent / 430.0, 9, 7, 1.0);
+  let crags = noise::crags(bent / 430.0, 9, 7, 1.0 - 0.5 * far);
   let range = smooth(900.0, 3200.0, at.length());
-  24.0
-    + hills
-    + ring * (40.0 + crags * (400.0 + 380.0 * range))
-    + throat_height(at, crags)
+  let throat_calm =
+    1.0 - 0.8 * smooth(1.1 * THROAT_REACH, 0.4 * THROAT_REACH, at.distance(THROAT));
+  let massif =
+    ring * (40.0 + crags * (400.0 + 120.0 * range)) + far * throat_calm * spires(at);
+  24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
 fn lake_height(at: Vec2) -> f32 {
@@ -97,7 +113,7 @@ pub fn forest(at: Vec2) -> f32 {
   (smooth(-0.1, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
 }
 
-fn paint(at: Vec2, height: f32, normal: Vec3) -> LinearRgba {
+fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   let patch = smooth(-0.3, 0.4, noise::fbm(at / 120.0, 4, 41));
   let grass = MEADOW.mix(&TUNDRA, patch).mix(&FOREST_FLOOR, forest(at) * 0.8);
   let road =
@@ -106,18 +122,22 @@ fn paint(at: Vec2, height: f32, normal: Vec3) -> LinearRgba {
   let drowned = smooth(LAKE_LEVEL - 0.5, LAKE_LEVEL - 4.0, height);
   let snow_line = 150.0 + 40.0 * noise::fbm(at / 200.0, 3, 45);
   let alpine = smooth(snow_line + 150.0, snow_line + 900.0, height);
-  let drift = normal.y + 0.12 * noise::fbm(at / 70.0, 3, 53);
-  let snow_hold = 0.8 - 0.26 * alpine;
+  let gully = hollow.clamp(-1.0, 1.0);
+  let drift = normal.y
+    + 0.1 * noise::fbm(at / 40.0, 3, 53)
+    + 0.14 * noise::fbm(at / 190.0, 2, 59)
+    + 0.35 * gully;
+  let snow_hold = 0.8 - 0.45 * alpine;
   let snow = smooth(snow_line, snow_line + 40.0, height)
-    * smooth(snow_hold - 0.08, snow_hold + 0.08, drift);
+    * smooth(snow_hold - 0.05, snow_hold + 0.05, drift);
   let cliff = smooth(0.82, 0.64, normal.y + 0.06 * noise::fbm(at / 9.0, 2, 47));
-  let face = smooth(0.75, 0.5, normal.y + 0.08 * noise::fbm(at / 15.0, 2, 55));
-  let strata = (height / 13.0 + 4.0 * noise::fbm(at / 260.0, 3, 51)).sin();
+  let face = smooth(0.7, 0.35, normal.y + 0.08 * noise::fbm(at / 15.0, 2, 55));
+  let strata = (height / 9.0 + 3.0 * noise::fbm(at / 260.0, 3, 51)).sin();
   let stone = ROCK
     .mix(&DARK_ROCK, smooth(-0.2, 0.3, noise::fbm(at / 40.0, 3, 49)))
-    .mix(&PALE_ROCK, smooth(0.45, 0.95, strata) * 0.7)
-    .mix(&RUST_ROCK, smooth(0.3, 0.8, noise::fbm(at / 90.0, 3, 57)) * 0.5)
-    .mix(&CRAG, face);
+    .mix(&PALE_ROCK, smooth(0.3, 0.9, strata) * 0.6)
+    .mix(&RUST_ROCK, smooth(0.4, 0.9, noise::fbm(at / 90.0, 3, 57)) * 0.3)
+    .mix(&CRAG, face * (0.5 + 0.5 * smooth(0.0, -0.4, gully)));
   grass
     .mix(&DIRT, road * 0.85)
     .mix(&PEBBLES, shore)
@@ -183,20 +203,23 @@ fn surface_mesh(
   corners: usize,
   spot: impl Fn(usize, usize) -> Vec2,
   lift: impl Fn(usize, usize) -> f32,
-  normal: impl Fn(usize, usize) -> Vec3
+  shape: impl Fn(usize, usize) -> (Vec3, f32)
 ) -> Mesh {
   let cells = (0..corners).flat_map(|row| (0..corners).map(move |column| (column, row)));
   let positions: Vec<Vec3> = cells
     .clone()
     .map(|(column, row)| spot(column, row).extend(lift(column, row)).xzy())
     .collect();
-  let normals: Vec<Vec3> =
-    cells.clone().map(|(column, row)| normal(column, row)).collect();
+  let shapes: Vec<(Vec3, f32)> =
+    cells.clone().map(|(column, row)| shape(column, row)).collect();
   let colors: Vec<[f32; 4]> = positions
     .iter()
-    .zip(&normals)
-    .map(|(&position, &normal)| paint(position.xz(), position.y, normal).to_f32_array())
+    .zip(&shapes)
+    .map(|(&position, &(normal, hollow))| {
+      paint(position.xz(), position.y, normal, hollow).to_f32_array()
+    })
     .collect();
+  let normals: Vec<Vec3> = shapes.into_iter().map(|(normal, _)| normal).collect();
   let span = corners as u32;
   let indices = (0..span - 1)
     .flat_map(|row| {
@@ -219,6 +242,12 @@ fn surface_mesh(
     .expect("terrain tangents")
 }
 
+const HOLLOW_REACH: usize = 3;
+
+fn hollowness(around: f32, height: f32, reach: f32) -> f32 {
+  (around / 4.0 - height) / reach.max(6.0) * 4.0
+}
+
 fn chunk_mesh(ground: &Ground, chunk: UVec2) -> Mesh {
   let origin = chunk * CHUNK as u32;
   let cell = move |column: usize, row: usize| {
@@ -237,12 +266,19 @@ fn chunk_mesh(ground: &Ground, chunk: UVec2) -> Mesh {
     |column, row| {
       let (x, z) = cell(column, row);
       let height = |x: usize, z: usize| ground.sample(x, z);
-      Vec3::new(
-        height(x.saturating_sub(1), z) - height(x + 1, z),
-        2.0 * SPACING,
-        height(x, z.saturating_sub(1)) - height(x, z + 1)
+      let around = height(x.saturating_sub(HOLLOW_REACH), z)
+        + height(x + HOLLOW_REACH, z)
+        + height(x, z.saturating_sub(HOLLOW_REACH))
+        + height(x, z + HOLLOW_REACH);
+      (
+        Vec3::new(
+          height(x.saturating_sub(1), z) - height(x + 1, z),
+          2.0 * SPACING,
+          height(x, z.saturating_sub(1)) - height(x, z + 1)
+        )
+        .normalize(),
+        hollowness(around, height(x, z), HOLLOW_REACH as f32 * SPACING)
       )
-      .normalize()
     }
   )
 }
@@ -304,12 +340,16 @@ fn tile_mesh(tile: IVec2) -> Mesh {
     |column, row| {
       let (x, z) = (rim(column) + 1, rim(row) + 1);
       let raw = |x: usize, z: usize| heights[z * span + x];
-      Vec3::new(
-        raw(x - 1, z) - raw(x + 1, z),
-        2.0 * spacing,
-        raw(x, z - 1) - raw(x, z + 1)
+      let around = raw(x - 1, z) + raw(x + 1, z) + raw(x, z - 1) + raw(x, z + 1);
+      (
+        Vec3::new(
+          raw(x - 1, z) - raw(x + 1, z),
+          2.0 * spacing,
+          raw(x, z - 1) - raw(x, z + 1)
+        )
+        .normalize(),
+        hollowness(around, raw(x, z), spacing)
       )
-      .normalize()
     }
   )
 }
