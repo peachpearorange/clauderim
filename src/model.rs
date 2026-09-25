@@ -253,7 +253,7 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   mesh
 }
 
-pub fn hewn(seed: u32, cuts: u32, ledges: f32) -> Mesh {
+pub fn hewn(seed: u32, cuts: u32, ledges: f32, detail: u32) -> Mesh {
   let mut roll = noise::Roll::new(seed);
   let planes: Vec<(Vec3, f32)> = (0..cuts)
     .map(|cut| {
@@ -282,7 +282,7 @@ pub fn hewn(seed: u32, cuts: u32, ledges: f32) -> Mesh {
     let shelf = ledges * ((bed.fract() - 0.72) / 0.08).clamp(0.0, 1.0);
     point * (1.0 - shelf)
   };
-  let mut mesh = Sphere::new(1.0).mesh().ico(15).expect("ico sphere");
+  let mut mesh = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
   let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
     .into_iter()
     .map(|point| carve(point.normalize()))

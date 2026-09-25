@@ -68,6 +68,9 @@ const CAPS: [LinearRgba; 3] =
 const PATCH: f32 = 32.0;
 const NEAR_TREE: f32 = 170.0;
 const FADE: f32 = 40.0;
+const ROCK_REACH: f32 = 50.0;
+const ROCK_DETAIL: [u32; 3] = [15, 6, 3];
+const TIER: f32 = 4.0;
 const FOREVER: f32 = 1.0e6;
 const SWARD_CELL: f32 = 16.0;
 const SWARD_REACH: f32 = 80.0;
@@ -782,26 +785,25 @@ fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
   rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.35 })
 }
 
-fn rock_body(mesh: Mesh, snowy: bool, seed: u32) -> (Mesh, Collider) {
-  let collider = mesh
+fn rock_shape(seed: u32, cuts: u32, ledges: f32, snowy: bool) -> Shape {
+  let [near, far @ ..] = ROCK_DETAIL.map(|detail| {
+    Piece::new(model::hewn(seed, cuts, ledges, detail), Srgba::WHITE)
+      .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
+      .0
+  });
+  let collider = near
     .attribute(Mesh::ATTRIBUTE_POSITION)
     .and_then(|values| values.as_float3())
     .and_then(|points| {
       Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
     })
     .unwrap_or_else(|| Collider::sphere(1.0));
-  let mesh = Piece::new(mesh, Srgba::WHITE)
-    .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
-    .0;
-  (mesh, collider)
-}
-
-fn boulder(seed: u32, snowy: bool) -> (Mesh, Collider) {
-  rock_body(model::hewn(seed, 13, 0.07), snowy, seed)
-}
-
-fn crag(seed: u32, snowy: bool) -> (Mesh, Collider) {
-  rock_body(model::hewn(seed, 9, 0.14), snowy, seed)
+  Shape {
+    parts: vec![(Coat::Plain(Stuff::Stone), near)],
+    far: far.into_iter().map(|mesh| (Coat::Plain(Stuff::Stone), mesh)).collect(),
+    collider: Some(collider),
+    reach: Reach::PerSize(ROCK_REACH)
+  }
 }
 
 fn juniper(seed: u32) -> Mesh {
@@ -870,11 +872,28 @@ enum Coat {
   Fronds
 }
 
+#[derive(Clone, Copy)]
+enum Reach {
+  Fixed(f32),
+  PerSize(f32)
+}
+
+impl Reach {
+  fn at(self, scale: Vec3) -> f32 {
+    match self {
+      Reach::Fixed(reach) => reach,
+      Reach::PerSize(reach) => reach * scale.max_element()
+    }
+  }
+}
+
+fn fade(reach: f32) -> f32 { FADE.min(reach * 0.25) }
+
 struct Shape {
   parts: Vec<(Coat, Mesh)>,
-  far: Option<Mesh>,
+  far: Vec<(Coat, Mesh)>,
   collider: Option<Collider>,
-  reach: f32
+  reach: Reach
 }
 
 fn shape(growth: Growth, variant: usize) -> Shape {
@@ -886,9 +905,12 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       let far = pine(variant as u32 + 100, snowy, true);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Bark), wood), (Coat::Fronds, crown)],
-        far: Some(model::merge([solid(Piece(far.wood)), Piece(far.crown)])),
+        far: vec![(
+          Coat::Fronds,
+          model::merge([solid(Piece(far.wood)), Piece(far.crown)])
+        )],
         collider: Some(trunk_collider(girth * 1.05, height * 0.9)),
-        reach: NEAR_TREE
+        reach: Reach::Fixed(NEAR_TREE)
       }
     }
     Growth::Birch => {
@@ -898,80 +920,67 @@ fn shape(growth: Growth, variant: usize) -> Shape {
           (Coat::Plain(Stuff::Bark), wood),
           (Coat::Plain(Stuff::Needles), crown),
         ],
-        far: None,
+        far: vec![],
         collider: Some(trunk_collider(girth, height * 0.8)),
-        reach: FOREVER
+        reach: Reach::Fixed(FOREVER)
       }
     }
     Growth::Gnarl => {
       let Tree { wood, crown, height, girth } = gnarl(seed);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Bark), wood), (Coat::Fronds, crown)],
-        far: None,
+        far: vec![],
         collider: Some(trunk_collider(girth, height * 0.4)),
-        reach: 700.0
+        reach: Reach::Fixed(700.0)
       }
     }
     Growth::Snag => {
       let (mesh, collider) = snag(seed);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
-        far: None,
+        far: vec![],
         collider: Some(collider),
-        reach: 600.0
+        reach: Reach::Fixed(600.0)
       }
     }
     Growth::Stump => {
       let (mesh, collider) = stump(seed);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
-        far: None,
+        far: vec![],
         collider: Some(collider),
-        reach: 220.0
+        reach: Reach::Fixed(220.0)
       }
     }
     Growth::Log => {
       let (mesh, collider) = log(seed);
       Shape {
         parts: vec![(Coat::Plain(Stuff::Bark), mesh)],
-        far: None,
+        far: vec![],
         collider: Some(collider),
-        reach: 260.0
+        reach: Reach::Fixed(260.0)
       }
     }
     Growth::Boulder | Growth::SnowyBoulder => {
-      let (mesh, collider) =
-        boulder(variant as u32 + 300, growth == Growth::SnowyBoulder);
-      Shape {
-        parts: vec![(Coat::Plain(Stuff::Stone), mesh)],
-        far: None,
-        collider: Some(collider),
-        reach: FOREVER
-      }
+      rock_shape(variant as u32 + 300, 13, 0.07, growth == Growth::SnowyBoulder)
     }
     Growth::Crag | Growth::SnowyCrag => {
-      let (mesh, collider) = crag(variant as u32 + 500, growth == Growth::SnowyCrag);
-      Shape {
-        parts: vec![(Coat::Plain(Stuff::Stone), mesh)],
-        far: None,
-        collider: Some(collider),
-        reach: FOREVER
-      }
+      rock_shape(variant as u32 + 500, 9, 0.14, growth == Growth::SnowyCrag)
     }
     Growth::Juniper => Shape {
       parts: vec![(Coat::Plain(Stuff::Needles), juniper(seed))],
-      far: None,
+      far: vec![],
       collider: None,
-      reach: 200.0
+      reach: Reach::Fixed(200.0)
     }
   }
 }
 
 struct Form {
   parts: Vec<(Handle<StandardMaterial>, Handle<Mesh>)>,
-  far: Option<Handle<Mesh>>,
+  far: Vec<(Handle<StandardMaterial>, Handle<Mesh>)>,
   collider: Option<Collider>,
-  reach: f32
+  reach: Reach
 }
 
 struct Plant {
@@ -1318,33 +1327,32 @@ fn spawn_flora(
     cull_mode: None,
     ..default()
   });
+  let mut coated = |coats: Vec<(Coat, Mesh)>| -> Vec<_> {
+    coats
+      .into_iter()
+      .map(|(coat, mesh)| {
+        let material = match coat {
+          Coat::Plain(stuff) => stuffs.of(stuff),
+          Coat::Fronds => fronds.clone()
+        };
+        (material, meshes.add(mesh))
+      })
+      .collect()
+  };
   let forms: HashMap<(Growth, usize), Form> = made
     .into_iter()
     .map(|(key, Shape { parts, far, collider, reach })| {
-      (key, Form {
-        parts: parts
-          .into_iter()
-          .map(|(coat, mesh)| {
-            let material = match coat {
-              Coat::Plain(stuff) => stuffs.of(stuff),
-              Coat::Fronds => fronds.clone()
-            };
-            (material, meshes.add(mesh))
-          })
-          .collect(),
-        far: far.map(|mesh| meshes.add(mesh)),
-        collider,
-        reach
-      })
+      (key, Form { parts: coated(parts), far: coated(far), collider, reach })
     })
     .collect();
   plants.iter().for_each(|&Plant { growth, variant, place }| {
     let form = &forms[&(growth, variant)];
-    let near = VisibilityRange {
-      start_margin: 0.0..0.0,
-      end_margin: form.reach..form.reach + FADE,
-      use_aabb: false
+    let bound = |tier: usize| {
+      let reach = form.reach.at(place.scale) * TIER.powi(tier as i32);
+      reach..reach + fade(reach)
     };
+    let near =
+      VisibilityRange { start_margin: 0.0..0.0, end_margin: bound(0), use_aabb: false };
     let (material, mesh) = &form.parts[0];
     let mut root = commands.spawn((
       Mesh3d(mesh.clone()),
@@ -1364,18 +1372,20 @@ fn spawn_flora(
     {
       root.insert((RigidBody::Static, collider.clone()));
     }
-    if let Some(far) = &form.far {
+    form.far.iter().enumerate().for_each(|(tier, (material, mesh))| {
       commands.spawn((
-        Mesh3d(far.clone()),
-        MeshMaterial3d(fronds.clone()),
+        Mesh3d(mesh.clone()),
+        MeshMaterial3d(material.clone()),
         place,
         VisibilityRange {
-          start_margin: form.reach..form.reach + FADE,
-          end_margin: FOREVER..FOREVER,
+          start_margin: bound(tier),
+          end_margin: (tier + 1 < form.far.len())
+            .then(|| bound(tier + 1))
+            .unwrap_or(FOREVER..FOREVER),
           use_aabb: false
         }
       ));
-    }
+    });
   });
 }
 
