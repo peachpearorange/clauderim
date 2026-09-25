@@ -253,6 +253,46 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   mesh
 }
 
+pub fn hewn(seed: u32, cuts: u32, ledges: f32) -> Mesh {
+  let mut roll = noise::Roll::new(seed);
+  let planes: Vec<(Vec3, f32)> = (0..cuts)
+    .map(|cut| {
+      let rise = 1.0 - 2.0 * (cut as f32 + 0.5) / cuts as f32;
+      let around = cut as f32 * 2.399_963 + roll.spread(0.5);
+      let even = Vec3::new(
+        around.cos() * (1.0 - rise * rise).sqrt(),
+        rise,
+        around.sin() * (1.0 - rise * rise).sqrt()
+      );
+      let jitter = Vec3::new(roll.spread(0.4), roll.spread(0.3), roll.spread(0.4));
+      ((even + jitter).normalize_or(even), roll.range(0.6, 1.0))
+    })
+    .collect();
+  let (layers, tilt) =
+    (roll.range(1.6, 2.4), Vec2::new(roll.spread(0.2), roll.spread(0.2)));
+  let carve = |direction: Vec3| {
+    let reach = planes
+      .iter()
+      .filter(|&&(normal, _)| normal.dot(direction) > 0.05)
+      .map(|&(normal, offset)| offset / normal.dot(direction))
+      .fold(1.4, f32::min);
+    let point = direction * reach;
+    let bed = (point.y + tilt.dot(point.xz())) * layers
+      + 0.25 * noise::fbm3(point * 1.3 + Vec3::splat(seed as f32), 2, seed + 3);
+    let shelf = ledges * ((bed.fract() - 0.72) / 0.08).clamp(0.0, 1.0);
+    point * (1.0 - shelf)
+  };
+  let mut mesh = Sphere::new(1.0).mesh().ico(15).expect("ico sphere");
+  let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
+    .into_iter()
+    .map(|point| carve(point.normalize()))
+    .collect();
+  mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+  mesh.duplicate_vertices();
+  mesh.compute_flat_normals();
+  mesh
+}
+
 pub fn blade(length: f32, width: f32, thickness: f32, tip: f32) -> Mesh {
   let rows: Vec<(f32, f32)> = [0.0, 0.3, 0.6, 1.0 - tip, 1.0]
     .into_iter()
