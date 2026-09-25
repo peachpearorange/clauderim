@@ -207,10 +207,28 @@ fn cycle_day(
   });
 }
 
+const SHADOW_REACH: f32 = 4.0;
+
+#[derive(Component)]
+pub struct CloseShadows;
+
+fn shade_close_lights(
+  camera: Single<&GlobalTransform, With<crate::player::MainCamera>>,
+  mut lights: Query<(&mut PointLight, &GlobalTransform), With<CloseShadows>>
+) {
+  lights.iter_mut().for_each(|(mut light, place)| {
+    let close =
+      place.translation().distance(camera.translation()) < light.range * SHADOW_REACH;
+    if light.shadow_maps_enabled != close {
+      light.shadow_maps_enabled = close;
+    }
+  });
+}
+
 pub fn plugin(app: &mut App) {
   app
     .init_resource::<Clock>()
     .init_resource::<Daylight>()
     .add_systems(Startup, spawn_sky)
-    .add_systems(Update, cycle_day);
+    .add_systems(Update, (cycle_day, shade_close_lights));
 }

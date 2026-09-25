@@ -6,7 +6,7 @@ use {crate::{inventory::{Inventory, Item, Loot},
              sdf::{self, Bounds, Surface},
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound,
                       WordWall},
-             sky::Daylight,
+             sky::{CloseShadows, Daylight},
              stuff::{Stuff, Stuffs},
              terrain::{self, Surfaces}},
      avian3d::prelude::*,
@@ -1711,20 +1711,22 @@ impl Kit<'_, '_, '_> {
           Transform::from_scale(Vec3::splat(size)),
           ChildOf(fire)
         ));
-        self.commands.spawn((
+        let mut light = self.commands.spawn((
           Flicker { lumens: lumens * FIRE_BOOST, seed },
           PointLight {
             color: Color::srgb(1.0, 0.62, 0.3),
             intensity: lumens * FIRE_BOOST,
             range: 8.0 + lumens.sqrt() * 0.06,
             radius: 0.1 * size,
-            shadow_maps_enabled: shadows,
             ..default()
           },
           crate::humanoid::shadowing(),
           Transform::from_xyz(0.0, 0.45 * size, 0.0),
           ChildOf(fire)
         ));
+        if shadows {
+          light.insert(CloseShadows);
+        }
       }
     );
     lamps.into_iter().for_each(|(at, color, lumens, range)| {

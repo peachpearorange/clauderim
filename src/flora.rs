@@ -1,15 +1,16 @@
 use {crate::{model::{self, Piece},
              noise::{self, Roll},
              place::{self, LAKE_LEVEL, Place, START, START_FACING},
-             player::Player,
+             player::{MainCamera, Player},
              stuff::{Stuff, Stuffs},
              terrain::{self, BOUND, Ground, HALF, srgb}},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
-            camera::visibility::VisibilityRange,
+            camera::{primitives::{Aabb, MeshAabb},
+                     visibility::VisibilityRange},
             image::{ImageSampler, ImageSamplerDescriptor},
             light::NotShadowCaster,
-            mesh::{Indices, PrimitiveTopology},
+            mesh::{Indices, PrimitiveTopology, VertexAttributeValues},
             pbr::{ExtendedMaterial, MaterialExtension},
             platform::collections::HashMap,
             prelude::*,
@@ -71,6 +72,11 @@ const FADE: f32 = 40.0;
 const ROCK_REACH: f32 = 50.0;
 const ROCK_DETAIL: [u32; 3] = [15, 6, 3];
 const TIER: f32 = 4.0;
+const CELL: f32 = 64.0;
+const RESTREAM_STEP: f32 = 8.0;
+const SLACK: f32 = RESTREAM_STEP + 2.0;
+const MERGE_LIMIT: f32 = 360.0;
+const MERGE_VERTICES: usize = 1200;
 const FOREVER: f32 = 1.0e6;
 const SWARD_CELL: f32 = 16.0;
 const SWARD_REACH: f32 = 80.0;
@@ -1304,6 +1310,147 @@ fn shapes() -> Vec<((Growth, usize), Shape)> {
   })
 }
 
+struct Look {
+  mesh: Handle<Mesh>,
+  material: Handle<StandardMaterial>,
+  place: Transform,
+  range: VisibilityRange,
+  shown: Option<Entity>
+}
+
+impl Look {
+  fn stream(&mut self, commands: &mut Commands, eye: Vec3, wanted: bool) {
+    let distance = eye.distance(self.place.translation);
+    let live = wanted
+      && distance >= self.range.start_margin.start - SLACK
+      && distance < self.range.end_margin.end + SLACK;
+    match (live, self.shown) {
+      (true, None) => {
+        self.shown = Some(
+          commands
+            .spawn((
+              Mesh3d(self.mesh.clone()),
+              MeshMaterial3d(self.material.clone()),
+              self.place,
+              self.range.clone()
+            ))
+            .id()
+        );
+      }
+      (false, Some(entity)) => {
+        commands.entity(entity).despawn();
+        self.shown = None;
+      }
+      _ => {}
+    }
+  }
+}
+
+fn bake(looks: &[&Look], origin: Vec3, meshes: &Assets<Mesh>) -> Mesh {
+  let floats = |mesh: &Mesh, attribute| match mesh.attribute(attribute) {
+    Some(VertexAttributeValues::Float32x3(values)) => values.clone(),
+    _ => Vec::new()
+  };
+  let (positions, normals, uvs, colors, indices) = looks.iter().fold(
+    (Vec::<[f32; 3]>::new(), Vec::<[f32; 3]>::new(), Vec::new(), Vec::new(), Vec::new()),
+    |(mut positions, mut normals, mut uvs, mut colors, mut indices), look| {
+      let mesh = meshes.get(&look.mesh).expect("plant mesh");
+      let first = positions.len() as u32;
+      let count = mesh.count_vertices();
+      positions.extend(
+        floats(mesh, Mesh::ATTRIBUTE_POSITION)
+          .into_iter()
+          .map(|point| (look.place.transform_point(point.into()) - origin).to_array())
+      );
+      normals.extend(floats(mesh, Mesh::ATTRIBUTE_NORMAL).into_iter().map(|normal| {
+        (look.place.rotation * (Vec3::from(normal) / look.place.scale))
+          .normalize_or_zero()
+          .to_array()
+      }));
+      match mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
+        Some(VertexAttributeValues::Float32x2(values)) => uvs.extend(values),
+        _ => uvs.extend(vec![[0.0f32; 2]; count])
+      }
+      match mesh.attribute(Mesh::ATTRIBUTE_COLOR) {
+        Some(VertexAttributeValues::Float32x4(values)) => colors.extend(values),
+        _ => colors.extend(vec![[1.0f32; 4]; count])
+      }
+      match mesh.indices() {
+        Some(list) => indices.extend(list.iter().map(|index| first + index as u32)),
+        None => indices.extend(first..first + count as u32)
+      }
+      (positions, normals, uvs, colors, indices)
+    }
+  );
+  Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+    .with_inserted_indices(Indices::U32(indices))
+}
+
+struct Stand {
+  bounds: Rect,
+  origin: Vec3,
+  settled: f32,
+  looks: Vec<Look>,
+  distant: Vec<Look>,
+  batches: Vec<(Handle<StandardMaterial>, Handle<Mesh>, Aabb)>,
+  merged: Vec<Entity>
+}
+
+#[derive(Resource)]
+struct Woods {
+  stands: Vec<Stand>,
+  eye: Option<Vec3>
+}
+
+fn tend_woods(
+  mut commands: Commands,
+  mut woods: ResMut<Woods>,
+  camera: Single<&Transform, With<MainCamera>>
+) {
+  let eye = camera.translation;
+  if woods.eye.is_none_or(|last| last.distance(eye) > RESTREAM_STEP) {
+    woods.eye = Some(eye);
+    woods.stands.iter_mut().for_each(|stand| {
+      let gap = (stand.bounds.min - eye.xz())
+        .max(eye.xz() - stand.bounds.max)
+        .max(Vec2::ZERO)
+        .length();
+      let far = gap
+        > stand.settled
+          + RESTREAM_STEP
+          + (stand.merged.is_empty() as u8 as f32) * CELL * 0.25;
+      match (far, stand.merged.is_empty()) {
+        (true, true) => {
+          stand.merged = stand
+            .batches
+            .iter()
+            .map(|(material, mesh, aabb)| {
+              commands
+                .spawn((
+                  Mesh3d(mesh.clone()),
+                  MeshMaterial3d(material.clone()),
+                  Transform::from_translation(stand.origin),
+                  *aabb
+                ))
+                .id()
+            })
+            .collect();
+        }
+        (false, false) => {
+          stand.merged.drain(..).for_each(|entity| commands.entity(entity).despawn());
+        }
+        _ => {}
+      }
+      stand.looks.iter_mut().for_each(|look| look.stream(&mut commands, eye, true));
+      stand.distant.iter_mut().for_each(|look| look.stream(&mut commands, eye, !far));
+    });
+  }
+}
+
 fn spawn_flora(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
@@ -1345,48 +1492,134 @@ fn spawn_flora(
       (key, Form { parts: coated(parts), far: coated(far), collider, reach })
     })
     .collect();
-  plants.iter().for_each(|&Plant { growth, variant, place }| {
-    let form = &forms[&(growth, variant)];
-    let bound = |tier: usize| {
-      let reach = form.reach.at(place.scale) * TIER.powi(tier as i32);
-      reach..reach + fade(reach)
-    };
-    let near =
-      VisibilityRange { start_margin: 0.0..0.0, end_margin: bound(0), use_aabb: false };
-    let (material, mesh) = &form.parts[0];
-    let mut root = commands.spawn((
-      Mesh3d(mesh.clone()),
-      MeshMaterial3d(material.clone()),
-      place,
-      near.clone()
-    ));
-    form.parts[1..].iter().for_each(|(material, mesh)| {
-      root.with_child((
-        Mesh3d(mesh.clone()),
-        MeshMaterial3d(material.clone()),
-        near.clone()
-      ));
-    });
-    if let Some(collider) = &form.collider
-      && place.scale.max_element() > 0.5
-    {
-      root.insert((RigidBody::Static, collider.clone()));
+  let cells = plants.into_iter().fold(
+    HashMap::<IVec2, Vec<Plant>>::default(),
+    |mut cells, plant| {
+      cells
+        .entry((plant.place.translation.xz() / CELL).floor().as_ivec2())
+        .or_default()
+        .push(plant);
+      cells
     }
-    form.far.iter().enumerate().for_each(|(tier, (material, mesh))| {
-      commands.spawn((
-        Mesh3d(mesh.clone()),
-        MeshMaterial3d(material.clone()),
-        place,
-        VisibilityRange {
-          start_margin: bound(tier),
-          end_margin: (tier + 1 < form.far.len())
-            .then(|| bound(tier + 1))
-            .unwrap_or(FOREVER..FOREVER),
-          use_aabb: false
-        }
-      ));
-    });
-  });
+  );
+  let stands: Vec<Stand> = cells
+    .into_values()
+    .map(|plants| {
+      let origin = plants.iter().map(|plant| plant.place.translation).sum::<Vec3>()
+        / plants.len() as f32;
+      let shapes: Vec<_> = plants
+        .iter()
+        .filter(|plant| plant.place.scale.max_element() > 0.5)
+        .filter_map(|&Plant { growth, variant, place }| {
+          forms[&(growth, variant)].collider.clone().map(|mut collider| {
+            collider.set_scale(place.scale, 8);
+            let shape = collider.shape_scaled();
+            shape
+              .as_compound()
+              .map_or_else(
+                || vec![(Vec3::ZERO, Quat::IDENTITY, shape.clone())],
+                |compound| {
+                  compound
+                    .shapes()
+                    .iter()
+                    .map(|(pose, shape)| (pose.translation, pose.rotation, shape.clone()))
+                    .collect()
+                }
+              )
+              .into_iter()
+              .map(move |(offset, turn, shape)| {
+                (
+                  Position(place.translation - origin + place.rotation * offset),
+                  place.rotation * turn,
+                  Collider::from(shape)
+                )
+              })
+          })
+        })
+        .flatten()
+        .collect();
+      if !shapes.is_empty() {
+        commands.spawn((
+          RigidBody::Static,
+          Collider::compound(shapes),
+          Transform::from_translation(origin)
+        ));
+      }
+      let (distant, looks): (Vec<Look>, Vec<Look>) = plants
+        .iter()
+        .flat_map(|&Plant { growth, variant, place }| {
+          let form = &forms[&(growth, variant)];
+          let bound = |tier: usize| {
+            let reach = form.reach.at(place.scale) * TIER.powi(tier as i32);
+            reach..reach + fade(reach)
+          };
+          let look = |(material, mesh): &(Handle<StandardMaterial>, Handle<Mesh>),
+                      start_margin,
+                      end_margin| Look {
+            mesh: mesh.clone(),
+            material: material.clone(),
+            place,
+            range: VisibilityRange { start_margin, end_margin, use_aabb: false },
+            shown: None
+          };
+          form
+            .parts
+            .iter()
+            .map(move |part| look(part, 0.0..0.0, bound(0)))
+            .chain(form.far.iter().enumerate().map(move |(tier, part)| {
+              look(
+                part,
+                bound(tier),
+                (tier + 1 < form.far.len())
+                  .then(|| bound(tier + 1))
+                  .unwrap_or(FOREVER..FOREVER)
+              )
+            }))
+            .collect::<Vec<_>>()
+        })
+        .partition(|look| {
+          look.range.end_margin.start >= FOREVER
+            && look.range.start_margin.end <= MERGE_LIMIT
+            && meshes
+              .get(&look.mesh)
+              .is_some_and(|mesh| mesh.count_vertices() <= MERGE_VERTICES)
+        });
+      let batches = distant
+        .iter()
+        .fold(
+          Vec::<(Handle<StandardMaterial>, Vec<&Look>)>::new(),
+          |mut batches, look| {
+            match batches.iter_mut().find(|(material, _)| *material == look.material) {
+              Some((_, list)) => list.push(look),
+              None => batches.push((look.material.clone(), vec![look]))
+            }
+            batches
+          }
+        )
+        .into_iter()
+        .map(|(material, list)| {
+          let mesh = bake(&list, origin, &meshes);
+          let aabb = mesh.compute_aabb().unwrap_or_default();
+          (material, meshes.add(mesh), aabb)
+        })
+        .collect();
+      Stand {
+        bounds: plants.iter().fold(Rect::EMPTY, |bounds, plant| {
+          bounds.union_point(plant.place.translation.xz())
+        }),
+        origin,
+        settled: distant
+          .iter()
+          .map(|look| look.range.start_margin.end)
+          .fold(0.0, f32::max),
+        looks,
+        distant,
+        batches,
+        merged: Vec::new()
+      }
+    })
+    .collect();
+  commands.insert_resource(Woods { stands, eye: None });
 }
 
 #[derive(Default)]
@@ -1743,5 +1976,5 @@ pub fn plugin(app: &mut App) {
     .add_plugins(MaterialPlugin::<SwayMaterial>::default())
     .init_resource::<Meadow>()
     .add_systems(Startup, (spawn_flora, prepare_sward))
-    .add_systems(Update, tend_meadow);
+    .add_systems(Update, (tend_meadow, tend_woods));
 }

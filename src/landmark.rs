@@ -481,9 +481,9 @@ fn raise_landmarks(
       color: Color::srgb(1.0, 0.62, 0.3),
       intensity: 400_000.0,
       range: 22.0,
-      shadow_maps_enabled: true,
       ..default()
     },
+    crate::sky::CloseShadows,
     crate::humanoid::shadowing(),
     Transform::from_translation(camp_at + Vec3::Y * 0.8)
   ));
