@@ -682,8 +682,8 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
     ));
 
     if opts().intro {
-      let hint = HINTS[std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
+      let hint = HINTS[web_time::SystemTime::now()
+        .duration_since(web_time::UNIX_EPOCH)
         .map_or(0, |since| since.subsec_nanos() as usize)
         % HINTS.len()];
       hud

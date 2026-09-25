@@ -179,7 +179,7 @@ fn in_parallel<Item: Sync, Made: Send>(
 ) -> Vec<Made> {
   let threads = std::thread::available_parallelism().map_or(8, usize::from);
   let share = items.len().div_ceil(4 * threads).max(1);
-  std::thread::scope(|scope| {
+  crate::par::scope(|scope| {
     items
       .chunks(share)
       .map(|part| scope.spawn(|| part.iter().map(&make).collect::<Vec<_>>()))

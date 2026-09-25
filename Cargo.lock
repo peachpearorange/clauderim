@@ -5553,9 +5553,11 @@ dependencies = [
  "bevy_hanabi",
  "enum-assoc",
  "fidget",
+ "getrandom 0.3.4",
  "json5",
  "nalgebra",
  "serde",
+ "web-time",
 ]
 
 [[package]]
@@ -6419,6 +6421,7 @@ dependencies = [
  "smallvec 1.16.1",
  "static_assertions",
  "wasm-bindgen",
+ "wasm-bindgen-futures",
  "web-sys",
  "wgpu-core",
  "wgpu-hal",

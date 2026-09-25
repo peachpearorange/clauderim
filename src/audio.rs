@@ -13,9 +13,9 @@ use {crate::{humanoid::Motion,
             prelude::*},
      std::{f32::consts::{PI, TAU},
            sync::{Arc, Mutex,
-                  mpsc::{Receiver, channel}},
-           time::Instant},
-     synth::{Rng, Wave}};
+                  mpsc::{Receiver, channel}}},
+     synth::{Rng, Wave},
+     web_time::Instant};
 
 const CUES: [Cue; 23] = [
   Cue::Swing,
@@ -146,7 +146,7 @@ fn render(mut commands: Commands) {
     .clamp(2, 6);
   (0..workers).for_each(|_| {
     let (queue, send) = (queue.clone(), send.clone());
-    std::thread::spawn(move || {
+    crate::par::spawn(move || {
       std::iter::from_fn(|| queue.lock().ok()?.pop()).for_each(|clip| {
         let start = Instant::now();
         let wavs = clip.render().iter().map(Wave::wav).collect();

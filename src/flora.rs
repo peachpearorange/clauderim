@@ -1279,7 +1279,7 @@ fn sow(ground: &Ground) -> Vec<Plant> {
   let patches = (2.0 * BOUND / PATCH).ceil() as i32;
   let bands = std::thread::available_parallelism().map_or(8, usize::from) as i32;
   let rows = (patches + bands - 1) / bands;
-  std::thread::scope(|scope| {
+  crate::par::scope(|scope| {
     (0..bands)
       .map(|band| {
         scope.spawn(move || {
@@ -1300,7 +1300,7 @@ fn sow(ground: &Ground) -> Vec<Plant> {
 }
 
 fn shapes() -> Vec<((Growth, usize), Shape)> {
-  std::thread::scope(|scope| {
+  crate::par::scope(|scope| {
     Growth::ALL
       .into_iter()
       .flat_map(|growth| (0..growth.variants()).map(move |variant| (growth, variant)))
@@ -1483,7 +1483,7 @@ fn spawn_flora(
   stuffs: Res<Stuffs>,
   ground: Res<Ground>
 ) {
-  let (made, atlas, plants) = std::thread::scope(|scope| {
+  let (made, atlas, plants) = crate::par::scope(|scope| {
     let made = scope.spawn(shapes);
     let atlas = scope.spawn(frond_atlas);
     let plants = sow(&ground);

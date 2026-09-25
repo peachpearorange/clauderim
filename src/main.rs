@@ -13,6 +13,7 @@ mod landmark;
 mod model;
 mod noise;
 mod opts;
+mod par;
 mod place;
 mod player;
 mod sdf;
@@ -111,6 +112,7 @@ fn main() {
           primary_window: Some(Window {
             title: "The Vibe Scrolls V: Clauderim".into(),
             resolution: (1600, 900).into(),
+            fit_canvas_to_parent: true,
             present_mode: opts::opts()
               .shot
               .map_or(bevy::window::PresentMode::AutoVsync, |_| {

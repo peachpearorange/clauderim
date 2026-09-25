@@ -1818,7 +1818,7 @@ fn raise_hollows(
 ) {
   let barrow = frame(Place::Hollowcrag, place::ROAD[place::ROAD.len() - 1]);
   let den = frame(Place::Fellhound, place::TRAIL[place::TRAIL.len() - 1]);
-  let (barrow_rock, den_rock) = std::thread::scope(|scope| {
+  let (barrow_rock, den_rock) = crate::par::scope(|scope| {
     let barrow_job = scope.spawn(|| {
       hew(
         barrow_solid(),
