@@ -3,7 +3,8 @@ use {crate::opts::opts,
             camera::Exposure,
             core_pipeline::tonemapping::Tonemapping,
             light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
-                    SunDisk, atmosphere::ScatteringMedium, light_consts::lux},
+                    EnvironmentMapLight, GeneratedEnvironmentMapLight, SunDisk,
+                    atmosphere::ScatteringMedium, light_consts::lux},
             pbr::{AtmosphereSettings, DistanceFog, FogFalloff},
             post_process::bloom::Bloom,
             prelude::*,
@@ -64,10 +65,14 @@ fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   t * t * (3.0 - 2.0 * t)
 }
 
+const MIRROR_SIZE: u32 = 256;
+const MIRROR_REFRESH: f32 = 0.5;
+const MIRROR_WARMUP: f32 = 3.0;
+
 pub fn lens() -> impl Bundle {
   (
     AtmosphereSettings { aerial_view_lut_max_distance: 1.2e4, ..default() },
-    AtmosphereEnvironmentMapLight::default(),
+    AtmosphereEnvironmentMapLight { size: UVec2::splat(MIRROR_SIZE), ..default() },
     Exposure { ev100: DAY_EXPOSURE },
     Tonemapping::AcesFitted,
     ColorGrading {
@@ -227,10 +232,40 @@ fn shade_close_lights(
   });
 }
 
+fn refresh_mirror(
+  time: Res<Time>,
+  mut commands: Commands,
+  mut kept: Local<Option<GeneratedEnvironmentMapLight>>,
+  mut age: Local<f32>,
+  mut drawn: Local<u32>,
+  camera: Single<
+    (Entity, Option<&GeneratedEnvironmentMapLight>, Has<EnvironmentMapLight>),
+    With<crate::player::MainCamera>
+  >
+) {
+  let (entity, generated, lit) = *camera;
+  *age += time.delta_secs();
+  match (generated, lit) {
+    (Some(generated), true) if time.elapsed_secs() > MIRROR_WARMUP && *drawn >= 2 => {
+      *kept = Some(generated.clone());
+      commands.entity(entity).remove::<GeneratedEnvironmentMapLight>();
+      *age = 0.0;
+      *drawn = 0;
+    }
+    (Some(_), true) => *drawn += 1,
+    (None, true) if *age > MIRROR_REFRESH => {
+      if let Some(generated) = kept.clone() {
+        commands.entity(entity).insert(generated);
+      }
+    }
+    _ => {}
+  }
+}
+
 pub fn plugin(app: &mut App) {
   app
     .init_resource::<Clock>()
     .init_resource::<Daylight>()
     .add_systems(Startup, spawn_sky)
-    .add_systems(Update, (cycle_day, shade_close_lights));
+    .add_systems(Update, (cycle_day, shade_close_lights, refresh_mirror));
 }
