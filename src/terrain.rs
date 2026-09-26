@@ -87,7 +87,7 @@ fn strata(height: f32, at: Vec2) -> f32 {
   let thickness = STRATUM * (1.0 + 0.5 * noise::fbm(at / 260.0, 3, 97));
   let level = (height + dip) / thickness + 1.5 * noise::fbm(at / 380.0, 2, 99);
   let bedded = smooth(-0.35, 0.15, noise::fbm(at / 320.0, 3, 101));
-  height + (level.floor() + smooth(0.4, 0.72, level.fract()) - level) * thickness * bedded
+  height + (level.floor() + smooth(0.35, 0.75, level.fract()) - level) * thickness * bedded
 }
 
 fn settled(place: Place) -> bool {
@@ -126,7 +126,7 @@ pub fn land(at: Vec2, pass: f32) -> f32 {
   let massif =
     highland(at, bent, far, pass) * (40.0 + crags * (320.0 + 110.0 * range)) + border;
   let rugged = smooth(50.0, 200.0, massif) * (1.0 - far);
-  let layered = massif.lerp(strata(massif, bent), 0.75 * rugged);
+  let layered = massif.lerp(strata(massif, bent), 0.65 * rugged);
   24.0 + hills + layered.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
