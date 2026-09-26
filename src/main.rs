@@ -36,35 +36,82 @@ mod wolf;
 mod work;
 
 use {avian3d::prelude::*,
-     bevy::{prelude::*,
-            render::{RenderPlugin,
+     bevy::{camera::{Viewport, visibility::RenderLayers},
+            prelude::*,
+            render::{Render, RenderApp, RenderPlugin, RenderSystems,
+                     render_resource::PipelineCache,
                      settings::{InstanceFlags, RenderCreation, WgpuSettings},
-                     view::screenshot::{Screenshot, save_to_disk}}}};
+                     view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk}}}};
+
+const WARM_UP_FRAMES: u32 = 3;
+const WARM_UP_LIMIT: u32 = 40;
+
+#[derive(Resource, Clone, Default)]
+struct Compiling(std::sync::Arc<std::sync::atomic::AtomicUsize>);
+
+fn count_compiling(compiling: Res<Compiling>, cache: Res<PipelineCache>) {
+  compiling
+    .0
+    .store(cache.waiting_pipelines().count(), std::sync::atomic::Ordering::Relaxed);
+}
+
+fn watch_compiling(app: &mut App) {
+  let compiling = Compiling::default();
+  app.insert_resource(compiling.clone());
+  app
+    .sub_app_mut(RenderApp)
+    .insert_resource(compiling)
+    .add_systems(Render, count_compiling.in_set(RenderSystems::Cleanup));
+}
+const UNSEEN: usize = 7;
 
 fn snapshot(
   time: Res<Time>,
   pending: Res<signal::Pending>,
-  mut taken: Local<Option<f32>>,
-  mut commands: Commands,
-  mut exit: MessageWriter<AppExit>
+  mut warmed: Local<Option<u32>>,
+  mut taken: Local<bool>,
+  mut cameras: Query<(Entity, &mut Camera)>,
+  mut suns: Query<&mut DirectionalLight>,
+  compiling: Res<Compiling>,
+  mut commands: Commands
 ) {
-  if let Some(at) = opts::opts().shot
-    && time.elapsed_secs() > at
-    && (pending.idle() || taken.is_some())
-  {
-    match *taken {
-      None => {
-        let path = format!(
-          "screenshots/shot-{}.png",
-          std::env::var("SHOT_NAME").unwrap_or("latest".into())
-        );
-        commands.spawn(Screenshot::primary_window()).observe(save_to_disk(path));
-        *taken = Some(time.elapsed_secs());
-      }
-      Some(when) if time.elapsed_secs() > when + 1.5 => {
-        exit.write(AppExit::Success);
-      }
-      _ => {}
+  if let Some(at) = opts::opts().shot {
+    let settled = time.elapsed_secs() > at && pending.idle();
+    *warmed = warmed.map(|frames| frames + 1).or(settled.then_some(0));
+    let drawing = warmed.is_some();
+    let glimpse = Viewport { physical_size: UVec2::ONE, ..default() };
+    cameras
+      .iter_mut()
+      .filter(|(_, camera)| camera.viewport.is_none() != drawing)
+      .for_each(|(entity, mut camera)| {
+        camera.viewport = (!drawing).then(|| glimpse.clone());
+        match drawing {
+          true => commands.entity(entity).remove::<RenderLayers>(),
+          false => commands.entity(entity).insert(RenderLayers::layer(UNSEEN))
+        };
+      });
+    suns
+      .iter_mut()
+      .filter(|sun| sun.shadow_maps_enabled != drawing)
+      .for_each(|mut sun| sun.shadow_maps_enabled = drawing);
+    let compiled = compiling.0.load(std::sync::atomic::Ordering::Relaxed) == 0;
+    let ready = !*taken
+      && warmed.is_some_and(|frames| {
+        (frames >= WARM_UP_FRAMES && compiled) || frames >= WARM_UP_LIMIT
+      });
+    if ready {
+      *taken = true;
+      let path = format!(
+        "screenshots/shot-{}.png",
+        std::env::var("SHOT_NAME").unwrap_or("latest".into())
+      );
+      let mut save = save_to_disk(path);
+      commands.spawn(Screenshot::primary_window()).observe(
+        move |captured: On<ScreenshotCaptured>| {
+          save(captured);
+          std::process::exit(0)
+        }
+      );
     }
   }
 }
@@ -168,7 +215,7 @@ fn main() {
       river::plugin,
       npc::plugin
     ))
-    .add_plugins((audio::plugin, work::plugin))
+    .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)
     .add_systems(
       PreUpdate,
