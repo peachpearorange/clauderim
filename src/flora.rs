@@ -2083,3 +2083,74 @@ pub fn plugin(app: &mut App) {
     .add_systems(Startup, (spawn_flora, prepare_sward))
     .add_systems(Update, (tend_meadow, tend_woods, report_woods.after(tend_woods)));
 }
+
+#[cfg(test)]
+mod tests {
+  use {super::*,
+       crate::terrain::{MAP_SIDE, WORLD, in_parallel, map_image, map_pixel}};
+
+  #[test]
+  #[ignore]
+  fn plant_map() {
+    let ground = Ground::default();
+    let cells = (2.0 * WORLD / CELL) as i32;
+    let rows: Vec<i32> = (-cells / 2..cells / 2).collect();
+    let plants: Vec<(Vec2, Growth)> = in_parallel(&rows, |&row| {
+      (-cells / 2..cells / 2)
+        .flat_map(|column| {
+          let per = (CELL / PATCH) as i32;
+          let cell = IVec2::new(column, row);
+          (0..per * per)
+            .flat_map(|index| {
+              scatter(&ground, cell * per + IVec2::new(index % per, index / per))
+            })
+            .map(|plant| (plant.place.translation.xz(), plant.growth))
+            .collect::<Vec<_>>()
+        })
+        .collect::<Vec<_>>()
+    })
+    .concat();
+    let count = |kinds: &[Growth]| {
+      plants.iter().filter(|(_, growth)| kinds.contains(growth)).count()
+    };
+    let area = (2.0 * WORLD / 1000.0).powi(2);
+    let trees = count(&[
+      Growth::Pine,
+      Growth::SnowyPine,
+      Growth::Birch,
+      Growth::Gnarl,
+      Growth::Snag
+    ]);
+    let rocks =
+      count(&[Growth::Boulder, Growth::SnowyBoulder, Growth::Crag, Growth::SnowyCrag]);
+    println!(
+      "trees {trees} ({:.0}/km²), rocks {rocks} ({:.0}/km²), shrubs {}",
+      trees as f32 / area,
+      rocks as f32 / area,
+      count(&[Growth::Juniper])
+    );
+    let marks =
+      plants.iter().fold(vec![None; MAP_SIDE * MAP_SIDE], |mut marks, &(at, growth)| {
+        if let Some(pixel) = map_pixel(at) {
+          let tone = match growth {
+            Growth::Pine | Growth::SnowyPine | Growth::Snag => {
+              LinearRgba::rgb(0.0, 0.08, 0.02)
+            }
+            Growth::Birch | Growth::Gnarl => LinearRgba::rgb(0.6, 0.35, 0.0),
+            Growth::Boulder | Growth::SnowyBoulder | Growth::Crag | Growth::SnowyCrag => {
+              LinearRgba::rgb(0.9, 0.9, 0.9)
+            }
+            _ => LinearRgba::rgb(0.1, 0.25, 0.1)
+          };
+          marks[pixel] = Some(tone);
+        }
+        marks
+      });
+    map_image("screenshots/plants.png", |at| {
+      map_pixel(at).and_then(|pixel| marks[pixel]).or_else(|| {
+        (crate::river::course_distance(at) < 6.0)
+          .then_some(LinearRgba::rgb(0.0, 0.2, 1.0))
+      })
+    });
+  }
+}

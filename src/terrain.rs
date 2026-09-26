@@ -788,47 +788,62 @@ mod tests {
   #[test]
   #[ignore]
   fn map() {
-    let side = 1024usize;
-    let step = 2.0 * WORLD / side as f32;
-    let spot = |index: usize| {
-      Vec2::new((index % side) as f32, (index / side) as f32) * step - WORLD
-    };
-    let heights: Vec<f32> =
-      in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| height_at(spot(index)));
-    let pixels: Vec<u8> = in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| {
-      let (x, z) = (index % side, index / side);
-      let height = |x: usize, z: usize| heights[z.min(side - 1) * side + x.min(side - 1)];
-      let normal = Vec3::new(
-        height(x.saturating_sub(1), z) - height(x + 1, z),
-        2.0 * step,
-        height(x, z.saturating_sub(1)) - height(x, z + 1)
-      )
-      .normalize();
-      let light =
-        0.55 + 0.6 * normal.dot(Vec3::new(-0.5, 0.7, -0.4).normalize()).max(0.0);
-      let at = spot(index);
-      let marked = Place::ALL.into_iter().any(|place| at.distance(place.spot()) < 14.0);
-      let tone = marked
+    map_image("screenshots/map.png", |at| {
+      Place::ALL
+        .into_iter()
+        .any(|place| at.distance(place.spot()) < 14.0)
         .then_some(LinearRgba::rgb(1.0, 0.0, 0.0))
-        .unwrap_or_else(|| paint(at, height(x, z), normal, 0.0) * light);
-      Srgba::from(tone).to_u8_array()
-    })
-    .concat();
-    Image::new(
-      bevy::render::render_resource::Extent3d {
-        width: side as u32,
-        height: side as u32,
-        depth_or_array_layers: 1
-      },
-      bevy::render::render_resource::TextureDimension::D2,
-      pixels,
-      bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
-      RenderAssetUsages::MAIN_WORLD
-    )
-    .try_into_dynamic()
-    .expect("map image")
-    .to_rgb8()
-    .save("screenshots/map.png")
-    .expect("map saved");
+    });
   }
+}
+
+#[cfg(test)]
+pub const MAP_SIDE: usize = 1024;
+
+#[cfg(test)]
+pub fn map_pixel(at: Vec2) -> Option<usize> {
+  let grid = ((at + WORLD) / (2.0 * WORLD) * MAP_SIDE as f32).floor();
+  (grid.min_element() >= 0.0 && grid.max_element() < MAP_SIDE as f32)
+    .then(|| grid.y as usize * MAP_SIDE + grid.x as usize)
+}
+
+#[cfg(test)]
+pub fn map_image(path: &str, mark: impl Fn(Vec2) -> Option<LinearRgba> + Sync) {
+  let side = MAP_SIDE;
+  let step = 2.0 * WORLD / side as f32;
+  let spot =
+    |index: usize| Vec2::new((index % side) as f32, (index / side) as f32) * step - WORLD;
+  let heights: Vec<f32> =
+    in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| height_at(spot(index)));
+  let pixels: Vec<u8> = in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| {
+    let (x, z) = (index % side, index / side);
+    let height = |x: usize, z: usize| heights[z.min(side - 1) * side + x.min(side - 1)];
+    let normal = Vec3::new(
+      height(x.saturating_sub(1), z) - height(x + 1, z),
+      2.0 * step,
+      height(x, z.saturating_sub(1)) - height(x, z + 1)
+    )
+    .normalize();
+    let light = 0.55 + 0.6 * normal.dot(Vec3::new(-0.5, 0.7, -0.4).normalize()).max(0.0);
+    let at = spot(index);
+    let tone = mark(at).unwrap_or_else(|| paint(at, height(x, z), normal, 0.0) * light);
+    Srgba::from(tone).to_u8_array()
+  })
+  .concat();
+  Image::new(
+    bevy::render::render_resource::Extent3d {
+      width: side as u32,
+      height: side as u32,
+      depth_or_array_layers: 1
+    },
+    bevy::render::render_resource::TextureDimension::D2,
+    pixels,
+    bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+    RenderAssetUsages::MAIN_WORLD
+  )
+  .try_into_dynamic()
+  .expect("map image")
+  .to_rgb8()
+  .save(path)
+  .expect("map saved");
 }

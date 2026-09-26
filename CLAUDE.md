@@ -33,7 +33,7 @@ e.g. `SKYRIM='{shot: 5, at: "hollow"}' SHOT_NAME=barrow cargo run`. Screenshots 
 # Build
 Priority is fast incremental builds over runtime speed. Debug builds only; release only when asked.
 - `cargo check` to verify compilation; `cargo run --features dev` to test (`dev` = Bevy dynamic linking, incremental rebuild ~13 s vs ~21 s). `tools/shot <name> '<opts>'` builds and screenshots; `tools/shots name '<opts>' name '<opts>' …` takes several in a row under xvfb.
-- `cargo test --features dev map -- --ignored` renders the whole world's height/paint top-down to `screenshots/map.png` in ~1 s (places in red) — use it to check layout before spending minutes on screenshots.
+- `cargo test --features dev map -- --ignored` renders the whole world's height/paint top-down to `screenshots/map.png` in ~1 s (places in red) — use it to check layout before spending minutes on screenshots. `cargo test --features dev plant_map -- --ignored --nocapture` (~30 s) plots every tree/rock/shrub onto `screenshots/plants.png` and prints counts per km². Aerial screenshots are impractical under lavapipe (streaming 1.3 km of flora takes many minutes).
 - On a panic or startup failure (including Bevy system param conflicts), rerun with `RUST_BACKTRACE=1`.
 - Cloud sessions have no GPU: wrap runs in `xvfb-run -a -s "-screen 0 1920x1080x24"` (lavapipe, software Vulkan). Frames are slow and the game clock is capped per frame, so it runs far behind real time: `shot: 3` takes ~1.5 min. Keep `shot` small and pair it with `intro: false`.
 - Docs: https://docs.rs/bevy/0.19.1/bevy/
