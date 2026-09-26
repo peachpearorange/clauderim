@@ -101,13 +101,12 @@ pub fn lens() -> impl Bundle {
     Bloom { intensity: 0.12, ..Bloom::NATURAL },
     DistanceFog {
       color: Color::srgb(DAY_HAZE.x, DAY_HAZE.y, DAY_HAZE.z),
-      directional_light_color: Color::srgba(1.0, 0.92, 0.78, 0.4),
-      directional_light_exponent: 12.0,
       falloff: FogFalloff::from_visibility_colors(
         HAZE_VISIBILITY * crate::opts::opts().haze,
         Color::srgb(0.46, 0.50, 0.58),
         Color::srgb(0.76, 0.80, 0.86)
-      )
+      ),
+      ..default()
     },
     Msaa::Off,
     Smaa { preset: SmaaPreset::High }
@@ -203,7 +202,6 @@ fn cycle_day(
     })
     .lerp(UNDERGROUND_EXPOSURE, daylight.shelter);
   let haze = DAY_HAZE.lerp(DUSK_HAZE, golden).lerp(NIGHT_HAZE, dark);
-  let glow = Vec3::new(1.0, 0.9, 0.76).lerp(warmth / warmth.max_element(), golden);
   let adapting = *adapted && daylight.snap == 0;
   *adapted = !lenses.is_empty();
   daylight.snap = daylight.snap.saturating_sub(1);
@@ -217,9 +215,6 @@ fn cycle_day(
         + (SKY_FILL * (1.0 + 1.2 * golden + 1.5 * dark) - 0.015) * outdoors.powf(2.0);
     }
     fog.color = Color::srgba(haze.x, haze.y, haze.z, outdoors * (0.6 + 0.4 * day));
-    fog.directional_light_color =
-      Color::linear_rgba(glow.x, glow.y, glow.z, (0.35 + 0.5 * golden) * sunlit);
-    fog.directional_light_exponent = 12.0.lerp(5.0, golden);
     grading.global.temperature = COOL.lerp(WARM, golden * outdoors);
     grading.global.tint = golden * outdoors * BLUSH;
   }
