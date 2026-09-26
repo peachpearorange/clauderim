@@ -48,6 +48,7 @@ pub enum Cue {
   WordLearned,
   Shout,
   DragonRoar,
+  FireBreath,
   Wingbeat,
   LevelUp,
   Coins

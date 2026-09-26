@@ -4,6 +4,7 @@
 @group(#{MATERIAL_BIND_GROUP}) @binding(1) var<uniform> light: vec4<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(2) var<uniform> ambient: vec4<f32>;
 @group(#{MATERIAL_BIND_GROUP}) @binding(3) var<uniform> drift: vec4<f32>;
+@group(#{MATERIAL_BIND_GROUP}) @binding(4) var<uniform> night: vec4<f32>;
 
 const PI: f32 = 3.14159265;
 const TURN: mat2x2<f32> = mat2x2<f32>(0.8, -0.6, 0.6, 0.8);
@@ -80,6 +81,49 @@ fn scatter(cosine: f32, g: f32) -> f32 {
   return (1.0 - g2) / (4.0 * PI * pow(1.0 + g2 - 2.0 * g * cosine, 1.5));
 }
 
+fn hash3(cell: vec3<i32>) -> vec3<f32> {
+  let a = scramble(cell.xy + vec2(cell.z * 31, cell.z * 17));
+  let b = scramble(cell.zx + vec2<i32>(i32(a.x & 1023u), 7));
+  return vec3<f32>(vec3<u32>(a.x & 0xffffu, a.y & 0xffffu, b.x & 0xffffu)) / 65535.0;
+}
+
+fn stars(ray: vec3<f32>) -> vec3<f32> {
+  let scaled = ray * 260.0;
+  let cell = vec3<i32>(floor(scaled));
+  let pick = hash3(cell);
+  let spot = normalize(vec3<f32>(cell) + 0.25 + 0.5 * hash3(cell + vec3(11, 5, 3)));
+  let gap = length(ray - spot) * 260.0;
+  let band = abs(dot(ray, normalize(vec3(0.35, 0.55, -0.75))));
+  let galaxy = exp(-band * band * 60.0);
+  let chance = 0.022 + 0.1 * galaxy;
+  let lit = f32(pick.x < chance);
+  let magnitude = pow(pick.y, 9.0) * 12.0 + 0.2 + 0.3 * pick.y;
+  let twinkle = 0.75 + 0.25 * sin(night.z * (2.0 + pick.z * 5.0) + pick.x * 90.0);
+  let tint = mix(vec3(1.0, 0.82, 0.66), vec3(0.72, 0.84, 1.0), pick.z);
+  let point = exp(-gap * gap * 9.0) * lit * magnitude * twinkle;
+  let dust = galaxy * (0.35 + 0.65 * smoothstep(-0.2, 0.5, fbm(ray.xz * 9.0 + ray.y * 5.0, 4)))
+    * (1.0 - 0.6 * smoothstep(0.1, 0.45, fbm(ray.xz * 22.0 + 3.0, 3)));
+  return tint * point * 90.0 + vec3(0.55, 0.6, 0.8) * dust * 2.2;
+}
+
+fn aurora(eye: vec3<f32>, ray: vec3<f32>) -> vec3<f32> {
+  var glow = vec3(0.0);
+  let steps = 20;
+  for (var i = 0; i < steps; i++) {
+    let lift = f32(i) / f32(steps - 1);
+    let height = 4200.0 + lift * 5200.0;
+    let at = eye.xz + ray.xz * (height - eye.y) / max(ray.y, 0.02);
+    let along = at.x / 5200.0 + night.z * 0.012;
+    let sway = fbm(vec2(along, 1.7), 3) * 3600.0 + sin(along * 1.7 + night.z * 0.03) * 1400.0;
+    let line = abs(at.y - (eye.z - 7500.0 + sway)) / 380.0;
+    let fold = 0.55 + 0.45 * sin(at.x / 170.0 + fbm(vec2(along * 6.0, night.z * 0.02), 2) * 9.0);
+    let curtain = exp(-line * line) * fold * pow(1.0 - lift, 1.6);
+    let colour = mix(vec3(0.15, 1.0, 0.45), vec3(0.55, 0.2, 0.9), smoothstep(0.35, 0.95, lift));
+    glow += colour * curtain;
+  }
+  return glow * 420.0 / f32(steps);
+}
+
 @fragment
 fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
   let eye = view.world_position;
@@ -103,5 +147,10 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
   let haze = smoothstep(3000.0, 22000.0, reach) * 0.55;
   let radiance = mix(sunlit + underside, ambient.rgb * 1.3, haze);
   let alpha = smoothstep(0.0, 0.45, thick) * fade * smoothstep(0.0, 0.03, ray.y);
-  return vec4(radiance * view.exposure, alpha);
+  var above = vec3(0.0);
+  if (night.x > 0.001) {
+    let horizon = smoothstep(0.04, 0.3, ray.y);
+    above = (stars(ray) * night.x + aurora(eye, ray) * night.y) * horizon;
+  }
+  return vec4((radiance * alpha + above * (1.0 - alpha)) * view.exposure, alpha);
 }

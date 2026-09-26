@@ -32,7 +32,7 @@ impl Spot {
     Spot { name, at, marker, flat, sunk: 0.0, rise: 0.0 }
   }
 
-  const fn sunk(self, sunk: f32) -> Self { Spot { sunk, ..self } }
+  pub const fn sunk(self, sunk: f32) -> Self { Spot { sunk, ..self } }
 
   const fn rise(self, rise: f32) -> Self { Spot { rise, ..self } }
 }

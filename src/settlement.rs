@@ -74,6 +74,10 @@ pub enum Work {
   Shrine { at: Vec2, facing: f32 },
   Menhirs { at: Vec2 },
   Pillar { at: Vec2, tall: f32 },
+  Spire { at: Vec2, facing: f32, tall: f32, lit: bool },
+  Portal { at: Vec2, facing: f32 },
+  Pit { at: Vec2, facing: f32, inner: f32, outer: f32 },
+  Terrace { at: Vec2, facing: f32 },
   Rubble { at: Vec2 },
   Stable { at: Vec2, facing: f32 },
   Horse { at: Vec2, facing: f32 }
@@ -603,23 +607,57 @@ fn barrow(place: Place, seed: u32) -> Layout {
   let mut plan = Plan::new(place, seed, place.flat() * 1.3);
   let center = plan.center;
   let facing = plan.roll.range(0.0, TAU);
-  let radius = place.flat() * 0.55;
-  plan.works.push(Work::Mound { at: center, facing, radius });
   let front = Vec2::from_angle(-facing).rotate(Vec2::Y);
-  [-1.0, 1.0].into_iter().for_each(|side| {
-    plan.works.push(Work::Pillar {
-      at: center + front * (radius + 4.0) + front.perp() * side * 3.0,
-      tall: plan.roll.range(2.2, 3.2)
+  let sunken = place.sunk() > 0.0;
+  let mounded = !sunken && plan.roll.chance(0.6);
+  let (door, guard) = match (sunken, mounded) {
+    (true, _) => {
+      let (inner, outer) = (place.flat() * 0.6, place.flat() * 0.98);
+      plan.works.push(Work::Pit { at: center, facing, inner, outer });
+      [2.3, -2.3].into_iter().for_each(|turn| {
+        let at =
+          center + Vec2::from_angle(-facing - turn).rotate(Vec2::Y) * (outer + 2.5);
+        plan.works.push(Work::Spire {
+          at,
+          facing: facing + turn,
+          tall: plan.roll.range(4.5, 7.0),
+          lit: false
+        })
+      });
+      plan.worn.push((center + front * outer, 4.0));
+      (center, center + front * inner * 0.5)
+    }
+    (false, true) => {
+      let radius = place.flat() * 0.55;
+      plan.works.push(Work::Mound { at: center, facing, radius });
+      plan.works.push(Work::Portal { at: center + front * radius * 0.9, facing });
+      plan.worn.push((center + front * (radius + 5.0), 5.0));
+      (center + front * (radius + 4.0), center + front * (radius + 6.5))
+    }
+    (false, false) => {
+      plan.works.push(Work::Terrace { at: center, facing });
+      plan.worn.push((center + front * 9.0, 5.0));
+      (center, center + front * 9.5)
+    }
+  };
+  let side = front.perp();
+  [-1.0, 1.0].into_iter().filter(|_| !sunken).for_each(|flank| {
+    let at = door + front * 9.0 + side * flank * 5.5;
+    plan.works.push(Work::Spire {
+      at,
+      facing,
+      tall: plan.roll.range(4.0, 5.5),
+      lit: true
     })
   });
-  plan.worn.push((center + front * (radius + 3.0), 4.0));
+  (0..3).for_each(|_| {
+    let at = center
+      + Vec2::from_angle(plan.roll.range(0.0, TAU))
+        * plan.roll.range(place.flat() * 0.9, place.flat() * 1.25);
+    plan.works.push(Work::Rubble { at });
+  });
   let foes = (0..1 + plan.roll.below(2))
-    .map(|index| {
-      (
-        center + front * (radius + 5.0) + front.perp() * (index as f32 * 2.5 - 1.0),
-        FoeKind::Draugr
-      )
-    })
+    .map(|index| (guard + side * (index as f32 * 2.5 - 1.0), FoeKind::Draugr))
     .collect();
   plan.finish(place, Paving::Dirt, Vec::new(), foes)
 }
@@ -1874,6 +1912,408 @@ fn pillar(tall: f32, ground: Ground, roll: &mut Roll) -> Works {
   works
 }
 
+const CARVED: Srgba = Srgba::new(0.5, 0.5, 0.48, 1.0);
+const HEWN: f32 = 3.6;
+
+fn bird_head(roll: &mut Roll) -> Vec<(Stuff, Piece)> {
+  let stone = tinted(CARVED, roll, 0.05);
+  let hooked = crate::model::curve(
+    Vec3::new(0.0, 0.62, 0.2),
+    Vec3::new(0.0, 0.72, 0.85),
+    Vec3::new(0.0, 0.22, 1.02),
+    8
+  );
+  [
+    Piece::new(crate::model::lump(roll.below(500) as u32, 0.12, 2), stone)
+      .sized(Vec3::new(0.5, 0.62, 0.62))
+      .at_xyz(0.0, 0.5, 0.0),
+    Piece::new(
+      crate::model::tube(&hooked, &crate::model::taper(8, 0.26, 0.04), 7),
+      stone
+    ),
+    Piece::new(block(0.9, 0.22, 0.5), stone * 0.92).at_xyz(0.0, 0.84, 0.14),
+    Piece::new(block(0.4, 0.5, 0.9), stone * 0.9).pitched(0.6).at_xyz(0.0, 0.62, -0.55),
+    Piece::new(block(0.76, 0.3, 0.8), stone * 0.95).at_xyz(0.0, 0.08, 0.0)
+  ]
+  .into_iter()
+  .map(|piece| (Stuff::Stone, piece))
+  .collect()
+}
+
+fn rib(works: &mut Works, path: &[Vec3], thick: (f32, f32), color: Srgba) {
+  works.add(
+    Stuff::Stone,
+    Piece::new(
+      crate::model::tube(path, &crate::model::taper(path.len() - 1, thick.0, thick.1), 6),
+      color
+    )
+  );
+  path.windows(3).step_by(2).for_each(|trio| {
+    let (from, to) = (trio[0], trio[2]);
+    works.solid(
+      (from + to) / 2.0,
+      Quat::from_rotation_arc(Vec3::Y, (to - from).normalize_or(Vec3::Y)),
+      Collider::cuboid(thick.0 * 1.6, from.distance(to), thick.0 * 1.6)
+    )
+  })
+}
+
+fn brazier(works: &mut Works, at: Vec3, roll: &mut Roll) {
+  let profile = [
+    Vec2::new(0.0, -0.3),
+    Vec2::new(0.18, -0.3),
+    Vec2::new(0.3, -0.05),
+    Vec2::new(0.62, 0.18),
+    Vec2::new(0.58, 0.26)
+  ];
+  works.add(
+    Stuff::Iron,
+    Piece::new(lathe(&profile, 16), Srgba::new(0.22, 0.2, 0.19, 1.0)).at(at)
+  );
+  works.add(
+    Stuff::Ember,
+    Piece::new(
+      crate::model::lump(roll.below(500) as u32, 0.3, 1),
+      Srgba::new(1.0, 0.6, 0.3, 1.0)
+    )
+    .sized(Vec3::new(0.42, 0.12, 0.42))
+    .at(at + Vec3::Y * 0.2)
+  );
+  works.fires.push(at + Vec3::Y * 0.12)
+}
+
+fn column(works: &mut Works, base: Vec3, tall: f32, width: f32, roll: &mut Roll) {
+  let stone = tinted(CARVED, roll, 0.06);
+  let shaft = tall - 1.0;
+  [
+    (1.45, 0.4, 0.0, 0.88),
+    (1.0, shaft, 0.4, 1.0),
+    (1.14, 0.16, 0.4 + shaft * 0.35, 0.88),
+    (1.14, 0.16, 0.4 + shaft * 0.7, 0.88),
+    (1.35, 0.6, tall - 0.6, 0.92)
+  ]
+  .into_iter()
+  .for_each(|(scale, thick, lift, shade)| {
+    works.add(
+      Stuff::Masonry,
+      slab(width * scale, thick, width * scale, stone * shade, HEWN)
+        .at(base + Vec3::Y * (lift + thick / 2.0))
+    )
+  });
+  works.solid(
+    base + Vec3::Y * tall / 2.0,
+    Quat::IDENTITY,
+    Collider::cuboid(width, tall, width)
+  );
+}
+
+fn spire(tall: f32, lit: bool, ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (low, _) = spread(ground, Vec2::splat(0.8));
+  let base = Vec3::Y * (low - 0.3);
+  column(&mut works, base, tall, 1.1, roll);
+  let lean = roll.spread(0.25);
+  bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+    works.add(stuff, piece.sized(Vec3::splat(1.3)).yawed(lean).at(base + Vec3::Y * tall))
+  });
+  if lit {
+    brazier(&mut works, base + Vec3::new(0.0, tall * 0.45, 1.05), roll)
+  }
+  works
+}
+
+fn portal(ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (low, high) = spread(ground, Vec2::new(8.0, 3.0));
+  let floor = high + 0.4;
+  let stone = tinted(CARVED, roll, 0.05);
+  let (spring, radius) = (floor + 2.4, 4.0);
+  let bottom = low - 1.0;
+  let outline: Vec<Vec2> = [Vec2::new(radius, bottom - floor)]
+    .into_iter()
+    .chain((0..=16).map(|step| {
+      Vec2::from_angle(step as f32 / 16.0 * std::f32::consts::PI) * radius
+        + Vec2::Y * (spring - floor)
+    }))
+    .chain([Vec2::new(-radius, bottom - floor)])
+    .collect();
+  works.add(
+    Stuff::Masonry,
+    Piece::new(crate::model::fan(&outline, 1.2), stone * 0.88)
+      .planar(HEWN)
+      .at_xyz(0.0, floor, 0.0)
+  );
+  works.solid(
+    Vec3::new(0.0, (bottom + spring + radius) / 2.0, 0.0),
+    Quat::IDENTITY,
+    Collider::cuboid(radius * 2.0, spring + radius - bottom, 1.2)
+  );
+  let arch: Vec<Vec3> = [Vec3::new(radius + 0.5, bottom, 0.6)]
+    .into_iter()
+    .chain((0..=18).map(|step| {
+      let turn =
+        Vec2::from_angle(step as f32 / 18.0 * std::f32::consts::PI) * (radius + 0.5);
+      Vec3::new(turn.x, spring + turn.y, 0.6)
+    }))
+    .chain([Vec3::new(-radius - 0.5, bottom, 0.6)])
+    .collect();
+  rib(&mut works, &arch, (0.62, 0.62), stone);
+  bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+    works
+      .add(stuff, piece.sized(Vec3::splat(1.1)).at_xyz(0.0, spring + radius - 0.1, 0.9))
+  });
+  works.add(
+    Stuff::Gloss,
+    Piece::new(block(2.2, 3.1, 0.1), GLOOM).at_xyz(0.0, floor + 1.55, 0.62)
+  );
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    works.add(
+      Stuff::Wood,
+      Piece::new(block(1.05, 3.0, 0.12), Srgba::new(0.2, 0.15, 0.1, 1.0)).at_xyz(
+        side * 0.56,
+        floor + 1.5,
+        0.7
+      )
+    );
+    works.add(
+      Stuff::Iron,
+      Piece::new(block(1.0, 0.1, 0.16), Srgba::new(0.2, 0.19, 0.18, 1.0)).at_xyz(
+        side * 0.56,
+        floor + 2.3,
+        0.78
+      )
+    );
+  });
+  let spire_at = Vec3::new(0.0, bottom, -1.4);
+  let spire_tall = spring + radius + 7.0 - bottom;
+  column(&mut works, spire_at, spire_tall, 1.5, roll);
+  bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+    works.add(stuff, piece.sized(Vec3::splat(1.6)).at(spire_at + Vec3::Y * spire_tall))
+  });
+  let apex = Vec3::new(0.0, spring + radius + 4.6, -1.0);
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    let foot = Vec3::new(side * 10.0, bottom, 0.4);
+    let bend = Vec3::new(side * 9.2, spring + radius + 3.5, 0.0);
+    let path = crate::model::curve(foot, bend, apex + Vec3::X * side * 0.7, 16);
+    rib(&mut works, &path, (1.05, 0.62), stone * 0.95);
+    let perch = path[9];
+    bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+      works.add(stuff, piece.yawed(side * 1.2).at(perch + Vec3::Y * 0.7))
+    });
+  });
+  let step = 0.3;
+  let count = ((floor - low) / step).ceil().max(1.0) as usize + 1;
+  (0..count).for_each(|index| {
+    let top = floor - step * index as f32;
+    let depth = 2.2 + index as f32 * 0.55;
+    works.add(
+      Stuff::Masonry,
+      slab(7.0 - index as f32 * 0.4, top - bottom, depth, stone * 0.82, HEWN).at_xyz(
+        0.0,
+        (top + bottom) / 2.0,
+        0.6 + depth / 2.0
+      )
+    );
+  });
+  works.solid(
+    Vec3::new(0.0, (floor + bottom) / 2.0, 1.7),
+    Quat::IDENTITY,
+    Collider::cuboid(7.0, floor - bottom, 2.2)
+  );
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    let at = Vec3::new(side * 5.4, bottom + 0.6, 3.6);
+    column(&mut works, at, floor + 3.6 - at.y, 1.0, roll);
+    bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+      works
+        .add(stuff, piece.sized(Vec3::splat(1.05)).at(Vec3::new(at.x, floor + 3.6, at.z)))
+    });
+    brazier(&mut works, Vec3::new(at.x - side * 0.2, floor + 1.7, at.z + 0.95), roll);
+  });
+  works
+}
+
+fn pit(inner: f32, outer: f32, ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let inside: Vec<f32> = (0..12)
+    .map(|index| ground(Vec2::from_angle(index as f32 / 12.0 * TAU) * inner * 0.9))
+    .chain([ground(Vec2::ZERO)])
+    .collect();
+  let (lowest, highest) =
+    inside.iter().fold((f32::MAX, f32::MIN), |(low, high), &y| (low.min(y), high.max(y)));
+  let bottom = highest + 0.05;
+  let stone = tinted(CARVED, roll, 0.05);
+  let segments = 22;
+  let middle = (inner + outer) / 2.0;
+  let width = TAU * middle / segments as f32 * 1.04;
+  let floor = lowest - 0.6;
+  let rim_at = |toward: Vec2| ground(toward * outer).max(bottom + 2.4) + 0.35;
+  (1..segments).for_each(|index| {
+    let angle = index as f32 / segments as f32 * TAU;
+    let toward = Vec2::from_angle(angle).yx();
+    let rim = rim_at(toward);
+    let (at, turn) = (toward * middle, Quat::from_rotation_y(angle));
+    let shade = roll.range(0.8, 0.95);
+    let radial = outer - inner;
+    works.add(
+      Stuff::Masonry,
+      slab(width, rim - floor, radial, stone * shade, HEWN)
+        .turned(turn)
+        .at(at.extend((rim + floor) / 2.0).xzy())
+    );
+    works.solid(
+      at.extend((rim + floor) / 2.0).xzy(),
+      turn,
+      Collider::cuboid(width, rim - floor, radial)
+    );
+    let face = (toward * (inner - 0.05)).extend(0.0).xzy();
+    let lip = (toward * (inner + 0.35)).extend(rim + 0.18).xzy();
+    works.add(
+      Stuff::Masonry,
+      slab(width * 0.98, 0.36, 0.9, stone * 0.78, HEWN).turned(turn).at(lip)
+    );
+    if index % 2 == 0 {
+      let niche = face + Vec3::Y * (bottom + 1.2);
+      works.add(
+        Stuff::Gloss,
+        Piece::new(block(1.3, 1.9, 0.1), GLOOM).turned(turn).at(niche)
+      );
+      works.add(
+        Stuff::Masonry,
+        slab(1.9, 0.32, 0.5, stone * 0.9, HEWN).turned(turn).at(niche + Vec3::Y * 1.1)
+      );
+      works.add(
+        Stuff::Masonry,
+        slab(1.6, 0.5, 0.7, stone * 0.85, HEWN)
+          .turned(turn)
+          .at(face - (toward * 0.3).extend(0.0).xzy() + Vec3::Y * (bottom + 0.25))
+      );
+    }
+  });
+  let thick = bottom - floor;
+  works.add(
+    Stuff::Masonry,
+    Piece::new(
+      Cylinder::new(inner + 0.1, thick).mesh().resolution(28).build(),
+      stone * 0.72
+    )
+    .planar(HEWN)
+    .at_xyz(0.0, floor + thick / 2.0, 0.0)
+  );
+  works.solid(
+    Vec3::Y * (floor + thick / 2.0),
+    Quat::IDENTITY,
+    Collider::cylinder(inner + 0.1, thick)
+  );
+  let rim = rim_at(Vec2::Y);
+  let steps = ((rim - bottom) / 0.32).ceil().max(1.0) as usize;
+  let run = (outer - inner) / steps as f32;
+  (0..steps).for_each(|index| {
+    let top = rim - (rim - bottom) * (index as f32 + 1.0) / steps as f32;
+    let z = outer - run * (index as f32 + 0.5);
+    works.add(
+      Stuff::Masonry,
+      slab(2.6, top - floor, run + 0.05, stone * 0.8, HEWN).at_xyz(
+        0.0,
+        (top + floor) / 2.0,
+        z
+      )
+    );
+    works.solid(
+      Vec3::new(0.0, (top + floor) / 2.0, z),
+      Quat::IDENTITY,
+      Collider::cuboid(2.6, top - floor, run + 0.05)
+    );
+  });
+  works.add(
+    Stuff::Masonry,
+    slab(2.2, 0.9, 1.0, stone * 0.9, HEWN).at_xyz(0.0, bottom + 0.45, -inner * 0.3)
+  );
+  works.solid(
+    Vec3::new(0.0, bottom + 0.45, -inner * 0.3),
+    Quat::IDENTITY,
+    Collider::cuboid(2.2, 0.9, 1.0)
+  );
+  works
+}
+
+fn terrace(ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (half, depth) = (8.0, 6.0);
+  let (low, high) = spread(ground, Vec2::new(half, depth));
+  let (floor, bottom) = (high + 1.4, low - 1.0);
+  let stone = tinted(CARVED, roll, 0.05);
+  works.add(
+    Stuff::Masonry,
+    slab(half * 2.0, floor - bottom, depth * 2.0, stone * 0.84, HEWN).at_xyz(
+      0.0,
+      (floor + bottom) / 2.0,
+      0.0
+    )
+  );
+  works.solid(
+    Vec3::Y * (floor + bottom) / 2.0,
+    Quat::IDENTITY,
+    Collider::cuboid(half * 2.0, floor - bottom, depth * 2.0)
+  );
+  let steps = ((floor - low) / 0.3).ceil().max(1.0) as usize;
+  (0..steps).for_each(|index| {
+    let top = floor - 0.3 * (index as f32 + 1.0);
+    let z = depth + 0.25 + 0.5 * index as f32;
+    works.add(
+      Stuff::Masonry,
+      slab(6.0, top - bottom, 0.52, stone * 0.8, HEWN).at_xyz(
+        0.0,
+        (top + bottom) / 2.0,
+        z
+      )
+    );
+  });
+  let slope_run = 0.5 * steps as f32;
+  works.solid(
+    Vec3::new(0.0, (floor + low) / 2.0 - 0.3, depth + slope_run / 2.0),
+    Quat::from_rotation_x(((floor - low) / slope_run.max(0.1)).atan()),
+    Collider::cuboid(6.0, 0.4, (slope_run * slope_run + (floor - low).powi(2)).sqrt())
+  );
+  let spire_at = Vec3::new(0.0, floor, -depth + 1.5);
+  column(&mut works, spire_at, 12.0, 1.4, roll);
+  bird_head(roll).into_iter().for_each(|(stuff, piece)| {
+    works.add(stuff, piece.sized(Vec3::splat(1.5)).at(spire_at + Vec3::Y * 12.0))
+  });
+  let broken = roll.below(2);
+  [-1.0, 1.0].into_iter().enumerate().for_each(|(which, side)| {
+    let foot = Vec3::new(side * (half - 1.0), floor, -depth + 1.8);
+    let path = crate::model::curve(
+      foot,
+      Vec3::new(side * (half - 1.5), floor + 11.0, -depth + 1.6),
+      Vec3::new(side * 0.8, floor + 10.0, -depth + 1.5),
+      14
+    );
+    let kept = if which == broken { path.len() * 3 / 5 } else { path.len() };
+    rib(&mut works, &path[..kept], (0.85, 0.55), stone * 0.95);
+  });
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    let at = Vec3::new(side * (half - 0.9), floor, depth - 0.9);
+    column(&mut works, at, 4.5, 1.0, roll);
+    bird_head(roll)
+      .into_iter()
+      .for_each(|(stuff, piece)| works.add(stuff, piece.at(at + Vec3::Y * 4.5)));
+  });
+  works.add(
+    Stuff::Masonry,
+    slab(2.4, 1.0, 1.2, stone * 0.9, HEWN).at_xyz(0.0, floor + 0.5, -1.0)
+  );
+  works.solid(
+    Vec3::new(0.0, floor + 0.5, -1.0),
+    Quat::IDENTITY,
+    Collider::cuboid(2.4, 1.0, 1.2)
+  );
+  works.add(
+    Stuff::Gloss,
+    Piece::new(block(1.8, 2.6, 0.1), GLOOM).at_xyz(0.0, floor + 1.3, -depth + 0.75)
+  );
+  works
+}
+
 fn rubble(ground: Ground, roll: &mut Roll) -> Works {
   let mut works = Works::default();
   (0..4 + roll.below(4)).for_each(|_| {
@@ -2111,6 +2551,10 @@ fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
     Work::Shrine { .. } => shrine(ground, roll),
     Work::Menhirs { .. } => menhirs(ground, roll),
     Work::Pillar { tall, .. } => pillar(*tall, ground, roll),
+    Work::Spire { tall, lit, .. } => spire(*tall, *lit, ground, roll),
+    Work::Portal { .. } => portal(ground, roll),
+    Work::Pit { inner, outer, .. } => pit(*inner, *outer, ground, roll),
+    Work::Terrace { .. } => terrace(ground, roll),
     Work::Rubble { .. } => rubble(ground, roll),
     Work::Stable { .. } => stable(ground, roll),
     Work::Horse { .. } => {
@@ -2153,6 +2597,10 @@ fn anchor(work: &Work) -> (Vec2, f32) {
     | Work::Den { at, facing }
     | Work::Shrine { at, facing }
     | Work::Stable { at, facing }
+    | Work::Spire { at, facing, .. }
+    | Work::Portal { at, facing }
+    | Work::Pit { at, facing, .. }
+    | Work::Terrace { at, facing }
     | Work::Horse { at, facing } => (*at, *facing),
     Work::Well { at }
     | Work::Tower { at, .. }
@@ -2378,4 +2826,42 @@ pub fn plugin(app: &mut App) {
     Update,
     (tend_settlements, report_raising.after(tend_settlements), spin)
   );
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  #[ignore]
+  fn barrow_solids_have_mass() {
+    (0..LAYOUTS.len() + SITE_LAYOUTS.len())
+      .filter(|&index| layout(index).place.marker() == Marker::Barrow)
+      .for_each(|index| {
+        (0..shares(index)).for_each(|share| {
+          let layout = layout(index);
+          let spot = layout.place.spot();
+          let origin = spot.extend(height_at(spot)).xzy();
+          let first = share * SHARE;
+          layout.works[first..(first + SHARE).min(layout.works.len())].iter().for_each(
+            |work| {
+              let (at, facing) = anchor(work);
+              let frame = Transform::from_translation((at - spot).extend(0.0).xzy())
+                .with_rotation(Quat::from_rotation_y(facing));
+              let site = Site { origin, frame };
+              let works = built(work, &site, &mut Roll::new(3));
+              works.solids.iter().for_each(|(at, turn, collider)| {
+                let mass = collider.shape_scaled().mass_properties(1.0).mass();
+                assert!(
+                  mass.is_finite() && mass >= 0.0 && at.is_finite() && turn.is_finite(),
+                  "{} {work:?} {at} {turn} {mass} {:?}",
+                  layout.place.name(),
+                  collider.shape_scaled().as_cuboid()
+                );
+              })
+            }
+          )
+        })
+      })
+  }
 }

@@ -929,6 +929,9 @@ fn fly(
             dragon.velocity.normalize_or_zero().dot((target - at).normalize_or_zero())
               > 0.6;
           if exposed && facing_player && distance < 60.0 && distance > 8.0 {
+            if dragon.breath <= 0.0 {
+              sounds.write(Sound::here(Cue::FireBreath, at));
+            }
             dragon.breath = 0.3;
           }
           (hidden || progress > (to - from).with_y(0.0).length())
@@ -976,7 +979,7 @@ fn fly(
           {
             dragon.breath = 2.6;
             dragon.breath_cooldown = 7.0;
-            sounds.write(Sound::here(Cue::DragonRoar, at));
+            sounds.write(Sound::here(Cue::FireBreath, at));
           }
           let restless = time_down > 28.0
             || (hero_dead && time_down > 4.0)

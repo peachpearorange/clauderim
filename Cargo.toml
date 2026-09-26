@@ -14,6 +14,9 @@ json5 = "1.3.1"
 enum-assoc = "1.4.1"
 web-time = "1.1.0"
 
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+cpal = "0.17.3"
+
 [features]
 dev = ["bevy/dynamic_linking"]
 
@@ -26,3 +29,4 @@ opt-level = 3
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 bevy = { version = "0.19.1", features = ["wav", "webgpu"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
+web-sys = { version = "0.3.105", features = ["AudioContext", "BaseAudioContext", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "AudioNode", "AudioParam", "GainNode", "StereoPannerNode", "AudioDestinationNode"] }

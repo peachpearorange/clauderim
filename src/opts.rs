@@ -22,7 +22,8 @@ pub struct Opts {
   pub press: Vec<(f32, String)>,
   pub eye: Option<[f32; 3]>,
   pub look: Option<[f32; 3]>,
-  pub haze: f32
+  pub haze: f32,
+  pub torch: bool
 }
 
 impl Default for Opts {
@@ -45,7 +46,8 @@ impl Default for Opts {
       press: Vec::new(),
       eye: None,
       look: None,
-      haze: 1.0
+      haze: 1.0,
+      torch: false
     }
   }
 }

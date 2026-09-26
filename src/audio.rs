@@ -1,5 +1,6 @@
 mod ambience;
 mod music;
+mod output;
 mod sfx;
 mod synth;
 
@@ -8,16 +9,15 @@ use {crate::{humanoid::Motion,
              signal::{Cue, Engaged, Sound, WordWall},
              sky::Daylight,
              walker::Walker},
-     bevy::{audio::{SpatialScale, Volume},
-            platform::collections::HashMap,
-            prelude::*},
+     bevy::{platform::collections::HashMap, prelude::*},
+     output::{Mix, Output, Take, Voice},
      std::{f32::consts::{PI, TAU},
            sync::{Arc, Mutex,
                   mpsc::{Receiver, channel}}},
      synth::{Rng, Wave},
      web_time::Instant};
 
-const CUES: [Cue; 23] = [
+const CUES: [Cue; 24] = [
   Cue::Swing,
   Cue::PowerSwing,
   Cue::Hit,
@@ -38,6 +38,7 @@ const CUES: [Cue; 23] = [
   Cue::WordLearned,
   Cue::Shout,
   Cue::DragonRoar,
+  Cue::FireBreath,
   Cue::Wingbeat,
   Cue::LevelUp,
   Cue::Coins
@@ -104,6 +105,7 @@ fn loudness(cue: Cue) -> (f32, f32) {
     Cue::WordLearned => (1.0, 10.0),
     Cue::Shout => (0.9, 30.0),
     Cue::DragonRoar => (1.0, 80.0),
+    Cue::FireBreath => (0.75, 40.0),
     Cue::Wingbeat => (0.7, 40.0),
     Cue::LevelUp => (0.4, 10.0),
     Cue::Coins => (0.4, 5.0)
@@ -112,7 +114,7 @@ fn loudness(cue: Cue) -> (f32, f32) {
 
 struct Rendered {
   clip: Clip,
-  wavs: Vec<Vec<u8>>,
+  waves: Vec<Wave>,
   took: f32
 }
 
@@ -124,18 +126,36 @@ struct Rendering {
 }
 
 #[derive(Resource, Default)]
-struct Library(HashMap<Clip, Vec<Handle<AudioSource>>>);
+struct Library(HashMap<Clip, Vec<(Take, f32)>>);
+
+enum Anchor {
+  Flat,
+  At(Vec3),
+  On(Entity)
+}
+
+struct Sounding {
+  voice: Voice,
+  anchor: Anchor,
+  volume: f32,
+  reach: f32,
+  ends: f32
+}
+
+#[derive(Resource, Default)]
+struct Voices(Vec<Sounding>);
 
 #[derive(Component)]
 struct Bed {
   clip: Clip,
+  voice: Voice,
   level: f32
 }
 
 #[derive(Component)]
 struct Chanting;
 
-fn render(mut commands: Commands) {
+fn render(world: &mut World) {
   let clips = Clip::all();
   let pending = clips.len();
   let queue = Arc::new(Mutex::new(clips.into_iter().rev().collect::<Vec<_>>()));
@@ -143,85 +163,124 @@ fn render(mut commands: Commands) {
   let workers = std::thread::available_parallelism()
     .map(|count| count.get() / 2)
     .unwrap_or(2)
-    .clamp(2, 6);
+    .clamp(1, 3);
   (0..workers).for_each(|_| {
     let (queue, send) = (queue.clone(), send.clone());
     crate::par::spawn(move || {
       std::iter::from_fn(|| queue.lock().ok()?.pop()).for_each(|clip| {
         let start = Instant::now();
-        let wavs = clip.render().iter().map(Wave::wav).collect();
-        send.send(Rendered { clip, wavs, took: start.elapsed().as_secs_f32() }).ok();
+        let waves = clip.render();
+        send.send(Rendered { clip, waves, took: start.elapsed().as_secs_f32() }).ok();
       })
     });
   });
-  commands.insert_resource(Rendering {
+  world.insert_resource(Rendering {
     results: Mutex::new(results),
     pending,
     started: Instant::now()
-  })
+  });
+  output::Output::open()
+    .map(|output| world.insert_non_send(output))
+    .unwrap_or_else(|| warn!("no audio output"))
 }
 
 fn gather(
   mut rendering: ResMut<Rendering>,
   mut library: ResMut<Library>,
-  mut sources: ResMut<Assets<AudioSource>>
+  output: Option<NonSendMut<Output>>
 ) {
-  let arrived: Vec<Rendered> = rendering
-    .results
-    .lock()
-    .map(|results| results.try_iter().collect())
-    .unwrap_or_default();
-  arrived.into_iter().for_each(|Rendered { clip, wavs, took }| {
-    debug!("synthesised {clip:?} in {took:.2}s");
-    library.0.insert(
-      clip,
-      wavs
-        .into_iter()
-        .map(|bytes| sources.add(AudioSource { bytes: bytes.into() }))
-        .collect()
-    );
-    rendering.pending -= 1;
-    if rendering.pending == 0 {
-      info!("audio synthesised in {:.2}s", rendering.started.elapsed().as_secs_f32())
-    }
-  })
+  if let Some(mut output) = output {
+    let arrived: Vec<Rendered> = rendering
+      .results
+      .lock()
+      .map(|results| results.try_iter().collect())
+      .unwrap_or_default();
+    arrived.into_iter().for_each(|Rendered { clip, waves, took }| {
+      debug!("synthesised {clip:?} in {took:.2}s");
+      library.0.insert(
+        clip,
+        waves
+          .into_iter()
+          .map(|wave| {
+            let secs = wave.0[0].len() as f32 / synth::RATE;
+            (output.load(wave), secs)
+          })
+          .collect()
+      );
+      rendering.pending -= 1;
+      if rendering.pending == 0 {
+        info!("audio synthesised in {:.2}s", rendering.started.elapsed().as_secs_f32())
+      }
+    })
+  }
 }
 
-fn listen(
-  cameras: Query<Entity, (With<MainCamera>, Without<SpatialListener>)>,
-  mut commands: Commands
-) {
-  cameras.iter().for_each(|camera| {
-    commands.entity(camera).insert(SpatialListener::new(0.4));
-  })
+fn heard(from: &GlobalTransform, at: Vec3, volume: f32, reach: f32) -> Mix {
+  let gap = at - from.translation();
+  let distance = gap.length();
+  Mix {
+    gain: volume * (reach / distance.max(reach)).powi(2),
+    pan: gap.normalize_or_zero().dot(from.right().into())
+  }
 }
 
 fn play(
   mut sounds: MessageReader<Sound>,
   library: Res<Library>,
-  mut rng: Local<Rng>,
-  mut commands: Commands
+  time: Res<Time<Real>>,
+  camera: Single<&GlobalTransform, With<MainCamera>>,
+  output: Option<NonSendMut<Output>>,
+  mut voices: ResMut<Voices>,
+  mut rng: Local<Rng>
 ) {
-  sounds.read().for_each(|&Sound { cue, at }| {
-    if let Some(takes) = library.0.get(&Clip::Cue(cue))
-      && !takes.is_empty()
-    {
-      let (volume, reach) = loudness(cue);
-      let take = takes[rng.below(takes.len())].clone();
-      let settings = PlaybackSettings::DESPAWN.with_volume(Volume::Linear(volume));
-      match at {
-        Some(at) => commands.spawn((
-          AudioPlayer(take),
-          settings
-            .with_spatial(true)
-            .with_spatial_scale(SpatialScale::new(1.0 / reach))
-            .with_speed(rng.range(0.96, 1.04)),
-          Transform::from_translation(at)
-        )),
-        None => commands.spawn((AudioPlayer(take), settings))
+  if let Some(mut output) = output {
+    sounds.read().for_each(|&Sound { cue, at }| {
+      if let Some(takes) = library.0.get(&Clip::Cue(cue))
+        && !takes.is_empty()
+        && let (volume, reach) = loudness(cue)
+        && let (take, secs) = takes[rng.below(takes.len())]
+        && let speed = at.map_or(1.0, |_| rng.range(0.96, 1.04))
+        && let mix = at.map_or(Mix::flat(volume), |at| heard(&camera, at, volume, reach))
+        && (mix.gain > 0.002 || at.is_none())
+      {
+        voices.0.push(Sounding {
+          voice: output.start(take, mix, speed, false),
+          anchor: at.map_or(Anchor::Flat, Anchor::At),
+          volume,
+          reach,
+          ends: time.elapsed_secs() + secs / speed + 0.2
+        })
+      }
+    })
+  }
+}
+
+fn place_voices(
+  time: Res<Time<Real>>,
+  camera: Single<&GlobalTransform, With<MainCamera>>,
+  anchors: Query<&GlobalTransform>,
+  output: Option<NonSendMut<Output>>,
+  mut voices: ResMut<Voices>
+) {
+  if let Some(mut output) = output {
+    let now = time.elapsed_secs();
+    voices.0.retain(|&Sounding { voice, ref anchor, volume, reach, ends }| {
+      let at = match *anchor {
+        Anchor::Flat => None,
+        Anchor::At(at) => Some(Some(at)),
+        Anchor::On(entity) => {
+          Some(anchors.get(entity).ok().map(GlobalTransform::translation))
+        }
       };
-    }
-  })
+      let alive = now < ends && at.is_none_or(|at| at.is_some());
+      if !alive {
+        output.stop(voice)
+      } else if let Some(Some(at)) = at {
+        output.set(voice, heard(&camera, at, volume, reach))
+      }
+      alive
+    })
+  }
 }
 
 fn pace(
@@ -236,8 +295,15 @@ fn pace(
   *last = stride
 }
 
-fn lay_beds(library: Res<Library>, beds: Query<&Bed>, mut commands: Commands) {
-  if library.is_changed() {
+fn lay_beds(
+  library: Res<Library>,
+  beds: Query<&Bed>,
+  output: Option<NonSendMut<Output>>,
+  mut commands: Commands
+) {
+  if library.is_changed()
+    && let Some(mut output) = output
+  {
     [Clip::Wind, Clip::Night, Clip::Cave, Clip::Explore, Clip::Combat]
       .into_iter()
       .filter(|&clip| !beds.iter().any(|bed| bed.clip == clip))
@@ -246,14 +312,14 @@ fn lay_beds(library: Res<Library>, beds: Query<&Bed>, mut commands: Commands) {
           .0
           .get(&clip)
           .and_then(|takes| takes.first())
-          .map(|take| (clip, take.clone()))
+          .map(|&(take, _)| (clip, take))
       })
       .for_each(|(clip, take)| {
-        commands.spawn((
-          AudioPlayer(take),
-          PlaybackSettings::LOOP.with_volume(Volume::Linear(0.0)),
-          Bed { clip, level: 0.0 }
-        ));
+        commands.spawn(Bed {
+          clip,
+          voice: output.start(take, Mix::SILENT, 1.0, true),
+          level: 0.0
+        });
       })
   }
 }
@@ -262,90 +328,112 @@ fn blend_beds(
   time: Res<Time>,
   daylight: Res<Daylight>,
   engaged: Res<Engaged>,
-  mut beds: Query<(&mut Bed, &mut AudioSink)>
+  output: Option<NonSendMut<Output>>,
+  mut beds: Query<&mut Bed>
 ) {
-  let &Daylight { level, shelter } = daylight.into_inner();
-  let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
-  let fight = engaged.0.is_some() as u8 as f32;
-  let delta = time.delta_secs();
-  beds.iter_mut().for_each(|(mut bed, mut sink)| {
-    let (target, rate) = match bed.clip {
-      Clip::Wind => (0.18 * outdoors, 0.6),
-      Clip::Night => (0.2 * (1.0 - level) * outdoors, 0.4),
-      Clip::Cave => (0.4 * (1.0 - outdoors), 0.6),
-      Clip::Explore => (0.2 * (1.0 - fight), 0.3),
-      Clip::Combat => (0.3 * fight, if fight > 0.0 { 1.2 } else { 0.35 }),
-      _ => (0.0, 1.0)
-    };
-    bed.level += (target - bed.level) * (1.0 - (-rate * delta).exp());
-    sink.set_volume(Volume::Linear(bed.level))
-  })
+  if let Some(mut output) = output {
+    let &Daylight { level, shelter } = daylight.into_inner();
+    let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
+    let fight = engaged.0.is_some() as u8 as f32;
+    let delta = time.delta_secs();
+    beds.iter_mut().for_each(|mut bed| {
+      let (target, rate) = match bed.clip {
+        Clip::Wind => (0.18 * outdoors, 0.6),
+        Clip::Night => (0.2 * (1.0 - level) * outdoors, 0.4),
+        Clip::Cave => (0.4 * (1.0 - outdoors), 0.6),
+        Clip::Explore => (0.2 * (1.0 - fight), 0.3),
+        Clip::Combat => (0.3 * fight, if fight > 0.0 { 1.2 } else { 0.35 }),
+        _ => (0.0, 1.0)
+      };
+      let level = bed.level + (target - bed.level) * (1.0 - (-rate * delta).exp());
+      let level = (level.abs() < 1e-4 && target == 0.0).then_some(0.0).unwrap_or(level);
+      if (level - bed.level).abs() > 1e-5 || (level == 0.0 && bed.level != 0.0) {
+        output.set(bed.voice, Mix::flat(level))
+      }
+      bed.level = level
+    })
+  }
 }
 
 fn chant_walls(
   library: Res<Library>,
   walls: Query<Entity, (With<WordWall>, Without<Chanting>)>,
+  output: Option<NonSendMut<Output>>,
+  mut voices: ResMut<Voices>,
   mut commands: Commands
 ) {
-  if let Some(take) = library.0.get(&Clip::Chant).and_then(|takes| takes.first()) {
+  if let Some(&(take, _)) = library.0.get(&Clip::Chant).and_then(|takes| takes.first())
+    && let Some(mut output) = output
+  {
     walls.iter().for_each(|wall| {
       commands.entity(wall).try_insert(Chanting);
-      commands.spawn((
-        AudioPlayer(take.clone()),
-        PlaybackSettings::LOOP
-          .with_volume(Volume::Linear(0.45))
-          .with_spatial(true)
-          .with_spatial_scale(SpatialScale::new(1.0 / 8.0)),
-        Transform::from_xyz(0.0, 2.0, 0.0),
-        ChildOf(wall)
-      ));
+      voices.0.push(Sounding {
+        voice: output.start(take, Mix::SILENT, 1.0, true),
+        anchor: Anchor::On(wall),
+        volume: 0.45,
+        reach: 8.0,
+        ends: f32::INFINITY
+      })
     })
   }
 }
 
 fn critters(
   time: Res<Time>,
+  real: Res<Time<Real>>,
   daylight: Res<Daylight>,
   library: Res<Library>,
   camera: Single<&GlobalTransform, With<MainCamera>>,
-  mut rng: Local<Rng>,
-  mut commands: Commands
+  output: Option<NonSendMut<Output>>,
+  mut voices: ResMut<Voices>,
+  mut rng: Local<Rng>
 ) {
-  let &Daylight { level, shelter } = daylight.into_inner();
-  let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
-  let delta = time.delta_secs();
-  [
-    (Clip::Bird, 0.25 * level * outdoors, 0.15),
-    (Clip::Owl, 0.03 * (1.0 - level) * outdoors, 0.12)
-  ]
-  .into_iter()
-  .for_each(|(clip, rate, volume)| {
-    if rng.unit() < rate * delta
-      && let Some(takes) = library.0.get(&clip)
-      && !takes.is_empty()
-    {
-      let angle = rng.unit() * TAU;
-      let distance = rng.range(12.0, 35.0);
-      let at = camera.translation()
-        + Vec3::new(angle.cos() * distance, rng.range(4.0, 12.0), angle.sin() * distance);
-      commands.spawn((
-        AudioPlayer(takes[rng.below(takes.len())].clone()),
-        PlaybackSettings::DESPAWN
-          .with_volume(Volume::Linear(volume))
-          .with_spatial(true)
-          .with_spatial_scale(SpatialScale::new(1.0 / 14.0))
-          .with_speed(rng.range(0.92, 1.08)),
-        Transform::from_translation(at)
-      ));
-    }
-  })
+  if let Some(mut output) = output {
+    let &Daylight { level, shelter } = daylight.into_inner();
+    let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
+    let delta = time.delta_secs();
+    [
+      (Clip::Bird, 0.25 * level * outdoors, 0.15),
+      (Clip::Owl, 0.03 * (1.0 - level) * outdoors, 0.12)
+    ]
+    .into_iter()
+    .for_each(|(clip, rate, volume)| {
+      if rng.unit() < rate * delta
+        && let Some(takes) = library.0.get(&clip)
+        && !takes.is_empty()
+        && let (take, secs) = takes[rng.below(takes.len())]
+        && let angle = rng.unit() * TAU
+        && let distance = rng.range(12.0, 35.0)
+        && let at = camera.translation()
+          + Vec3::new(
+            angle.cos() * distance,
+            rng.range(4.0, 12.0),
+            angle.sin() * distance
+          )
+        && let speed = rng.range(0.92, 1.08)
+      {
+        voices.0.push(Sounding {
+          voice: output.start(take, heard(&camera, at, volume, 14.0), speed, false),
+          anchor: Anchor::At(at),
+          volume,
+          reach: 14.0,
+          ends: real.elapsed_secs() + secs / speed + 0.2
+        })
+      }
+    })
+  }
 }
 
 pub fn plugin(app: &mut App) {
-  app.init_resource::<Library>().add_systems(Startup, render).add_systems(
-    Update,
-    (gather, listen, pace, play, lay_beds, blend_beds, chant_walls, critters).chain()
-  );
+  app
+    .init_resource::<Library>()
+    .init_resource::<Voices>()
+    .add_systems(Startup, render)
+    .add_systems(
+      Update,
+      (gather, pace, play, lay_beds, blend_beds, chant_walls, critters, place_voices)
+        .chain()
+    );
 }
 
 #[cfg(test)]

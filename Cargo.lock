@@ -5561,12 +5561,14 @@ dependencies = [
  "avian3d",
  "bevy",
  "bevy_hanabi",
+ "cpal",
  "enum-assoc",
  "fidget",
  "getrandom 0.3.4",
  "json5",
  "nalgebra",
  "serde",
+ "web-sys",
  "web-time",
 ]
 

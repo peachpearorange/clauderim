@@ -258,6 +258,7 @@ impl Wave {
     )
   }
 
+  #[cfg(test)]
   pub fn wav(&self) -> Vec<u8> {
     let channels = self.0.len() as u16;
     let frames = self.0.first().map(Vec::len).unwrap_or(0);

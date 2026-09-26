@@ -476,10 +476,61 @@ struct Lands {
   wanted: Vec<Leaf>,
   shown: HashMap<Leaf, Entity>,
   ready: HashMap<Leaf, Handle<Mesh>>,
-  making: HashMap<Leaf, Job<Mesh>>
+  making: Vec<(Leaf, Job<Mesh>)>
 }
 
 fn anchor_of(at: Vec2) -> IVec2 { (at / ANCHOR_STEP).round().as_ivec2() }
+
+impl Leaf {
+  fn overlaps(self, other: Leaf) -> bool {
+    let (low, high) = (self.corner, self.corner + self.size);
+    let (other_low, other_high) = (other.corner, other.corner + other.size);
+    low.cmplt(other_high).all() && other_low.cmplt(high).all()
+  }
+
+  fn gap(self, to: Vec2) -> f32 {
+    let (low, high) = (self.corner.as_vec2(), (self.corner + self.size).as_vec2());
+    (low - to).max(to - high).max(Vec2::ZERO).length()
+  }
+}
+
+fn swaps(stale: &[Leaf], fresh: &[Leaf]) -> Vec<(Vec<Leaf>, Vec<Leaf>)> {
+  let mut claimed = (vec![false; stale.len()], vec![false; fresh.len()]);
+  (0..stale.len() + fresh.len())
+    .filter_map(|seed| {
+      let seen = |claimed: &(Vec<bool>, Vec<bool>), node: usize| {
+        (node < stale.len())
+          .then(|| claimed.0[node])
+          .unwrap_or_else(|| claimed.1[node - stale.len()])
+      };
+      (!seen(&claimed, seed)).then(|| {
+        let mut group = (Vec::new(), Vec::new());
+        let mut frontier = vec![seed];
+        while let Some(node) = frontier.pop() {
+          if !seen(&claimed, node) {
+            if node < stale.len() {
+              claimed.0[node] = true;
+              group.0.push(stale[node]);
+              frontier.extend(
+                (0..fresh.len())
+                  .filter(|&other| fresh[other].overlaps(stale[node]))
+                  .map(|other| other + stale.len())
+              )
+            } else {
+              let index = node - stale.len();
+              claimed.1[index] = true;
+              group.1.push(fresh[index]);
+              frontier.extend(
+                (0..stale.len()).filter(|&other| stale[other].overlaps(fresh[index]))
+              )
+            }
+          }
+        }
+        group
+      })
+    })
+    .collect()
+}
 
 fn tend_lands(
   mut commands: Commands,
@@ -489,61 +540,71 @@ fn tend_lands(
   camera: Single<&Transform, With<MainCamera>>
 ) {
   let anchor = anchor_of(camera.translation.xz());
+  let middle = anchor.as_vec2() * ANCHOR_STEP;
   let Lands { anchor: last, wanted, shown, ready, making } = &mut *lands;
   if *last != Some(anchor) {
     *last = Some(anchor);
-    *wanted = leaves(anchor.as_vec2() * ANCHOR_STEP);
+    *wanted = leaves(middle);
+    let wanting: HashSet<Leaf> = wanted.iter().copied().collect();
+    making.retain(|(leaf, _)| wanting.contains(leaf));
+    ready.retain(|leaf, _| wanting.contains(leaf));
     let fresh: Vec<Leaf> = wanted
       .iter()
       .filter(|leaf| {
         !shown.contains_key(*leaf)
           && !ready.contains_key(*leaf)
-          && !making.contains_key(*leaf)
+          && !making.iter().any(|(making, _)| making == *leaf)
       })
       .copied()
       .collect();
-    let wanting: HashSet<Leaf> = wanted.iter().copied().collect();
-    making.retain(|leaf, _| wanting.contains(leaf));
-    ready.retain(|leaf, _| wanting.contains(leaf));
     match shown.is_empty() {
       true => in_parallel(&fresh, |&leaf| (leaf, work::run(tiling(leaf))))
         .into_iter()
         .for_each(|(leaf, mesh)| {
           ready.insert(leaf, meshes.add(mesh));
         }),
-      false => fresh.into_iter().for_each(|leaf| {
-        making.insert(leaf, work::spawn(tiling(leaf)));
-      })
+      false => {
+        making.extend(fresh.into_iter().map(|leaf| (leaf, work::spawn(tiling(leaf)))))
+      }
     }
+    making.sort_by(|(a, _), (b, _)| a.gap(middle).total_cmp(&b.gap(middle)));
   }
-  making.retain(|&leaf, task| {
+  making.retain_mut(|(leaf, task)| {
     task
       .done()
       .map(|mesh| {
-        ready.insert(leaf, meshes.add(mesh));
+        ready.insert(*leaf, meshes.add(mesh));
       })
       .is_none()
   });
-  if making.is_empty() && !ready.is_empty() {
+  if !ready.is_empty() {
     let wanting: HashSet<Leaf> = wanted.iter().copied().collect();
-    shown.retain(|leaf, &mut entity| {
-      let keep = wanting.contains(leaf);
-      if !keep {
-        commands.entity(entity).despawn();
-      }
-      keep
-    });
-    ready.drain().for_each(|(leaf, mesh)| {
-      let entity = commands
-        .spawn((
-          Name::new("Land"),
-          Mesh3d(mesh),
-          MeshMaterial3d(surfaces.land.clone()),
-          Transform::IDENTITY
-        ))
-        .id();
-      shown.insert(leaf, entity);
-    });
+    let stale: Vec<Leaf> =
+      shown.keys().filter(|leaf| !wanting.contains(*leaf)).copied().collect();
+    let fresh: Vec<Leaf> =
+      wanted.iter().filter(|leaf| !shown.contains_key(*leaf)).copied().collect();
+    swaps(&stale, &fresh)
+      .into_iter()
+      .filter(|(_, fresh)| fresh.iter().all(|leaf| ready.contains_key(leaf)))
+      .collect::<Vec<_>>()
+      .into_iter()
+      .for_each(|(stale, fresh)| {
+        stale.iter().for_each(|leaf| {
+          shown.remove(leaf).map(|entity| commands.entity(entity).despawn());
+        });
+        fresh.into_iter().for_each(|leaf| {
+          let mesh = ready.remove(&leaf).expect("ready leaf");
+          let entity = commands
+            .spawn((
+              Name::new("Land"),
+              Mesh3d(mesh),
+              MeshMaterial3d(surfaces.land.clone()),
+              Transform::IDENTITY
+            ))
+            .id();
+          shown.insert(leaf, entity);
+        })
+      })
   }
 }
 
@@ -738,6 +799,34 @@ mod tests {
           ground.height(at)
         );
       });
+  }
+
+  #[test]
+  #[ignore]
+  fn mesh_matches_ground() {
+    let ground = Ground::default();
+    let anchor = place::START;
+    let near: Vec<Leaf> = leaves(anchor)
+      .into_iter()
+      .filter(|leaf| {
+        let middle = leaf.corner.as_vec2() + leaf.size as f32 / 2.0;
+        (middle - anchor).abs().max_element() < 200.0 + leaf.size as f32 / 2.0
+      })
+      .collect();
+    near.iter().for_each(|&leaf| {
+      let mesh = work::run(tiling(leaf));
+      let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
+        mesh.attribute(Mesh::ATTRIBUTE_POSITION)
+      else {
+        panic!()
+      };
+      let worst = positions
+        .iter()
+        .map(|&[x, y, z]| (ground.height(Vec2::new(x, z)) - y).abs())
+        .filter(|gap| *gap < 1.5 * SPACING * leaf.size as f32 / FINEST as f32)
+        .fold(0.0f32, f32::max);
+      println!("{:?} size {} worst {worst:.3}", leaf.corner, leaf.size);
+    });
   }
 
   #[test]

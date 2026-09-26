@@ -22,17 +22,24 @@ struct Cloud {
   #[uniform(2)]
   ambient: Vec4,
   #[uniform(3)]
-  drift: Vec4
+  drift: Vec4,
+  #[uniform(4)]
+  night: Vec4
 }
 
 impl Material for Cloud {
   fn fragment_shader() -> ShaderRef { "embedded://skyrim2/cloud.wgsl".into() }
 
-  fn alpha_mode(&self) -> AlphaMode { AlphaMode::Blend }
+  fn alpha_mode(&self) -> AlphaMode { AlphaMode::Premultiplied }
 
   fn enable_prepass() -> bool { false }
 
   fn enable_shadows() -> bool { false }
+}
+
+fn aurora_strength(day: u32) -> f32 {
+  let roll = (day.wrapping_mul(2_654_435_761) >> 16) as f32 / 65536.0;
+  0.35 + 0.65 * roll
 }
 
 #[derive(Resource)]
@@ -70,16 +77,26 @@ fn light_clouds(
     .then(|| {
       (sun, sky::reddened(sun, ZENITH_DEPTH) * lux::RAW_SUNLIGHT * sunset * sunset)
     })
-    .unwrap_or((moon, Vec3::new(0.62, 0.72, 1.0) * sky::MOONLIGHT));
+    .unwrap_or((
+      moon,
+      Vec3::new(0.62, 0.72, 1.0) * sky::MOONLIGHT * 0.3 * (moon.y / 0.15).clamp(0.0, 1.0)
+    ));
+  let dark = (-(sun.y + 0.04) / 0.16).clamp(0.0, 1.0);
   let ambient = Vec3::new(0.55, 0.64, 0.82) * 9000.0 * day.powf(1.3)
     + Vec3::new(0.62, 0.5, 0.55) * 900.0 * twilight * twilight * (1.0 - day)
-    + Vec3::new(0.5, 0.6, 0.9) * sky::MOONLIGHT * 0.05;
+    + Vec3::new(0.5, 0.6, 0.9) * sky::MOONLIGHT * 0.035;
   if let Some(mut cloud) = clouds.get_mut(&canopy.0) {
     *cloud = Cloud {
       toward_light: toward_light.extend(0.0),
       light: light.extend(0.0),
       ambient: ambient.extend(0.0),
-      drift: (WIND * time.elapsed_secs()).extend(COVERAGE).extend(0.0)
+      drift: (WIND * time.elapsed_secs()).extend(COVERAGE).extend(0.0),
+      night: Vec4::new(
+        dark * dark,
+        dark * dark * aurora_strength(clock.night()),
+        time.elapsed_secs(),
+        0.0
+      )
     };
   }
 }

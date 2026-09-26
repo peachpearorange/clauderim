@@ -125,7 +125,8 @@ impl Pose {
 pub enum Grip {
   Blade,
   Axe,
-  Bare
+  Bare,
+  Torch
 }
 
 #[derive(Component, Clone)]
@@ -166,7 +167,17 @@ fn relaxed(rig: &Rig) -> Pose {
 
 fn ready(rig: &Rig) -> Pose {
   let hunch = rig.hunch;
-  (rig.grip == Grip::Bare).then(|| relaxed(rig)).unwrap_or_else(|| {
+  let raised = || {
+    relaxed(rig)
+      .with(Joint::ArmL, Vec3::new(0.55, 0.0, -0.22))
+      .with(Joint::ElbowL, Vec3::new(1.15, 0.0, 0.0))
+  };
+  match rig.grip {
+    Grip::Bare => Some(relaxed(rig)),
+    Grip::Torch => Some(raised()),
+    _ => None
+  }
+  .unwrap_or_else(|| {
     Pose::default()
       .with(Joint::Chest, Vec3::new(0.08 + hunch, 0.0, 0.0))
       .with(Joint::Head, Vec3::new(-0.05 - hunch * 0.8, 0.0, 0.0))
@@ -775,6 +786,29 @@ fn hair(kit: &mut Kit, color: Srgba) {
     TRUNK_SIDES
   );
   kit.add(Joint::Head, Stuff::Fur, Piece::new(cap, color));
+}
+
+pub fn torch(kit: &mut Kit, frame: &Frame) {
+  let hand = frame.hand();
+  let upright = |piece: Piece| piece.pitched(-FRAC_PI_2).at(hand);
+  kit
+    .add(
+      Joint::ElbowL,
+      Stuff::Wood,
+      upright(Piece::new(rod(0.025, 0.62), srgb(0.3, 0.2, 0.12)).at_xyz(0.0, 0.12, 0.0))
+    )
+    .add(
+      Joint::ElbowL,
+      Stuff::Cloth,
+      upright(Piece::new(rod(0.042, 0.14), srgb(0.2, 0.16, 0.12)).at_xyz(0.0, 0.4, 0.0))
+    )
+    .add(
+      Joint::ElbowL,
+      Stuff::Ember,
+      upright(
+        Piece::new(model::ball(0.045), srgb(1.0, 0.62, 0.3)).at_xyz(0.0, 0.47, 0.0)
+      )
+    );
 }
 
 pub fn iron_sword(kit: &mut Kit, frame: &Frame) {

@@ -44,11 +44,18 @@ pub const MOONLIGHT: f32 = 90.0;
 #[derive(Resource)]
 pub struct Clock {
   pub hour: f32,
-  pub hours_per_second: f32
+  pub hours_per_second: f32,
+  days: u32
+}
+
+impl Clock {
+  pub fn night(&self) -> u32 { self.days + u32::from(self.hour >= 12.0) }
 }
 
 impl Default for Clock {
-  fn default() -> Self { Self { hour: opts().hour, hours_per_second: 24.0 / opts().day } }
+  fn default() -> Self {
+    Self { hour: opts().hour, hours_per_second: 24.0 / opts().day, days: 0 }
+  }
 }
 
 #[derive(Resource, Default)]
@@ -165,7 +172,9 @@ fn cycle_day(
     Option<&mut EnvironmentMapLight>
   )>
 ) {
-  clock.hour = (clock.hour + clock.hours_per_second * time.delta_secs()).rem_euclid(24.0);
+  let passed = clock.hour + clock.hours_per_second * time.delta_secs();
+  clock.days += u32::from(passed >= 24.0);
+  clock.hour = passed.rem_euclid(24.0);
   let sun_ray = toward_sun(clock.hour);
   let day = smooth(-0.3, 0.3, sun_ray.y);
   let sunlit = smooth(-0.045, 0.02, sun_ray.y);

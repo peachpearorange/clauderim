@@ -101,6 +101,7 @@ fn build(plume: Plume, spawner: SpawnerSettings, colors: Gradient<Vec4>) -> Effe
 #[derive(Resource)]
 pub struct Effects {
   pub campfire: Handle<EffectAsset>,
+  pub torch: Handle<EffectAsset>,
   pub breath: Handle<EffectAsset>,
   pub blood: Handle<EffectAsset>,
   pub sparks: Handle<EffectAsset>,
@@ -155,6 +156,18 @@ fn prepare(
     campfire: effects.add(build(
       flame,
       SpawnerSettings::rate(90.0.into()),
+      fire_colors()
+    )),
+    torch: effects.add(build(
+      Plume {
+        thrust: Vec3::Y * 0.9,
+        spread: 0.12,
+        source: 0.05,
+        girth: 0.16,
+        life: 0.45,
+        ..flame
+      },
+      SpawnerSettings::rate(50.0.into()),
       fire_colors()
     )),
     breath: effects.add(build(

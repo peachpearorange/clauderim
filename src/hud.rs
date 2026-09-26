@@ -13,7 +13,7 @@ use {crate::{combat::{Dead, Side, Struck, Vitals},
      std::{collections::{HashMap, VecDeque},
            f32::consts::{FRAC_PI_2, PI, TAU}}};
 
-const PLACE_RANGE: f32 = 900.0;
+const PLACE_RANGE: f32 = 380.0;
 const HOSTILE_RANGE: f32 = 40.0;
 const DOTS: usize = 6;
 const REACH: f32 = 2.2;

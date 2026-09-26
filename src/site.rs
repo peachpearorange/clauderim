@@ -5,8 +5,10 @@ use {crate::{noise::Roll,
      bevy::{platform::collections::HashSet, prelude::*},
      std::{f32::consts::TAU, sync::LazyLock}};
 
-const STEP: f32 = 230.0;
-const APART: f32 = 180.0;
+const STEP: f32 = 165.0;
+const APART: f32 = 120.0;
+const PIT: f32 = 12.0;
+const PIT_DEPTH: f32 = 3.4;
 const UPLAND: f32 = 170.0;
 const SUMMIT: f32 = 430.0;
 const TRIES: usize = 10;
@@ -162,9 +164,15 @@ pub static SITES: LazyLock<Vec<Spot>> = LazyLock::new(|| {
   kept
     .into_iter()
     .fold((Vec::new(), HashSet::new()), |(mut sites, mut used), (at, marker, seed)| {
-      let base = named(marker, &mut Roll::new(seed ^ 0x5eed), &used);
+      let mut roll = Roll::new(seed ^ 0x5eed);
+      let base = named(marker, &mut roll, &used);
       used.insert(base.clone());
-      sites.push(Spot::new(title(marker, &base).leak(), at, marker, flat(marker)));
+      let name = title(marker, &base).leak();
+      sites.push(
+        (marker == Marker::Barrow && roll.chance(0.35))
+          .then(|| Spot::new(name, at, marker, PIT).sunk(PIT_DEPTH))
+          .unwrap_or_else(|| Spot::new(name, at, marker, flat(marker)))
+      );
       (sites, used)
     })
     .0
@@ -178,6 +186,8 @@ mod tests {
   #[ignore]
   fn census() {
     println!("{} sites", SITES.len());
-    SITES.iter().for_each(|site| println!("{:?} {} {}", site.marker, site.name, site.at));
+    SITES.iter().for_each(|site| {
+      println!("{:?} {} {} {}", site.marker, site.name, site.at, site.sunk)
+    });
   }
 }

@@ -233,34 +233,37 @@ fn shout(seed: u64) -> Wave {
     Phone::A.voiced(0.6, 0.5).pitched(low * 0.9).at(1.75),
     Phone::A.voiced(0.0, 0.0).pitched(low * 0.9).at(1.95)
   ];
-  let man = speak(&fus_ro_dah.map(|phone| phone.sized(0.9)), 0.5, seed);
+  let hushed = |phone: Phone| phone.voiced(phone.voice, phone.hiss * 0.6);
+  let man = speak(&fus_ro_dah.map(|phone| hushed(phone).sized(0.9)), 0.3, seed);
   let giant = speak(
-    &fus_ro_dah.map(|phone| phone.sized(0.72).pitched(phone.pitch * 0.5)),
-    1.0,
+    &fus_ro_dah.map(|phone| hushed(phone).sized(0.72).pitched(phone.pitch * 0.5)),
+    0.55,
     seed + 1
   );
   let blast_at = 1.14;
   let (mut boom, mut air, mut rumble) = (Osc::default(), Svf::default(), Lag::new(90.0));
+  let (mut mellow, mut soft) = (Svf::new(2400.0, 0.6), Svf::new(1800.0, 0.6));
   let mut rng = Rng::new(seed);
   let dry: Vec<f32> = (0..len(5.5))
     .map(|index| {
       let t = time(index);
       let voice = man.get(index).copied().unwrap_or(0.0)
-        + giant.get(index).copied().unwrap_or(0.0) * 0.8;
+        + giant.get(index).copied().unwrap_or(0.0) * 0.9;
       let since = t - blast_at;
       let x = rng.signed();
-      air.tune(curve(since, &[(0.0, 150.0), (0.25, 2600.0), (1.4, 300.0)]), 1.2);
+      air.tune(curve(since, &[(0.0, 120.0), (0.25, 1300.0), (1.4, 220.0)]), 0.9);
       let rush = air.step(x).band
-        * curve(since, &[(0.0, 0.0), (0.12, 1.0), (0.5, 0.7), (1.6, 0.0)]);
-      let thump = boom.sine(32.0 + 55.0 * (-since.max(0.0) / 0.1).exp())
-        * perc(since, 0.01, 0.9)
-        * 0.45;
-      let roll = rumble.step(x) * 3.5 * perc(since, 0.02, 1.2);
-      drive(voice * 1.4, 3.0)
-        + (rush * 0.9 + thump * 1.1 + roll) * (since > 0.0) as u8 as f32
+        * curve(since, &[(0.0, 0.0), (0.15, 1.0), (0.6, 0.6), (1.8, 0.0)]);
+      let thump = boom.sine(32.0 + 45.0 * (-since.max(0.0) / 0.12).exp())
+        * perc(since, 0.015, 0.9)
+        * 0.5;
+      let roll = rumble.step(x) * 3.5 * perc(since, 0.03, 1.3);
+      mellow.step(drive(voice * 1.1, 1.6)).low
+        + soft.step(rush * 0.7).low
+        + (thump * 1.1 + roll) * (since > 0.0) as u8 as f32
     })
     .collect();
-  Hall::new(0.95, 0.3, 1.6).apply(&Wave::mono(dry), 1.1, false)
+  Hall::new(0.93, 0.45, 1.6).apply(&Wave::mono(dry), 0.8, false)
 }
 
 fn roar(seed: u64) -> Wave {
@@ -294,6 +297,7 @@ fn roar(seed: u64) -> Wave {
     seed + 1
   );
   let mut rumble = Lag::new(90.0);
+  let mut mellow = Svf::new(2600.0, 0.6);
   let mut rng = Rng::new(seed);
   let dry: Vec<f32> = (0..len(5.0))
     .map(|index| {
@@ -302,10 +306,35 @@ fn roar(seed: u64) -> Wave {
       let ground = rumble.step(rng.signed())
         * 10.0
         * curve(t, &[(0.0, 0.0), (0.5, 1.0), (2.8, 0.6), (3.6, 0.0)]);
-      drive(layer(&low) * 1.2 + layer(&high) * 0.35 + ground, 3.0)
+      mellow.step(drive(layer(&low) * 1.2 + layer(&high) * 0.2 + ground, 1.8)).low
     })
     .collect();
-  Hall::new(0.9, 0.3, 1.4).apply(&Wave::mono(dry), 0.7, false)
+  Hall::new(0.9, 0.4, 1.4).apply(&Wave::mono(dry), 0.7, false)
+}
+
+fn fire_breath(seed: u64) -> Wave {
+  let mut rng = Rng::new(seed);
+  let dur = 2.8;
+  let (mut deep, mut body, mut flutter) =
+    (Lag::new(140.0), Svf::new(520.0, 0.7), Lag::new(6.0));
+  let mut hiss = Svf::new(1400.0, 0.5);
+  let mut crackle = Svf::new(2200.0, 1.2);
+  let mut spark = 0.0f32;
+  let dry: Vec<f32> = (0..len(dur + 0.6))
+    .map(|index| {
+      let t = time(index);
+      let x = rng.signed();
+      let swell =
+        curve(t, &[(0.0, 0.0), (0.18, 1.0), (0.5, 0.85), (2.2, 0.75), (dur, 0.0)]);
+      let wobble = 0.75 + 0.5 * flutter.step(rng.signed() * 4.0).clamp(-0.5, 0.5);
+      spark =
+        if rng.unit() < 0.0015 * swell { rng.range(0.4, 1.0) } else { spark * 0.93 };
+      let roar = deep.step(x) * 5.0 + body.step(x).band * 1.4;
+      let air = hiss.step(x).low * 0.35;
+      (roar * wobble + air) * swell + crackle.step(spark * rng.signed()).band * 0.5
+    })
+    .collect();
+  Hall::new(0.7, 0.5, 1.1).apply(&Wave::mono(dry), 0.35, false)
 }
 
 fn wingbeat(seed: u64) -> Vec<f32> {
@@ -564,6 +593,7 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::WordLearned => word_learned(seed),
     Cue::Shout => shout(seed),
     Cue::DragonRoar => roar(seed),
+    Cue::FireBreath => fire_breath(seed),
     Cue::Wingbeat => Wave::mono(wingbeat(seed)),
     Cue::LevelUp => level_up(seed),
     Cue::Coins => Wave::mono(coins(seed))
