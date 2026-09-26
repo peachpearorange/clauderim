@@ -1,0 +1,7 @@
+#!/bin/sh
+# tools/shots name '<opts>' [name '<opts>' ...] — builds once, then takes each screenshot in turn.
+until cargo build --quiet --features dev 2>/dev/null; do sleep 8; done
+while [ $# -ge 2 ]; do
+  SKYRIM="$2" SHOT_NAME="$1" timeout 400 xvfb-run -a -s "-screen 0 1600x900x24" cargo run --quiet --features dev 2>&1 | grep -E "panicked" -A5
+  shift 2
+done

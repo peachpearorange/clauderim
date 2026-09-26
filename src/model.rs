@@ -79,6 +79,35 @@ impl Piece {
     self
   }
 
+  pub fn planar(mut self, tile: f32) -> Self {
+    let positions = points(&self.0, Mesh::ATTRIBUTE_POSITION);
+    let normals = points(&self.0, Mesh::ATTRIBUTE_NORMAL);
+    let uvs: Vec<[f32; 2]> = positions
+      .iter()
+      .zip(&normals)
+      .map(|(&at, &normal)| {
+        let facing = normal.abs();
+        let flat = match (facing.y >= facing.x.max(facing.z), facing.x > facing.z) {
+          (true, _) => at.xz(),
+          (false, true) => Vec2::new(at.z, -at.y),
+          (false, false) => Vec2::new(at.x, -at.y)
+        };
+        (flat / tile).to_array()
+      })
+      .collect();
+    self.0.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    self
+  }
+
+  pub fn tiled(mut self, repeats: Vec2) -> Self {
+    if let Some(VertexAttributeValues::Float32x2(uvs)) =
+      self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
+    {
+      uvs.iter_mut().for_each(|uv| *uv = (Vec2::from(*uv) * repeats).to_array());
+    }
+    self
+  }
+
   pub fn grained(mut self, repeats: f32) -> Self {
     if let Some(VertexAttributeValues::Float32x2(uvs)) =
       self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)

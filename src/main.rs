@@ -14,9 +14,11 @@ mod model;
 mod noise;
 mod opts;
 mod par;
+mod paving;
 mod place;
 mod player;
 mod sdf;
+mod settlement;
 mod shout;
 mod signal;
 mod sky;
@@ -146,7 +148,7 @@ fn main() {
       hud::plugin,
       inventory::plugin
     ))
-    .add_plugins(cave::plugin)
+    .add_plugins((cave::plugin, paving::plugin, settlement::plugin))
     .add_plugins(audio::plugin)
     .add_systems(Update, snapshot)
     .add_systems(

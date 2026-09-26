@@ -286,6 +286,12 @@ fn follow(
     .then(|| placed.with_y(placed.y.max(place::LAKE_LEVEL + 0.25)))
     .unwrap_or(placed);
   camera.rotation = rotation;
+  if let Some(eye) = opts().eye {
+    let lifted =
+      |[x, above, z]: [f32; 3]| ground.surface(Vec2::new(x, z)) + Vec3::Y * above;
+    **camera = Transform::from_translation(lifted(eye))
+      .looking_at(opts().look.map_or(body.translation, lifted), Vec3::Y);
+  }
   hidden.iter_mut().for_each(|mut layers| {
     layers
       .set_if_neq(view.first_person.then_some(humanoid::SHADOW_ONLY).unwrap_or_default());

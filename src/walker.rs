@@ -1,6 +1,6 @@
 use {crate::{humanoid::Motion,
              place::{LAKE, LAKE_LEVEL, LAKE_RADIUS},
-             terrain::{BOUND, Ground}},
+             terrain::{BOUND, Footing, Ground}},
      avian3d::{math::AdjustPrecision, prelude::*},
      bevy::prelude::*};
 
@@ -34,6 +34,7 @@ fn walk(
   time: Res<Time>,
   gravity: Res<Gravity>,
   ground: Res<Ground>,
+  footing: Res<Footing>,
   mut walkers: Query<(
     Entity,
     &Collider,
@@ -47,12 +48,14 @@ fn walk(
   let delta = time.delta_secs().min(0.05);
   walkers.iter_mut().for_each(
     |(entity, collider, mut transform, mut velocity, mut walker, motion)| {
-      let resting = walker.grounded
-        && walker.leap.is_none()
-        && walker.facing.is_none()
-        && walker.wish == Vec3::ZERO
-        && walker.shove.length_squared() < 1e-4
-        && velocity.0.length_squared() < 1e-4;
+      let unfounded = !footing.firm(transform.translation.xz());
+      let resting = unfounded
+        || walker.grounded
+          && walker.leap.is_none()
+          && walker.facing.is_none()
+          && walker.wish == Vec3::ZERO
+          && walker.shove.length_squared() < 1e-4
+          && velocity.0.length_squared() < 1e-4;
       let (grounded, swimming) = if resting {
         velocity.0 = Vec3::ZERO;
         (true, false)

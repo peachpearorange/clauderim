@@ -400,6 +400,69 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
           UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
         ));
       }
+      Marker::Town => {
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(1.0), height: VMin(1.0), ..at(50.0, 34.0) },
+          UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
+        ));
+        glyph.spawn(part(
+          Stroke::Solid,
+          Node { width: VMin(1.2), height: VMin(0.8), border: outline, ..at(50.0, 72.0) },
+          centred()
+        ));
+      }
+      Marker::City => {
+        [(22.0, 1.0), (50.0, 1.6), (78.0, 1.0)].into_iter().for_each(|(left, tall)| {
+          glyph.spawn(part(
+            Stroke::Line,
+            Node {
+              width: VMin(0.36),
+              height: VMin(tall),
+              ..at(left, 92.0 - tall * 26.0)
+            },
+            centred()
+          ));
+        });
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(1.8), height: VMin(0.22), ..at(50.0, 92.0) },
+          centred()
+        ));
+      }
+      Marker::Farm => {
+        [45.0, -45.0].into_iter().for_each(|lean| {
+          glyph.spawn(part(
+            Stroke::Line,
+            Node { width: VMin(0.2), height: VMin(1.6), ..at(50.0, 36.0) },
+            UiTransform { rotation: Rot2::degrees(lean), ..centred() }
+          ));
+        });
+        glyph.spawn(part(
+          Stroke::Solid,
+          Node {
+            width: VMin(0.55),
+            height: VMin(0.9),
+            border: outline,
+            ..at(50.0, 74.0)
+          },
+          centred()
+        ));
+      }
+      Marker::Fort => {
+        [22.0, 78.0].into_iter().for_each(|left| {
+          glyph.spawn(part(
+            Stroke::Line,
+            Node { width: VMin(0.4), height: VMin(0.4), ..at(left, 22.0) },
+            centred()
+          ));
+        });
+        glyph.spawn(part(
+          Stroke::Solid,
+          Node { width: VMin(1.7), height: VMin(1.1), border: outline, ..at(50.0, 64.0) },
+          centred()
+        ));
+      }
       Marker::Camp => {
         [(28.0, 30.0), (72.0, -30.0)].into_iter().for_each(|(left, lean)| {
           glyph.spawn(part(

@@ -1,26 +1,35 @@
 use {crate::{noise,
-             place::{self, LAKE, LAKE_LEVEL, LAKE_RADIUS, Place},
-             texture},
+             place::{self, LAKE, LAKE_LEVEL, LAKE_RADIUS, Marker, Place},
+             player::{MainCamera, Player},
+             settlement, texture},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             color::Mix,
             math::Affine2,
             mesh::{Indices, PrimitiveTopology},
-            prelude::*},
-     std::sync::Arc};
+            platform::collections::{HashMap, HashSet},
+            prelude::*,
+            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+     std::sync::{Arc, RwLock}};
 
-pub const HALF: f32 = 768.0;
+pub const WORLD: f32 = 3072.0;
+pub const BOUND: f32 = WORLD - 60.0;
 pub const SPACING: f32 = 2.0;
-pub const CELLS: usize = (2.0 * HALF / SPACING) as usize;
-pub const GRID: usize = CELLS + 1;
-pub const BOUND: f32 = HALF - 60.0;
-const CHUNK: usize = 64;
-const FAR_HALF: f32 = 7680.0;
-const TILE: f32 = 384.0;
+const CHUNK: i32 = 64;
+const CHUNK_SIZE: f32 = CHUNK as f32 * SPACING;
+const FAR_HALF: i32 = 12288;
+const ROOT: i32 = 4096;
+const LEAF_CELLS: usize = 64;
+const FINEST: i32 = 128;
+const SPLIT: f32 = 1.25;
+const ANCHOR_STEP: f32 = 64.0;
+const SOLID_REACH: f32 = 340.0;
+const SOLID_NOW: f32 = 40.0;
 const GRAIN_TILE: f32 = 7.0;
 const THROAT: Vec2 = Vec2::new(900.0, -2600.0);
 const THROAT_REACH: f32 = 1700.0;
 const THROAT_RISE: f32 = 1000.0;
+const THROAT_DETAIL: i32 = 512;
 const LEDGE: f32 = 38.0;
 
 pub const fn srgb(red: f32, green: f32, blue: f32) -> LinearRgba {
@@ -32,6 +41,8 @@ const MEADOW: LinearRgba = srgb(0.33, 0.36, 0.23);
 const TUNDRA: LinearRgba = srgb(0.47, 0.42, 0.30);
 const FOREST_FLOOR: LinearRgba = srgb(0.25, 0.24, 0.18);
 const DIRT: LinearRgba = srgb(0.40, 0.33, 0.24);
+const TRODDEN: LinearRgba = srgb(0.36, 0.31, 0.25);
+const COBBLE: LinearRgba = srgb(0.44, 0.43, 0.41);
 const PEBBLES: LinearRgba = srgb(0.46, 0.44, 0.40);
 const ROCK: LinearRgba = srgb(0.43, 0.43, 0.43);
 const DARK_ROCK: LinearRgba = srgb(0.30, 0.30, 0.31);
@@ -41,7 +52,7 @@ const CRAG: LinearRgba = srgb(0.29, 0.29, 0.31);
 const SNOW: LinearRgba = srgb(0.93, 0.95, 1.0);
 const SEABED: LinearRgba = srgb(0.24, 0.24, 0.20);
 
-fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
+pub fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
   t * t * (3.0 - 2.0 * t)
 }
@@ -69,19 +80,44 @@ fn ledged(height: f32, at: Vec2) -> f32 {
   (level.floor() + smooth(0.0, 1.0, level.fract()) - shift) * thickness
 }
 
+fn settled(place: Place) -> bool {
+  matches!(place.marker(), Marker::Town | Marker::City | Marker::Farm | Marker::Fort)
+}
+
+fn highland(at: Vec2, bent: Vec2, far: f32) -> f32 {
+  let reach = at.length();
+  let ring = smooth(0.5, 1.05, (bent / Vec2::new(780.0, 690.0)).length())
+    * smooth(1700.0, 1100.0, reach);
+  let ranges =
+    smooth(-0.02, 0.32, noise::fbm(bent / 1500.0, 3, 91)) * smooth(900.0, 1500.0, reach);
+  let pass = smooth(45.0, 230.0, place::route_distance(at));
+  let open = Place::ALL.into_iter().filter(|&place| settled(place)).fold(
+    1.0_f32,
+    |open, place| {
+      open.min(smooth(place.flat() * 2.0, place.flat() * 4.5, at.distance(place.spot())))
+    }
+  );
+  let massif = smooth(2700.0, 1700.0, at.distance(THROAT));
+  (ring.max(ranges).max(massif) * pass.min(open)).max(far)
+}
+
 fn wild_height(at: Vec2) -> f32 {
   let warp =
     Vec2::new(noise::fbm(at / 520.0, 3, 11), noise::fbm(at / 520.0 + 9.3, 3, 12)) * 110.0;
   let bent = at + warp;
-  let far = smooth(BOUND, BOUND + 400.0, at.abs().max_element());
-  let ring = smooth(0.5, 1.05, (bent / Vec2::new(780.0, 690.0)).length());
-  let hills = noise::fbm(bent / 300.0, 5, 3) * 32.0 + noise::fbm(bent / 70.0, 4, 5) * 3.5;
+  let far = smooth(WORLD - 250.0, WORLD + 450.0, at.abs().max_element());
+  let hills = noise::fbm(bent / 300.0, 5, 3) * 32.0
+    + noise::fbm(bent / 70.0, 4, 5) * 3.5
+    + (noise::fbm(bent / 1100.0, 3, 93) * 0.5 + 0.5)
+      * 70.0
+      * smooth(600.0, 1300.0, at.length());
   let crags = noise::crags(bent / 430.0, 9, 7, 1.0 - 0.5 * far);
   let range = smooth(900.0, 3200.0, at.length());
   let throat_calm =
     1.0 - 0.8 * smooth(1.1 * THROAT_REACH, 0.4 * THROAT_REACH, at.distance(THROAT));
+  let border = (far > 0.0).then(|| far * throat_calm * spires(at)).unwrap_or(0.0);
   let massif =
-    ring * (40.0 + crags * (400.0 + 120.0 * range)) + far * throat_calm * spires(at);
+    highland(at, bent, far) * (40.0 + crags * (400.0 + 120.0 * range)) + border;
   24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
@@ -92,34 +128,53 @@ fn lake_height(at: Vec2) -> f32 {
   wild_height(at).lerp(LAKE_LEVEL - 9.0, bowl)
 }
 
+fn graded_height(at: Vec2) -> f32 {
+  let road = place::nearest_road(at);
+  let width = road.paving.half_width();
+  let bed = smooth(width + 7.0, width + 1.0, road.distance);
+  let natural = lake_height(at);
+  (bed > 0.0).then(|| natural.lerp(lake_height(road.point), bed)).unwrap_or(natural)
+}
+
+fn place_level(place: Place) -> f32 { lake_height(place.spot()) + place.rise() }
+
 pub fn height_at(at: Vec2) -> f32 {
   let near = |place: &Place| at.distance(place.spot()) < place.flat() * 1.9;
-  Place::ALL.into_iter().filter(near).fold(lake_height(at), |height, place| {
+  Place::ALL.into_iter().filter(near).fold(graded_height(at), |height, place| {
     let reach = at.distance(place.spot());
-    let level = lake_height(place.spot());
     let flatten = smooth(place.flat() * 1.9, place.flat(), reach);
     let pit = smooth(place.flat() * 0.95, place.flat() * 0.6, reach) * place.sunk();
-    height.lerp(level, flatten) - pit
+    height.lerp(place_level(place), flatten) - pit
   })
 }
 
 pub fn forest(at: Vec2) -> f32 {
   let clearing = Place::ALL
     .into_iter()
+    .filter(|place| at.distance(place.spot()) < place.flat() * 2.2)
     .map(|place| {
       smooth(place.flat() * 2.2, place.flat() * 1.2, at.distance(place.spot()))
     })
-    .fold(smooth(10.0, 4.0, place::road_distance(at)), f32::max);
-  (smooth(-0.1, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
+    .fold(smooth(10.0, 4.0, place::road_distance(at)), f32::max)
+    .max(settlement::tilled(at));
+  let lowland_woods = 0.12 * smooth(1200.0, 700.0, at.length());
+  (smooth(-0.1 + lowland_woods, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
 }
 
 fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   let patch = smooth(-0.3, 0.4, noise::fbm(at / 120.0, 4, 41));
   let grass = MEADOW.mix(&TUNDRA, patch).mix(&FOREST_FLOOR, forest(at) * 0.8);
-  let road =
-    smooth(3.4, 1.8, place::road_distance(at) + noise::fbm(at / 6.0, 2, 43) * 1.2);
-  let shore = smooth(LAKE_LEVEL + 2.2, LAKE_LEVEL + 0.6, height);
-  let drowned = smooth(LAKE_LEVEL - 0.5, LAKE_LEVEL - 4.0, height);
+  let road = place::nearest_road(at);
+  let edge = road.edge() + noise::fbm(at / 6.0, 2, 43) * 1.2;
+  let (surface, paved) = match road.paving {
+    place::Paving::Dirt => (DIRT, smooth(0.8, -0.8, edge)),
+    place::Paving::Stone => (COBBLE, smooth(0.6, -0.6, edge))
+  };
+  let verge = smooth(2.5, 0.0, edge) * 0.5;
+  let (worn, soil) = (settlement::worn(at), settlement::tilled(at));
+  let lakeside = smooth(LAKE_RADIUS * 2.4, LAKE_RADIUS * 2.0, at.distance(LAKE));
+  let shore = smooth(LAKE_LEVEL + 2.2, LAKE_LEVEL + 0.6, height) * lakeside;
+  let drowned = smooth(LAKE_LEVEL - 0.5, LAKE_LEVEL - 4.0, height) * lakeside;
   let snow_line = 150.0 + 40.0 * noise::fbm(at / 200.0, 3, 45);
   let alpine = smooth(snow_line + 150.0, snow_line + 900.0, height);
   let gully = hollow.clamp(-1.0, 1.0);
@@ -129,7 +184,8 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
     + 0.35 * gully;
   let snow_hold = 0.8 - 0.45 * alpine;
   let snow = smooth(snow_line, snow_line + 40.0, height)
-    * smooth(snow_hold - 0.05, snow_hold + 0.05, drift);
+    * smooth(snow_hold - 0.05, snow_hold + 0.05, drift)
+    * (1.0 - paved * 0.45);
   let cliff = smooth(0.82, 0.64, normal.y + 0.06 * noise::fbm(at / 9.0, 2, 47));
   let face = smooth(0.7, 0.35, normal.y + 0.08 * noise::fbm(at / 15.0, 2, 55));
   let strata = (height / 9.0 + 3.0 * noise::fbm(at / 260.0, 3, 51)).sin();
@@ -139,29 +195,52 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
     .mix(&RUST_ROCK, smooth(0.4, 0.9, noise::fbm(at / 90.0, 3, 57)) * 0.3)
     .mix(&CRAG, face * (0.5 + 0.5 * smooth(0.0, -0.4, gully)));
   grass
-    .mix(&DIRT, road * 0.85)
+    .mix(&TRODDEN, worn.max(verge))
+    .mix(&settlement::SOIL, soil)
+    .mix(&surface, paved * 0.9)
     .mix(&PEBBLES, shore)
     .mix(&SEABED, drowned)
-    .mix(&stone, cliff.max(alpine))
+    .mix(&stone, cliff.max(alpine) * (1.0 - paved * 0.8))
     .mix(&SNOW, snow)
 }
 
-#[derive(Resource, Clone)]
-pub struct Ground(Arc<Vec<f32>>);
+type Chunks = HashMap<IVec2, Arc<[f32]>>;
+
+#[derive(Resource, Clone, Default)]
+pub struct Ground(Arc<RwLock<Chunks>>);
+
+fn chunk_of(at: Vec2) -> IVec2 { (at / CHUNK_SIZE).floor().as_ivec2() }
+
+fn chunk_heights(chunk: IVec2) -> Arc<[f32]> {
+  let first = chunk * CHUNK;
+  (0..=CHUNK)
+    .flat_map(|row| {
+      (0..=CHUNK).map(move |column| {
+        height_at((first + IVec2::new(column, row)).as_vec2() * SPACING)
+      })
+    })
+    .collect()
+}
 
 impl Ground {
-  fn sample(&self, column: usize, row: usize) -> f32 {
-    self.0[row.min(CELLS) * GRID + column.min(CELLS)]
+  fn sample(chunks: &Chunks, point: IVec2) -> f32 {
+    let chunk = point.div_euclid(IVec2::splat(CHUNK));
+    let local = point - chunk * CHUNK;
+    chunks.get(&chunk).map_or_else(
+      || height_at(point.as_vec2() * SPACING),
+      |heights| heights[(local.y * (CHUNK + 1) + local.x) as usize]
+    )
   }
 
   pub fn height(&self, at: Vec2) -> f32 {
-    let grid =
-      ((at + HALF) / SPACING).clamp(Vec2::ZERO, Vec2::splat(CELLS as f32 - 0.001));
-    let (column, row) = (grid.x as usize, grid.y as usize);
-    let (fx, fy) = (grid.x.fract(), grid.y.fract());
-    let near = self.sample(column, row).lerp(self.sample(column + 1, row), fx);
-    let far = self.sample(column, row + 1).lerp(self.sample(column + 1, row + 1), fx);
-    near.lerp(far, fy)
+    let grid = at / SPACING;
+    let base = grid.floor();
+    let (fraction, cell) = (grid - base, base.as_ivec2());
+    let chunks = self.0.read().expect("ground chunks");
+    let sample = |offset: IVec2| Self::sample(&chunks, cell + offset);
+    let near = sample(IVec2::ZERO).lerp(sample(IVec2::X), fraction.x);
+    let far = sample(IVec2::Y).lerp(sample(IVec2::ONE), fraction.x);
+    near.lerp(far, fraction.y)
   }
 
   pub fn normal(&self, at: Vec2) -> Vec3 {
@@ -171,9 +250,20 @@ impl Ground {
   }
 
   pub fn surface(&self, at: Vec2) -> Vec3 { at.extend(self.height(at)).xzy() }
+
+  pub fn chunk(&self, chunk: IVec2) -> Arc<[f32]> {
+    let known = self.0.read().expect("ground chunks").get(&chunk).cloned();
+    known.unwrap_or_else(|| {
+      let made = chunk_heights(chunk);
+      self.0.write().expect("ground chunks").insert(chunk, made.clone());
+      made
+    })
+  }
+
+  pub fn chunk_at(&self, at: Vec2) -> Arc<[f32]> { self.chunk(chunk_of(at)) }
 }
 
-fn in_parallel<Item: Sync, Made: Send>(
+pub fn in_parallel<Item: Sync, Made: Send>(
   items: &[Item],
   make: impl Fn(&Item) -> Made + Sync
 ) -> Vec<Made> {
@@ -188,15 +278,6 @@ fn in_parallel<Item: Sync, Made: Send>(
       .flat_map(|handle| handle.join().expect("parallel work"))
       .collect()
   })
-}
-
-fn heights() -> Vec<f32> {
-  in_parallel(&(0..GRID).collect::<Vec<_>>(), |&row| {
-    (0..GRID)
-      .map(|column| height_at(Vec2::new(column as f32, row as f32) * SPACING - HALF))
-      .collect::<Vec<_>>()
-  })
-  .concat()
 }
 
 fn surface_mesh(
@@ -242,81 +323,97 @@ fn surface_mesh(
     .expect("terrain tangents")
 }
 
-const HOLLOW_REACH: usize = 3;
-
 fn hollowness(around: f32, height: f32, reach: f32) -> f32 {
   (around / 4.0 - height) / reach.max(6.0) * 4.0
 }
 
-fn chunk_mesh(ground: &Ground, chunk: UVec2) -> Mesh {
-  let origin = chunk * CHUNK as u32;
-  let cell = move |column: usize, row: usize| {
-    (origin.x as usize + column, origin.y as usize + row)
-  };
-  surface_mesh(
-    CHUNK + 1,
-    |column, row| {
-      let (x, z) = cell(column, row);
-      Vec2::new(x as f32, z as f32) * SPACING - HALF
-    },
-    |column, row| {
-      let (x, z) = cell(column, row);
-      ground.sample(x, z)
-    },
-    |column, row| {
-      let (x, z) = cell(column, row);
-      let height = |x: usize, z: usize| ground.sample(x, z);
-      let around = height(x.saturating_sub(HOLLOW_REACH), z)
-        + height(x + HOLLOW_REACH, z)
-        + height(x, z.saturating_sub(HOLLOW_REACH))
-        + height(x, z + HOLLOW_REACH);
-      (
-        Vec3::new(
-          height(x.saturating_sub(1), z) - height(x + 1, z),
-          2.0 * SPACING,
-          height(x, z.saturating_sub(1)) - height(x, z + 1)
-        )
-        .normalize(),
-        hollowness(around, height(x, z), HOLLOW_REACH as f32 * SPACING)
-      )
-    }
-  )
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+struct Leaf {
+  corner: IVec2,
+  size: i32,
+  seams: [i32; 4]
 }
 
-const DETAIL: [(f32, f32); 3] = [(1.0, 4.0), (800.0, 8.0), (2400.0, 16.0)];
-const COARSE: f32 = 32.0;
-const THROAT_DETAIL: f32 = 8.0;
-
-fn tile_spacing(tile: IVec2) -> f32 {
-  let center = (tile.as_vec2() + 0.5) * TILE;
-  let gap = center.abs().max_element() - HALF - 0.5 * TILE;
-  let spacing = DETAIL
-    .into_iter()
-    .find(|&(reach, _)| gap < reach)
-    .map_or(COARSE, |(_, spacing)| spacing);
-  (center.distance(THROAT) < 0.8 * THROAT_REACH)
-    .then_some(spacing.min(THROAT_DETAIL))
-    .unwrap_or(spacing)
+fn splits(corner: IVec2, size: i32, anchor: Vec2) -> bool {
+  let (low, high) = (corner.as_vec2(), (corner + size).as_vec2());
+  let gap = |to: Vec2| (low - to).max(to - high).max(Vec2::ZERO).length();
+  size > FINEST
+    && (gap(anchor) < size as f32 * SPLIT
+      || (size > THROAT_DETAIL && gap(THROAT) < 0.8 * THROAT_REACH))
 }
 
-fn tile_mesh(tile: IVec2) -> Mesh {
-  let spacing = tile_spacing(tile);
-  let cells = (TILE / spacing) as usize;
-  let span = cells + 3;
-  let origin = tile.as_vec2() * TILE;
+fn quarters(corner: IVec2, size: i32) -> [IVec2; 4] {
+  let half = size / 2;
+  [IVec2::ZERO, IVec2::X, IVec2::Y, IVec2::ONE].map(|step| corner + step * half)
+}
+
+fn tiles(corner: IVec2, size: i32, anchor: Vec2) -> Vec<(IVec2, i32)> {
+  splits(corner, size, anchor)
+    .then(|| {
+      quarters(corner, size)
+        .into_iter()
+        .flat_map(|quarter| tiles(quarter, size / 2, anchor))
+        .collect()
+    })
+    .unwrap_or_else(|| vec![(corner, size)])
+}
+
+fn tile_size_at(point: Vec2, anchor: Vec2) -> Option<i32> {
+  let root = (point / ROOT as f32).floor().as_ivec2() * ROOT;
+  (point.abs().max_element() < FAR_HALF as f32).then(|| {
+    std::iter::successors(Some((root, ROOT)), |&(corner, size)| {
+      splits(corner, size, anchor).then(|| {
+        let half = size / 2;
+        let step = ((point - corner.as_vec2()) / half as f32)
+          .floor()
+          .as_ivec2()
+          .clamp(IVec2::ZERO, IVec2::ONE);
+        (corner + step * half, half)
+      })
+    })
+    .last()
+    .map_or(ROOT, |(_, size)| size)
+  })
+}
+
+fn leaves(anchor: Vec2) -> Vec<Leaf> {
+  let roots = FAR_HALF / ROOT;
+  (-roots..roots)
+    .flat_map(|z| (-roots..roots).map(move |x| IVec2::new(x, z) * ROOT))
+    .flat_map(|root| tiles(root, ROOT, anchor))
+    .map(|(corner, size)| {
+      let middle = corner.as_vec2() + size as f32 / 2.0;
+      let across = |side: Vec2| {
+        tile_size_at(middle + side * (size as f32 / 2.0 + 1.0), anchor).unwrap_or(size)
+      };
+      Leaf {
+        corner,
+        size,
+        seams: [Vec2::NEG_X, Vec2::X, Vec2::NEG_Y, Vec2::Y].map(across)
+      }
+    })
+    .collect()
+}
+
+fn tile_mesh(leaf: Leaf) -> Mesh {
+  let Leaf { corner, size, seams } = leaf;
+  let spacing = size as f32 / LEAF_CELLS as f32;
+  let cells = LEAF_CELLS;
+  let pad = ((6.0 / spacing).ceil() as usize).max(1);
+  let span = cells + 1 + 2 * pad;
+  let origin = corner.as_vec2();
   let spot =
     |column: usize, row: usize| origin + Vec2::new(column as f32, row as f32) * spacing;
   let heights: Vec<f32> = (0..span * span)
-    .map(|index| height_at(spot(index % span, index / span) - spacing))
+    .map(|index| {
+      let step = Vec2::new((index % span) as f32, (index / span) as f32) - pad as f32;
+      height_at(origin + step * spacing)
+    })
     .collect();
-  let height = |column: usize, row: usize| heights[(row + 1) * span + column + 1];
-  let coarsening = |side: IVec2| (tile_spacing(tile + side) / spacing).max(1.0) as usize;
-  let (west, east, south, north) = (
-    coarsening(IVec2::NEG_X),
-    coarsening(IVec2::X),
-    coarsening(IVec2::NEG_Y),
-    coarsening(IVec2::Y)
-  );
+  let raw = |x: usize, z: usize| heights[z * span + x];
+  let height = |column: usize, row: usize| raw(column + pad, row + pad);
+  let [west, east, south, north] =
+    seams.map(|neighbour| (neighbour / size).max(1) as usize);
   let stitch = |along: usize, step: usize, sample: &dyn Fn(usize) -> f32| {
     let offset = along % step;
     let start = along - offset;
@@ -338,9 +435,8 @@ fn tile_mesh(tile: IVec2) -> Mesh {
       seam(rim(column), rim(row)) - skirt.then_some(2.0 * spacing).unwrap_or(0.0)
     },
     |column, row| {
-      let (x, z) = (rim(column) + 1, rim(row) + 1);
-      let raw = |x: usize, z: usize| heights[z * span + x];
-      let around = raw(x - 1, z) + raw(x + 1, z) + raw(x, z - 1) + raw(x, z + 1);
+      let (x, z) = (rim(column) + pad, rim(row) + pad);
+      let around = raw(x - pad, z) + raw(x + pad, z) + raw(x, z - pad) + raw(x, z + pad);
       (
         Vec3::new(
           raw(x - 1, z) - raw(x + 1, z),
@@ -348,7 +444,7 @@ fn tile_mesh(tile: IVec2) -> Mesh {
           raw(x, z - 1) - raw(x, z + 1)
         )
         .normalize(),
-        hollowness(around, raw(x, z), spacing)
+        hollowness(around, raw(x, z), pad as f32 * spacing)
       )
     }
   )
@@ -356,63 +452,186 @@ fn tile_mesh(tile: IVec2) -> Mesh {
 
 #[derive(Resource)]
 pub struct Surfaces {
-  pub rock: Handle<StandardMaterial>
+  pub rock: Handle<StandardMaterial>,
+  land: Handle<StandardMaterial>
 }
 
-fn spawn_terrain(
+#[derive(Resource, Default)]
+struct Lands {
+  anchor: Option<IVec2>,
+  wanted: Vec<Leaf>,
+  shown: HashMap<Leaf, Entity>,
+  ready: HashMap<Leaf, Handle<Mesh>>,
+  making: HashMap<Leaf, Task<Mesh>>
+}
+
+fn anchor_of(at: Vec2) -> IVec2 { (at / ANCHOR_STEP).round().as_ivec2() }
+
+fn tend_lands(
   mut commands: Commands,
+  mut lands: ResMut<Lands>,
   mut meshes: ResMut<Assets<Mesh>>,
+  surfaces: Res<Surfaces>,
+  camera: Single<&Transform, With<MainCamera>>
+) {
+  let anchor = anchor_of(camera.translation.xz());
+  let Lands { anchor: last, wanted, shown, ready, making } = &mut *lands;
+  if *last != Some(anchor) {
+    *last = Some(anchor);
+    *wanted = leaves(anchor.as_vec2() * ANCHOR_STEP);
+    let fresh: Vec<Leaf> = wanted
+      .iter()
+      .filter(|leaf| {
+        !shown.contains_key(*leaf)
+          && !ready.contains_key(*leaf)
+          && !making.contains_key(*leaf)
+      })
+      .copied()
+      .collect();
+    let wanting: HashSet<Leaf> = wanted.iter().copied().collect();
+    making.retain(|leaf, _| wanting.contains(leaf));
+    ready.retain(|leaf, _| wanting.contains(leaf));
+    match shown.is_empty() {
+      true => in_parallel(&fresh, |&leaf| (leaf, tile_mesh(leaf))).into_iter().for_each(
+        |(leaf, mesh)| {
+          ready.insert(leaf, meshes.add(mesh));
+        }
+      ),
+      false => fresh.into_iter().for_each(|leaf| {
+        making.insert(
+          leaf,
+          AsyncComputeTaskPool::get().spawn(async move { tile_mesh(leaf) })
+        );
+      })
+    }
+  }
+  making.retain(|&leaf, task| {
+    check_ready(task)
+      .map(|mesh| {
+        ready.insert(leaf, meshes.add(mesh));
+      })
+      .is_none()
+  });
+  if making.is_empty() && !ready.is_empty() {
+    let wanting: HashSet<Leaf> = wanted.iter().copied().collect();
+    shown.retain(|leaf, &mut entity| {
+      let keep = wanting.contains(leaf);
+      if !keep {
+        commands.entity(entity).despawn();
+      }
+      keep
+    });
+    ready.drain().for_each(|(leaf, mesh)| {
+      let entity = commands
+        .spawn((
+          Name::new("Land"),
+          Mesh3d(mesh),
+          MeshMaterial3d(surfaces.land.clone()),
+          Transform::IDENTITY
+        ))
+        .id();
+      shown.insert(leaf, entity);
+    });
+  }
+}
+
+#[derive(Resource, Default)]
+pub struct Footing {
+  solid: HashMap<IVec2, (Entity, bool)>,
+  making: HashMap<IVec2, Task<Collider>>
+}
+
+impl Footing {
+  pub fn firm(&self, at: Vec2) -> bool {
+    self.solid.get(&chunk_of(at)).is_some_and(|&(_, ready)| ready)
+  }
+}
+
+fn chunk_collider(heights: &[f32]) -> Collider {
+  let side = CHUNK as usize + 1;
+  let rows = (0..side)
+    .map(|column| (0..side).map(|row| heights[row * side + column]).collect())
+    .collect();
+  Collider::heightfield(rows, Vec3::new(CHUNK_SIZE, 1.0, CHUNK_SIZE))
+}
+
+fn chunk_gap(chunk: IVec2, at: Vec2) -> f32 {
+  let low = chunk.as_vec2() * CHUNK_SIZE;
+  (low - at).max(at - low - CHUNK_SIZE).max(Vec2::ZERO).length()
+}
+
+fn tend_footing(
+  mut commands: Commands,
+  mut footing: ResMut<Footing>,
+  ground: Res<Ground>,
+  players: Query<&Transform, With<Player>>
+) {
+  if let Ok(player) = players.single() {
+    let here = player.translation.xz();
+    let Footing { solid, making } = &mut *footing;
+    let (low, high) = (chunk_of(here - SOLID_REACH), chunk_of(here + SOLID_REACH));
+    let wanted: Vec<IVec2> = (low.y..=high.y)
+      .flat_map(|y| (low.x..=high.x).map(move |x| IVec2::new(x, y)))
+      .filter(|&chunk| {
+        chunk_gap(chunk, here) < SOLID_REACH
+          && !solid.contains_key(&chunk)
+          && !making.contains_key(&chunk)
+      })
+      .collect();
+    let (urgent, later): (Vec<IVec2>, Vec<IVec2>) =
+      wanted.into_iter().partition(|&chunk| chunk_gap(chunk, here) < SOLID_NOW);
+    let mut place = |chunk: IVec2, collider: Collider| {
+      let entity = commands
+        .spawn((
+          Name::new("Ground"),
+          RigidBody::Static,
+          collider,
+          Friction::new(0.8),
+          Transform::from_translation(
+            (chunk.as_vec2() * CHUNK_SIZE + CHUNK_SIZE / 2.0).extend(0.0).xzy()
+          )
+        ))
+        .id();
+      solid.insert(chunk, (entity, false));
+    };
+    in_parallel(&urgent, |&chunk| (chunk, chunk_collider(&ground.chunk(chunk))))
+      .into_iter()
+      .for_each(|(chunk, collider)| place(chunk, collider));
+    later.into_iter().for_each(|chunk| {
+      let ground = ground.clone();
+      making.insert(
+        chunk,
+        AsyncComputeTaskPool::get()
+          .spawn(async move { chunk_collider(&ground.chunk(chunk)) })
+      );
+    });
+    let done: Vec<(IVec2, Collider)> = making
+      .iter_mut()
+      .filter_map(|(&chunk, task)| check_ready(task).map(|collider| (chunk, collider)))
+      .collect();
+    done.into_iter().for_each(|(chunk, collider)| {
+      making.remove(&chunk);
+      place(chunk, collider)
+    });
+    solid.retain(|&chunk, &mut (entity, _)| {
+      let keep = chunk_gap(chunk, here) < SOLID_REACH + CHUNK_SIZE;
+      if !keep {
+        commands.entity(entity).despawn();
+      }
+      keep
+    });
+  }
+}
+
+fn settle_footing(mut footing: ResMut<Footing>) {
+  footing.solid.values_mut().for_each(|(_, ready)| *ready = true);
+}
+
+fn prepare_terrain(
+  mut commands: Commands,
   mut materials: ResMut<Assets<StandardMaterial>>,
   mut images: ResMut<Assets<Image>>
 ) {
-  let ground = Ground(Arc::new(heights()));
-  let material = materials.add(StandardMaterial {
-    base_color_texture: Some(images.add(texture::ground())),
-    normal_map_texture: Some(images.add(texture::ground_bumps())),
-    perceptual_roughness: 0.93,
-    reflectance: 0.2,
-    ..default()
-  });
-
-  let chunks = (CELLS / CHUNK) as u32;
-  let chunk_spots: Vec<UVec2> =
-    (0..chunks).flat_map(|z| (0..chunks).map(move |x| UVec2::new(x, z))).collect();
-  in_parallel(&chunk_spots, |&chunk| chunk_mesh(&ground, chunk)).into_iter().for_each(
-    |mesh| {
-      commands.spawn((
-        Name::new("Terrain Chunk"),
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(material.clone())
-      ));
-    }
-  );
-
-  let tiles_across = (FAR_HALF / TILE) as i32;
-  let playable = (HALF / TILE) as i32;
-  let tiles: Vec<IVec2> = (-tiles_across..tiles_across)
-    .flat_map(|z| (-tiles_across..tiles_across).map(move |x| IVec2::new(x, z)))
-    .filter(|tile| {
-      !(-playable..playable).contains(&tile.x) || !(-playable..playable).contains(&tile.y)
-    })
-    .collect();
-  in_parallel(&tiles, |&tile| tile_mesh(tile)).into_iter().for_each(|mesh| {
-    commands.spawn((
-      Name::new("Distant Lands"),
-      Mesh3d(meshes.add(mesh)),
-      MeshMaterial3d(material.clone())
-    ));
-  });
-
-  let rows = (0..GRID)
-    .map(|column| (0..GRID).map(|row| ground.sample(column, row)).collect())
-    .collect();
-  commands.spawn((
-    Name::new("Terrain Collider"),
-    RigidBody::Static,
-    Collider::heightfield(rows, Vec3::new(2.0 * HALF, 1.0, 2.0 * HALF)),
-    Friction::new(0.8)
-  ));
-
   commands.insert_resource(Surfaces {
     rock: materials.add(StandardMaterial {
       base_color_texture: Some(images.add(texture::rock())),
@@ -420,9 +639,16 @@ fn spawn_terrain(
       perceptual_roughness: 0.9,
       reflectance: 0.25,
       ..default()
+    }),
+    land: materials.add(StandardMaterial {
+      base_color_texture: Some(images.add(texture::ground())),
+      normal_map_texture: Some(images.add(texture::ground_bumps())),
+      perceptual_roughness: 0.93,
+      reflectance: 0.2,
+      ..default()
     })
   });
-  commands.insert_resource(ground);
+  commands.insert_resource(Ground::default());
 }
 
 fn spawn_lake(
@@ -477,7 +703,13 @@ fn ripple(
 }
 
 pub fn plugin(app: &mut App) {
-  app.add_systems(PreStartup, (spawn_terrain, spawn_lake)).add_systems(Update, ripple);
+  app
+    .init_resource::<Lands>()
+    .init_resource::<Footing>()
+    .add_systems(PreStartup, (prepare_terrain, spawn_lake))
+    .add_systems(PreUpdate, tend_footing)
+    .add_systems(FixedPostUpdate, settle_footing.after(PhysicsSystems::Last))
+    .add_systems(Update, (tend_lands, ripple));
 }
 
 #[cfg(test)]
@@ -498,7 +730,7 @@ mod tests {
     [
       (SPACING, Vec2::new(-760.0, 700.0), Vec2::new(760.0, 740.0)),
       (SPACING, Vec2::new(-700.0, -760.0), Vec2::new(-740.0, 760.0)),
-      (8.0, Vec2::new(-900.0, 1300.0), Vec2::new(900.0, 900.0)),
+      (8.0, Vec2::new(-2900.0, 1300.0), Vec2::new(2900.0, 900.0)),
       (8.0, THROAT - Vec2::X * 1600.0, THROAT - Vec2::X * 200.0)
     ]
     .into_iter()
@@ -509,18 +741,17 @@ mod tests {
   }
 
   #[test]
-  fn heightfield_matches_grid() {
-    let ground = Ground(Arc::new(heights()));
-    let rows = (0..GRID)
-      .map(|column| (0..GRID).map(|row| ground.sample(column, row)).collect())
-      .collect();
-    let collider = Collider::heightfield(rows, Vec3::new(2.0 * HALF, 1.0, 2.0 * HALF));
-    [Vec2::new(-250.0, -170.0), Vec2::new(300.0, 60.0), Vec2::new(40.0, 290.0)]
+  fn chunk_collider_matches_ground() {
+    let ground = Ground::default();
+    [Vec2::new(-250.0, -170.0), Vec2::new(300.0, 60.0), Vec2::new(-1340.0, 2290.0)]
       .into_iter()
       .for_each(|at| {
+        let chunk = chunk_of(at);
+        let collider = chunk_collider(&ground.chunk(chunk));
+        let center = (chunk.as_vec2() * CHUNK_SIZE + CHUNK_SIZE / 2.0).extend(0.0).xzy();
         let hit = collider
           .cast_ray(
-            Vec3::ZERO,
+            center,
             Quat::IDENTITY,
             at.extend(2000.0).xzy(),
             Vec3::new(0.0001, -1.0, 0.0002).normalize(),
@@ -535,5 +766,69 @@ mod tests {
           ground.height(at)
         );
       });
+  }
+
+  #[test]
+  #[ignore]
+  fn steepest_spot() {
+    let (from, to) = (THROAT - Vec2::X * 1600.0, THROAT - Vec2::X * 200.0);
+    let worst = (0..4000)
+      .map(|index| {
+        let at = from.lerp(to, index as f32 / 4000.0);
+        let rise = |offset: Vec2| (height_at(at + offset * 8.0) - height_at(at)).abs();
+        (rise(Vec2::X).max(rise(Vec2::Y)) / 8.0, at, height_at(at))
+      })
+      .fold(
+        (0.0, Vec2::ZERO, 0.0),
+        |best, each| if each.0 > best.0 { each } else { best }
+      );
+    println!("{worst:?} route {}", place::route_distance(worst.1));
+  }
+
+  #[test]
+  #[ignore]
+  fn map() {
+    let side = 1024usize;
+    let step = 2.0 * WORLD / side as f32;
+    let spot = |index: usize| {
+      Vec2::new((index % side) as f32, (index / side) as f32) * step - WORLD
+    };
+    let heights: Vec<f32> =
+      in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| height_at(spot(index)));
+    let pixels: Vec<u8> = in_parallel(&(0..side * side).collect::<Vec<_>>(), |&index| {
+      let (x, z) = (index % side, index / side);
+      let height = |x: usize, z: usize| heights[z.min(side - 1) * side + x.min(side - 1)];
+      let normal = Vec3::new(
+        height(x.saturating_sub(1), z) - height(x + 1, z),
+        2.0 * step,
+        height(x, z.saturating_sub(1)) - height(x, z + 1)
+      )
+      .normalize();
+      let light =
+        0.55 + 0.6 * normal.dot(Vec3::new(-0.5, 0.7, -0.4).normalize()).max(0.0);
+      let at = spot(index);
+      let marked = Place::ALL.into_iter().any(|place| at.distance(place.spot()) < 14.0);
+      let tone = marked
+        .then_some(LinearRgba::rgb(1.0, 0.0, 0.0))
+        .unwrap_or_else(|| paint(at, height(x, z), normal, 0.0) * light);
+      Srgba::from(tone).to_u8_array()
+    })
+    .concat();
+    Image::new(
+      bevy::render::render_resource::Extent3d {
+        width: side as u32,
+        height: side as u32,
+        depth_or_array_layers: 1
+      },
+      bevy::render::render_resource::TextureDimension::D2,
+      pixels,
+      bevy::render::render_resource::TextureFormat::Rgba8UnormSrgb,
+      RenderAssetUsages::MAIN_WORLD
+    )
+    .try_into_dynamic()
+    .expect("map image")
+    .to_rgb8()
+    .save("screenshots/map.png")
+    .expect("map saved");
   }
 }

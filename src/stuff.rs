@@ -48,11 +48,19 @@ pub enum Stuff {
   #[assoc(roughness = 0.62, grain = Grain::Scales, reflectance = 0.4)]
   Scales,
   #[assoc(roughness = 0.9, grain = Grain::Cracks, tiling = 2.0, glow = LinearRgba::rgb(9.0, 2.6, 0.35), glow_follows_grain = true)]
-  Cinder
+  Cinder,
+  #[assoc(roughness = 0.97, grain = Grain::Thatch, reflectance = 0.2)]
+  Thatch,
+  #[assoc(roughness = 0.88, grain = Grain::Shingles)]
+  Shingle,
+  #[assoc(roughness = 0.9, grain = Grain::Masonry, reflectance = 0.25)]
+  Masonry,
+  #[assoc(roughness = 0.85, grain = Grain::Planks)]
+  Planks
 }
 
 impl Stuff {
-  pub const ALL: [Stuff; 18] = [
+  pub const ALL: [Stuff; 22] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -70,7 +78,11 @@ impl Stuff {
     Stuff::Gloss,
     Stuff::Membrane,
     Stuff::Scales,
-    Stuff::Cinder
+    Stuff::Cinder,
+    Stuff::Thatch,
+    Stuff::Shingle,
+    Stuff::Masonry,
+    Stuff::Planks
   ];
 }
 
@@ -85,7 +97,11 @@ pub enum Grain {
   Needles,
   Rock,
   Cracks,
-  Scales
+  Scales,
+  Thatch,
+  Shingles,
+  Masonry,
+  Planks
 }
 
 #[derive(Resource)]
@@ -116,10 +132,16 @@ fn prepare(
     (Grain::Needles, texture::needles()),
     (Grain::Rock, texture::rock()),
     (Grain::Cracks, texture::cracks()),
-    (Grain::Scales, texture::scales())
+    (Grain::Scales, texture::scales()),
+    (Grain::Thatch, texture::thatch()),
+    (Grain::Shingles, texture::shingles()),
+    (Grain::Masonry, texture::masonry()),
+    (Grain::Planks, texture::planks())
   ]
   .map(|(grain, image)| (grain, images.add(image)));
   let scale_bumps = images.add(texture::scale_bumps());
+  let masonry_bumps = images.add(texture::masonry_bumps());
+  let shingle_bumps = images.add(texture::shingle_bumps());
   let made = Stuff::ALL
     .into_iter()
     .map(|stuff| {
@@ -136,7 +158,12 @@ fn prepare(
           metallic: stuff.metallic(),
           reflectance: stuff.reflectance(),
           emissive: stuff.glow(),
-          normal_map_texture: (grain == Grain::Scales).then(|| scale_bumps.clone()),
+          normal_map_texture: match grain {
+            Grain::Scales => Some(scale_bumps.clone()),
+            Grain::Masonry => Some(masonry_bumps.clone()),
+            Grain::Shingles => Some(shingle_bumps.clone()),
+            _ => None
+          },
           diffuse_transmission: stuff.translucency(),
           double_sided: stuff.two_sided(),
           cull_mode: (!stuff.two_sided())

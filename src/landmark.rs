@@ -1,6 +1,6 @@
 use {crate::{model::{self, Piece, ball, block, lathe, lump, rod},
              noise::Roll,
-             place::Place,
+             place::{Marker, Place},
              player::{Player, View},
              signal::{Cue, Notice, Prompt, Prompting, Sound},
              stuff::{Stuff, Stuffs},
@@ -183,7 +183,7 @@ fn watchtower(roll: &mut Roll) -> Vec<(Stuff, Vec<Piece>)> {
   ]
 }
 
-fn tent(roll: &mut Roll) -> Vec<(Stuff, Piece)> {
+pub fn tent(roll: &mut Roll) -> Vec<(Stuff, Piece)> {
   let hide = srgb(0.62, 0.52, 0.38) * roll.range(0.85, 1.05);
   let pole = srgb(0.34, 0.25, 0.16);
   let (length, half_width, height): (f32, f32, f32) = (3.6, 1.5, 1.9);
@@ -443,7 +443,7 @@ pub struct Blessing {
 }
 
 #[derive(Component)]
-pub struct Flicker(f32);
+pub struct Flicker(pub f32);
 
 fn raise_landmarks(
   mut commands: Commands,
@@ -454,43 +454,51 @@ fn raise_landmarks(
 ) {
   let mut roll = Roll::new(4242);
   let floor = |place: Place| ground.surface(place.spot()) - Vec3::Y * 0.15;
-  spawn_static(
-    &mut commands,
-    &mut meshes,
-    &stuffs,
-    "Greymoor Watch",
-    floor(Place::Greymoor),
-    0.9,
-    watchtower(&mut roll),
-    true
-  );
-  let camp_at = floor(Place::Rotfen);
-  spawn_static(
-    &mut commands,
-    &mut meshes,
-    &stuffs,
-    "Rotfen Camp",
-    camp_at,
-    0.3,
-    camp(&mut roll),
-    true
-  );
-  commands.spawn((
-    Flicker(0.0),
-    PointLight {
-      color: Color::srgb(1.0, 0.62, 0.3),
-      intensity: 400_000.0,
-      range: 22.0,
-      ..default()
-    },
-    crate::sky::CloseShadows,
-    crate::humanoid::shadowing(),
-    Transform::from_translation(camp_at + Vec3::Y * 0.8)
-  ));
-  commands.spawn((
-    effects.emit(&effects.campfire),
-    Transform::from_translation(camp_at + Vec3::Y * 0.15)
-  ));
+  Place::ALL.into_iter().enumerate().for_each(|(index, place)| {
+    let turn = 0.3 + index as f32 * 1.7;
+    match place.marker() {
+      Marker::Tower => spawn_static(
+        &mut commands,
+        &mut meshes,
+        &stuffs,
+        place.name(),
+        floor(place),
+        (place == Place::Greymoor).then_some(0.9).unwrap_or(turn),
+        watchtower(&mut roll),
+        true
+      ),
+      Marker::Camp => {
+        let camp_at = floor(place);
+        spawn_static(
+          &mut commands,
+          &mut meshes,
+          &stuffs,
+          place.name(),
+          camp_at,
+          (place == Place::Rotfen).then_some(0.3).unwrap_or(turn),
+          camp(&mut roll),
+          true
+        );
+        commands.spawn((
+          Flicker(0.0),
+          PointLight {
+            color: Color::srgb(1.0, 0.62, 0.3),
+            intensity: 400_000.0,
+            range: 22.0,
+            ..default()
+          },
+          crate::sky::CloseShadows,
+          crate::humanoid::shadowing(),
+          Transform::from_translation(camp_at + Vec3::Y * 0.8)
+        ));
+        commands.spawn((
+          effects.emit(&effects.campfire),
+          Transform::from_translation(camp_at + Vec3::Y * 0.15)
+        ));
+      }
+      _ => {}
+    }
+  });
   let stone_at = floor(Place::WarriorStone);
   spawn_static(
     &mut commands,

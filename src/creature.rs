@@ -2,6 +2,7 @@ use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
              humanoid::{self, Grip, MAN, Motion},
              inventory::{Inventory, Item, Loot},
              noise::Roll,
+             place::Place,
              player::{Player, View},
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
              stuff::Stuffs,
@@ -9,7 +10,8 @@ use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
              walker::{Walker, Walking},
              wolf},
      avian3d::prelude::*,
-     bevy::prelude::*};
+     bevy::prelude::*,
+     std::sync::LazyLock};
 
 struct Breed {
   name: &'static str,
@@ -433,12 +435,76 @@ fn encounters(mut commands: Commands, ground: Res<Ground>) {
   });
 }
 
+const MUSTER: f32 = 300.0;
+
+fn circle(spot: Vec2, kind: FoeKind, count: usize, reach: f32) -> Vec<(Vec2, FoeKind)> {
+  (0..count)
+    .map(|member| (spot + Vec2::from_angle(member as f32 * 2.4) * reach, kind))
+    .collect()
+}
+
+static GARRISONS: LazyLock<Vec<(Vec2, Vec<(Vec2, FoeKind)>)>> = LazyLock::new(|| {
+  let camp = |place: Place, bandits: usize, chief: bool| {
+    let spot = place.spot();
+    let crew = circle(spot, FoeKind::Bandit, bandits, 4.0)
+      .into_iter()
+      .chain(chief.then_some((spot + Vec2::new(-4.0, -5.0), FoeKind::BanditChief)))
+      .collect();
+    (spot, crew)
+  };
+  let pack = |spot: Vec2, count: usize| (spot, circle(spot, FoeKind::Wolf, count, 2.5));
+  crate::settlement::LAYOUTS
+    .iter()
+    .filter(|layout| !layout.foes.is_empty())
+    .map(|layout| (layout.place.spot(), layout.foes.clone()))
+    .chain([
+      camp(Place::Blackbriar, 3, true),
+      camp(Place::Wolfskull, 3, false),
+      camp(Place::Snowgate, 2, false),
+      pack(Vec2::new(880.0, 620.0), 3),
+      pack(Vec2::new(-1380.0, 180.0), 2),
+      pack(Vec2::new(1250.0, -380.0), 3),
+      pack(Vec2::new(-520.0, 880.0), 2),
+      pack(Vec2::new(760.0, 1680.0), 3),
+      pack(Vec2::new(-1650.0, -1150.0), 2),
+      pack(Vec2::new(2350.0, 1150.0), 2)
+    ])
+    .collect()
+});
+
+fn garrison(
+  mut commands: Commands,
+  ground: Res<Ground>,
+  mut mustered: Local<Vec<usize>>,
+  players: Query<&Transform, With<Player>>
+) {
+  if let Ok(player) = players.single() {
+    let here = player.translation.xz();
+    let due: Vec<usize> = (0..GARRISONS.len())
+      .filter(|index| {
+        !mustered.contains(index) && GARRISONS[*index].0.distance(here) < MUSTER
+      })
+      .collect();
+    due.into_iter().for_each(|index| {
+      mustered.push(index);
+      GARRISONS[index].1.iter().enumerate().for_each(|(member, &(at, kind))| {
+        commands.spawn((
+          FoeSpawn { kind, dormant: false },
+          Transform::from_translation(ground.surface(at))
+            .with_rotation(Quat::from_rotation_y(member as f32 * 2.1))
+        ));
+      });
+    });
+  }
+}
+
 #[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Thinking;
 
 pub fn plugin(app: &mut App) {
   app
     .add_systems(Startup, encounters)
+    .add_systems(Update, garrison.before(Thinking))
     .add_systems(PostStartup, specimen)
     .add_systems(Update, (raise, think).chain().in_set(Thinking).before(Walking))
     .add_systems(Update, (perish, search).after(Walking));
