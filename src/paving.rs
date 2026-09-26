@@ -138,11 +138,12 @@ fn lay_roads(
         .collect::<Vec<_>>()
     })
     .collect();
-  crate::terrain::in_parallel(&stretches, |(spine, start, width)| {
-    ribbon(spine, *start, *width)
-  })
-  .into_iter()
-  .for_each(|(center, mesh)| {
+  for (center, mesh) in
+    crate::terrain::in_parallel(&stretches, |(spine, start, width)| {
+      ribbon(spine, *start, *width)
+    })
+    .into_iter()
+  {
     commands.spawn((
       Name::new("Paving"),
       Mesh3d(meshes.add(mesh)),
@@ -155,7 +156,7 @@ fn lay_roads(
       },
       NotShadowCaster
     ));
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) { app.add_systems(Startup, lay_roads); }

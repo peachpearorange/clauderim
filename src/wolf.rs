@@ -96,7 +96,7 @@ fn shaded_fur(piece: Piece, coat: Srgba, belly: Srgba) -> Piece {
 
 pub fn skeleton(commands: &mut Commands, owner: Entity) -> Beast {
   let mut bones = [Entity::PLACEHOLDER; BONES];
-  Bone::ALL.into_iter().for_each(|bone| {
+  for bone in Bone::ALL {
     let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
     bones[bone as usize] = commands
       .spawn((
@@ -105,7 +105,7 @@ pub fn skeleton(commands: &mut Commands, owner: Entity) -> Beast {
         ChildOf(parent)
       ))
       .id();
-  });
+  }
   Beast { bones }
 }
 
@@ -335,28 +335,30 @@ pub fn hide(seed: u32) -> Vec<(usize, Stuff, Mesh)> {
   spawn(Bone::Jaw, Stuff::Fur, vec![jaw]);
   spawn(Bone::Jaw, Stuff::Bone, lower_fangs.into());
   spawn(Bone::Tail, Stuff::Fur, vec![tail]);
-  [
+  for (bone, front) in [
     (Bone::FrontL, true),
     (Bone::FrontR, true),
     (Bone::BackL, false),
     (Bone::BackR, false)
   ]
   .into_iter()
-  .for_each(|(bone, front)| spawn(bone, Stuff::Fur, vec![upper(bone, front)]));
-  [
+  {
+    spawn(bone, Stuff::Fur, vec![upper(bone, front)])
+  }
+  for (bone, front) in [
     (Bone::ShinFL, true),
     (Bone::ShinFR, true),
     (Bone::ShinBL, false),
     (Bone::ShinBR, false)
   ]
   .into_iter()
-  .for_each(|(bone, front)| {
+  {
     spawn(
       bone,
       Stuff::Fur,
       [pelt(&lower(front), 0.004, 9)].into_iter().chain(paw(front)).collect()
     )
-  });
+  }
   parts
 }
 
@@ -461,10 +463,10 @@ fn animate(
   mut bones: Query<&mut Transform>
 ) {
   let blend = 1.0 - (-16.0 * time.delta_secs()).exp();
-  beasts.iter_mut().for_each(|(beast, mut motion)| {
+  for (beast, mut motion) in beasts.iter_mut() {
     motion.breath += time.delta_secs() * 2.4;
     let pose = stance(&motion);
-    beast.bones.iter().zip(Bone::ALL).for_each(|(&entity, bone)| {
+    for (&entity, bone) in beast.bones.iter().zip(Bone::ALL) {
       if let Ok(mut transform) = bones.get_mut(entity) {
         let angles = pose.angles[bone as usize];
         let target = Quat::from_euler(EulerRot::YXZ, angles.y, angles.x, angles.z);
@@ -479,8 +481,8 @@ fn animate(
         transform.rotation = transform.rotation.slerp(target, blend);
         transform.translation = transform.translation.lerp(place, blend);
       }
-    });
-  });
+    }
+  }
 }
 
 pub fn plugin(app: &mut App) {

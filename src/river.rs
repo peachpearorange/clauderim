@@ -176,14 +176,14 @@ static DRAINAGE: LazyLock<Drainage> = LazyLock::new(|| {
   let mut order = Vec::with_capacity(count);
   while let Some(Lowest(level, index)) = rising.pop() {
     order.push(index);
-    neighbours(index).for_each(|next| {
+    for next in neighbours(index) {
       if !seen[next] {
         seen[next] = true;
         down[next] = Some(index);
         lake[next] = lake[index];
         rising.push(Lowest(heights[next].max(level + 0.01), next));
       }
-    });
+    }
   }
   let area = order.iter().rev().fold(vec![CELL * CELL; count], |mut area, &index| {
     if let Some(below) = down[index] {
@@ -282,9 +282,9 @@ static COURSES: LazyLock<Vec<Course>> = LazyLock::new(|| {
     let mut cells: Vec<usize> = down[start].into_iter().chain([start]).collect();
     let mut current = start;
     while let Some(next) = feeding(current).max_by(|a, b| area[*a].total_cmp(&area[*b])) {
-      feeding(current)
-        .filter(|&other| other != next)
-        .for_each(|other| waiting.push_back((other, End::River(river))));
+      for other in feeding(current).filter(|&other| other != next) {
+        waiting.push_back((other, End::River(river)))
+      }
       cells.push(next);
       current = next;
     }
@@ -326,10 +326,11 @@ static BINS: LazyLock<Bins> = LazyLock::new(|| {
       let (from, to) = (path[index], path[index + 1]);
       let low = ((from.min(to) - VALLEY) / BIN).floor().as_ivec2();
       let high = ((from.max(to) + VALLEY) / BIN).floor().as_ivec2();
-      (low.y..=high.y).for_each(|y| {
-        (low.x..=high.x)
-          .for_each(|x| bins.entry(IVec2::new(x, y)).or_default().push((river, index)))
-      });
+      for y in low.y..=high.y {
+        for x in low.x..=high.x {
+          bins.entry(IVec2::new(x, y)).or_default().push((river, index))
+        }
+      }
       bins
     })
   })
@@ -664,7 +665,7 @@ fn spill(
     uv_transform: Affine2::from_scale(Vec2::new(2.0, 3.0)),
     ..default()
   });
-  (0..rivers()).for_each(|river| {
+  for river in 0..rivers() {
     commands.spawn((
       Name::new("River"),
       Flow,
@@ -672,8 +673,8 @@ fn spill(
       MeshMaterial3d(water.clone()),
       Transform::IDENTITY
     ));
-  });
-  BRIDGES.iter().for_each(|built| {
+  }
+  for built in BRIDGES.iter() {
     let &Bridge { at, along, .. } = built;
     let origin = at.extend(0.0).xzy();
     let (parts, solids) = bridge(built);
@@ -692,7 +693,7 @@ fn spill(
         )
       ))
       .id();
-    parts
+    for (stuff, pieces) in parts
       .into_iter()
       .fold(Vec::<(Stuff, Vec<Piece>)>::new(), |mut groups, (stuff, piece)| {
         match groups.iter_mut().find(|(each, _)| *each == stuff) {
@@ -702,16 +703,16 @@ fn spill(
         groups
       })
       .into_iter()
-      .for_each(|(stuff, pieces)| {
-        let mesh =
-          crate::model::merge(pieces).with_generated_tangents().expect("bridge uvs");
-        commands.spawn((
-          Mesh3d(meshes.add(mesh)),
-          MeshMaterial3d(stuffs.of(stuff)),
-          ChildOf(root)
-        ));
-      });
-  });
+    {
+      let mesh =
+        crate::model::merge(pieces).with_generated_tangents().expect("bridge uvs");
+      commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(stuffs.of(stuff)),
+        ChildOf(root)
+      ));
+    }
+  }
 }
 
 fn fill_lakes(
@@ -732,7 +733,7 @@ fn fill_lakes(
     uv_transform: Affine2::from_scale(Vec2::splat(18.0)),
     ..default()
   });
-  lakes().for_each(|Lake { center, radius, level }| {
+  for Lake { center, radius, level } in lakes() {
     commands.spawn((
       Name::new("Lake"),
       Ripples,
@@ -750,7 +751,7 @@ fn fill_lakes(
       MeshMaterial3d(water.clone()),
       Transform::from_translation(center.extend(level).xzy())
     ));
-  });
+  }
 }
 
 #[derive(Component)]
@@ -761,11 +762,11 @@ fn ripple(
   lakes: Query<&MeshMaterial3d<StandardMaterial>, With<Ripples>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
-  lakes.iter().for_each(|lake| {
+  for lake in lakes.iter() {
     if let Some(mut water) = materials.get_mut(&lake.0) {
       water.uv_transform.translation = Vec2::new(0.013, 0.007) * time.elapsed_secs();
     }
-  });
+  }
 }
 
 fn flow(
@@ -773,11 +774,11 @@ fn flow(
   rivers: Query<&MeshMaterial3d<StandardMaterial>, With<Flow>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
-  rivers.iter().for_each(|river| {
+  for river in rivers.iter() {
     if let Some(mut water) = materials.get_mut(&river.0) {
       water.uv_transform.translation = Vec2::new(0.0, -0.09 * time.elapsed_secs());
     }
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {
@@ -792,13 +793,13 @@ mod tests {
   #[ignore]
   fn levels() {
     println!("lakes {:?}", *LAKE_LEVELS);
-    BRIDGES.iter().for_each(|bridge| {
+    for bridge in BRIDGES.iter() {
       println!(
         "bridge at {} along {} reach {:.1} deck {:.1} low {:.1}",
         bridge.at, bridge.along, bridge.reach, bridge.deck, bridge.low
       )
-    });
-    COURSES.iter().enumerate().for_each(|(river, course)| {
+    }
+    for (river, course) in COURSES.iter().enumerate() {
       let mouth = match course.mouth {
         End::Lake(lake) => format!("lake {lake}"),
         End::River(other) => format!("river {other}")
@@ -809,8 +810,8 @@ mod tests {
         course.path[course.path.len() - 1],
         course.path.len()
       )
-    });
-    LEVELS.iter().enumerate().for_each(|(river, levels)| {
+    }
+    for (river, levels) in LEVELS.iter().enumerate() {
       let floating = PATHS[river]
         .iter()
         .zip(levels)
@@ -822,8 +823,8 @@ mod tests {
         levels[levels.len() - 1],
         levels.len()
       )
-    });
-    [Vec2::new(1130.0, 2280.0), Vec2::new(1100.0, 2350.0)].into_iter().for_each(|at| {
+    }
+    for at in [Vec2::new(1130.0, 2280.0), Vec2::new(1100.0, 2350.0)] {
       println!(
         "{at}: height {} natural {} water {:?} reach {:?}",
         terrain::height_at(at),
@@ -831,6 +832,6 @@ mod tests {
         water_level(at),
         reach_at(at)
       )
-    });
+    }
   }
 }

@@ -46,24 +46,22 @@ fn spawn_static(
       Visibility::Inherited
     ))
     .id();
-  parts.into_iter().filter(|(_, pieces)| !pieces.is_empty()).for_each(
-    |(stuff, pieces)| {
-      let mesh = model::merge(pieces);
-      let mut part = commands.spawn((
-        Mesh3d(meshes.add(mesh.clone())),
-        MeshMaterial3d(stuffs.of(stuff)),
-        ChildOf(root)
-      ));
-      if solid && !matches!(stuff, Stuff::Ember | Stuff::Cloth | Stuff::Fur) {
-        if let Some(collider) = Collider::trimesh_from_mesh(&mesh) {
-          part.insert((RigidBody::Static, collider));
-        }
-      }
-      if matches!(stuff, Stuff::Ember) {
-        part.insert(NotShadowCaster);
+  for (stuff, pieces) in parts.into_iter().filter(|(_, pieces)| !pieces.is_empty()) {
+    let mesh = model::merge(pieces);
+    let mut part = commands.spawn((
+      Mesh3d(meshes.add(mesh.clone())),
+      MeshMaterial3d(stuffs.of(stuff)),
+      ChildOf(root)
+    ));
+    if solid && !matches!(stuff, Stuff::Ember | Stuff::Cloth | Stuff::Fur) {
+      if let Some(collider) = Collider::trimesh_from_mesh(&mesh) {
+        part.insert((RigidBody::Static, collider));
       }
     }
-  );
+    if matches!(stuff, Stuff::Ember) {
+      part.insert(NotShadowCaster);
+    }
+  }
 }
 
 fn watchtower(roll: &mut Roll) -> Vec<(Stuff, Vec<Piece>)> {
@@ -454,7 +452,7 @@ fn raise_landmarks(
 ) {
   let mut roll = Roll::new(4242);
   let floor = |place: Place| ground.surface(place.spot()) - Vec3::Y * 0.15;
-  place::named().enumerate().for_each(|(index, place)| {
+  for (index, place) in place::named().enumerate() {
     let turn = 0.3 + index as f32 * 1.7;
     match place.marker() {
       Marker::Tower => spawn_static(
@@ -498,7 +496,7 @@ fn raise_landmarks(
       }
       _ => {}
     }
-  });
+  }
   let stone_at = floor(Place::WARRIOR_STONE);
   spawn_static(
     &mut commands,
@@ -528,13 +526,13 @@ fn raise_landmarks(
 }
 
 fn flicker(time: Res<Time>, mut lights: Query<(&mut Flicker, &mut PointLight)>) {
-  lights.iter_mut().for_each(|(mut flicker, mut light)| {
+  for (mut flicker, mut light) in lights.iter_mut() {
     flicker.0 += time.delta_secs();
     let wobble = (flicker.0 * 13.0).sin() * 0.08
       + (flicker.0 * 23.7).sin() * 0.06
       + (flicker.0 * 5.1).sin() * 0.1;
     light.intensity = 400_000.0 * (1.0 + wobble);
-  });
+  }
 }
 
 fn bless(
@@ -546,7 +544,7 @@ fn bless(
   player: Single<&Transform, With<Player>>,
   mut stones: Query<(&mut Blessing, &Transform)>
 ) {
-  stones.iter_mut().for_each(|(mut blessing, transform)| {
+  for (mut blessing, transform) in stones.iter_mut() {
     let gap = (transform.translation - player.translation).with_y(0.0);
     if gap.length() < 4.5 && view.flat_forward().dot(gap.normalize_or_zero()) > 0.4 {
       prompt.0 = Some(Prompting { verb: "Activate".into(), noun: blessing.name.into() });
@@ -560,7 +558,7 @@ fn bless(
         blessing.told = true;
       }
     }
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {

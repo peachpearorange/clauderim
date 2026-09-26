@@ -75,7 +75,7 @@ mod device {
       } else {
         let length = self.samples[0].len();
         let last = self.samples.len() - 1;
-        into.iter_mut().for_each(|frame| {
+        for frame in into.iter_mut() {
           if !self.done() {
             let (index, blend) = (self.at as usize, self.at.fract() as f32);
             let next = (index + 1) % length;
@@ -89,7 +89,7 @@ mod device {
             frame[1] += right * self.now[1];
             self.skip(1)
           }
-        })
+        }
       }
     }
   }
@@ -107,41 +107,43 @@ mod device {
       data: &mut [T],
       channels: usize
     ) {
-      self.orders.try_iter().for_each(|order| match order {
-        Order::Start(playing) => self.playing.push(playing),
-        Order::Set(id, mix) => self
-          .playing
-          .iter_mut()
-          .filter(|playing| playing.id == id)
-          .for_each(|playing| playing.goal = mix.sides()),
-        Order::Stop(id) => self.playing.retain(|playing| playing.id != id)
-      });
+      for order in self.orders.try_iter() {
+        match order {
+          Order::Start(playing) => self.playing.push(playing),
+          Order::Set(id, mix) => {
+            for playing in self.playing.iter_mut().filter(|playing| playing.id == id) {
+              playing.goal = mix.sides()
+            }
+          }
+          Order::Stop(id) => self.playing.retain(|playing| playing.id != id)
+        }
+      }
       let excess = self.playing.len().saturating_sub(VOICES);
-      (0..excess).for_each(|_| {
+      for _ in 0..excess {
         self
           .playing
           .iter()
           .position(|playing| !playing.looping)
           .map(|oldest| self.playing.remove(oldest));
-      });
+      }
       self.frames.clear();
       self.frames.resize(data.len() / channels.max(1), [0.0; 2]);
       let glide = self.glide;
-      self.playing.iter_mut().for_each(|playing| playing.render(&mut self.frames, glide));
+      for playing in self.playing.iter_mut() {
+        playing.render(&mut self.frames, glide)
+      }
       self.playing.retain(|playing| !playing.done());
-      data.chunks_mut(channels.max(1)).zip(&self.frames).for_each(
-        |(out, &[left, right])| {
-          out.iter_mut().enumerate().for_each(|(channel, sample)| {
-            let value = match (channels, channel) {
-              (1, _) => (left + right) * 0.5,
-              (_, 0) => left,
-              (_, 1) => right,
-              _ => 0.0
-            };
-            *sample = T::from_sample(value.clamp(-1.0, 1.0))
-          })
+      for (out, &[left, right]) in data.chunks_mut(channels.max(1)).zip(&self.frames) {
+        for (channel, sample) in out.iter_mut().enumerate() {
+          let value = match (channels, channel) {
+            (1, _) => (left + right) * 0.5,
+            (_, 0) => left,
+            (_, 1) => right,
+            _ => 0.0
+          };
+          *sample = T::from_sample(value.clamp(-1.0, 1.0))
         }
-      )
+      }
     }
   }
 
@@ -270,9 +272,9 @@ mod device {
       if let Ok(buffer) =
         self.context.create_buffer(wave.0.len() as u32, frames as u32, RATE)
       {
-        wave.0.iter().enumerate().for_each(|(channel, samples)| {
+        for (channel, samples) in wave.0.iter().enumerate() {
           buffer.copy_to_channel(samples, channel as i32).ok();
-        });
+        }
         self.takes.push(buffer)
       }
       Take(self.takes.len().saturating_sub(1))

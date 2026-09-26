@@ -563,11 +563,13 @@ fn tend_lands(
       .copied()
       .collect();
     match shown.is_empty() {
-      true => in_parallel(&fresh, |&leaf| (leaf, work::run(tiling(leaf))))
-        .into_iter()
-        .for_each(|(leaf, mesh)| {
+      true => {
+        for (leaf, mesh) in
+          in_parallel(&fresh, |&leaf| (leaf, work::run(tiling(leaf)))).into_iter()
+        {
           ready.insert(leaf, meshes.add(mesh));
-        }),
+        }
+      }
       false => {
         making.extend(fresh.into_iter().map(|leaf| (leaf, work::spawn(tiling(leaf)))))
       }
@@ -588,28 +590,28 @@ fn tend_lands(
       shown.keys().filter(|leaf| !wanting.contains(*leaf)).copied().collect();
     let fresh: Vec<Leaf> =
       wanted.iter().filter(|leaf| !shown.contains_key(*leaf)).copied().collect();
-    swaps(&stale, &fresh)
+    for (stale, fresh) in swaps(&stale, &fresh)
       .into_iter()
       .filter(|(_, fresh)| fresh.iter().all(|leaf| ready.contains_key(leaf)))
       .collect::<Vec<_>>()
       .into_iter()
-      .for_each(|(stale, fresh)| {
-        stale.iter().for_each(|leaf| {
-          shown.remove(leaf).map(|entity| commands.entity(entity).despawn());
-        });
-        fresh.into_iter().for_each(|leaf| {
-          let mesh = ready.remove(&leaf).expect("ready leaf");
-          let entity = commands
-            .spawn((
-              Name::new("Land"),
-              Mesh3d(mesh),
-              MeshMaterial3d(surfaces.land.clone()),
-              Transform::IDENTITY
-            ))
-            .id();
-          shown.insert(leaf, entity);
-        })
-      })
+    {
+      for leaf in stale.iter() {
+        shown.remove(leaf).map(|entity| commands.entity(entity).despawn());
+      }
+      for leaf in fresh {
+        let mesh = ready.remove(&leaf).expect("ready leaf");
+        let entity = commands
+          .spawn((
+            Name::new("Land"),
+            Mesh3d(mesh),
+            MeshMaterial3d(surfaces.land.clone()),
+            Transform::IDENTITY
+          ))
+          .id();
+        shown.insert(leaf, entity);
+      }
+    }
   }
 }
 
@@ -672,24 +674,27 @@ fn tend_footing(
         .id();
       solid.insert(chunk, (entity, false));
     };
-    in_parallel(&urgent, |&chunk| (chunk, chunk_collider(&ground.chunk(chunk))))
-      .into_iter()
-      .for_each(|(chunk, collider)| place(chunk, collider));
-    later.into_iter().for_each(|chunk| {
+    for (chunk, collider) in
+      in_parallel(&urgent, |&chunk| (chunk, chunk_collider(&ground.chunk(chunk))))
+        .into_iter()
+    {
+      place(chunk, collider)
+    }
+    for chunk in later {
       let ground = ground.clone();
       making.insert(
         chunk,
         work::spawn(ground.filling(chunk).map(|heights| chunk_collider(&heights)))
       );
-    });
+    }
     let done: Vec<(IVec2, Collider)> = making
       .iter_mut()
       .filter_map(|(&chunk, task)| task.done().map(|collider| (chunk, collider)))
       .collect();
-    done.into_iter().for_each(|(chunk, collider)| {
+    for (chunk, collider) in done {
       making.remove(&chunk);
       place(chunk, collider)
-    });
+    }
     solid.retain(|&chunk, &mut (entity, _)| {
       let keep = chunk_gap(chunk, here) < SOLID_REACH + CHUNK_SIZE;
       if !keep {
@@ -713,7 +718,9 @@ fn report_streaming(
 }
 
 fn settle_footing(mut footing: ResMut<Footing>) {
-  footing.solid.values_mut().for_each(|(_, ready)| *ready = true);
+  for (_, ready) in footing.solid.values_mut() {
+    *ready = true
+  }
 }
 
 fn prepare_terrain(
@@ -765,45 +772,46 @@ mod tests {
         })
         .fold(0.0, f32::max)
     };
-    [
+    for (step, from, to) in [
       (SPACING, Vec2::new(-760.0, 700.0), Vec2::new(760.0, 740.0)),
       (SPACING, Vec2::new(-700.0, -760.0), Vec2::new(-740.0, 760.0)),
       (8.0, Vec2::new(-2900.0, 1300.0), Vec2::new(2900.0, 900.0)),
       (8.0, THROAT - Vec2::X * 1600.0, THROAT - Vec2::X * 200.0)
     ]
     .into_iter()
-    .for_each(|(step, from, to)| {
+    {
       let slope = steepest(step, from, to);
       assert!(slope < 6.0, "{from} to {to}: {slope}");
-    });
+    }
   }
 
   #[test]
   fn chunk_collider_matches_ground() {
     let ground = Ground::default();
-    [Vec2::new(-250.0, -170.0), Vec2::new(300.0, 60.0), Vec2::new(-1340.0, 2290.0)]
-      .into_iter()
-      .for_each(|at| {
-        let chunk = chunk_of(at);
-        let collider = chunk_collider(&ground.chunk(chunk));
-        let center = (chunk.as_vec2() * CHUNK_SIZE + CHUNK_SIZE / 2.0).extend(0.0).xzy();
-        let hit = collider
-          .cast_ray(
-            center,
-            Quat::IDENTITY,
-            at.extend(2000.0).xzy(),
-            Vec3::new(0.0001, -1.0, 0.0002).normalize(),
-            4000.0,
-            true
-          )
-          .expect("ray hits terrain");
-        let found = 2000.0 - hit.0;
-        assert!(
-          (found - ground.height(at)).abs() < 0.5,
-          "{at} {found} {}",
-          ground.height(at)
-        );
-      });
+    for at in
+      [Vec2::new(-250.0, -170.0), Vec2::new(300.0, 60.0), Vec2::new(-1340.0, 2290.0)]
+        .into_iter()
+    {
+      let chunk = chunk_of(at);
+      let collider = chunk_collider(&ground.chunk(chunk));
+      let center = (chunk.as_vec2() * CHUNK_SIZE + CHUNK_SIZE / 2.0).extend(0.0).xzy();
+      let hit = collider
+        .cast_ray(
+          center,
+          Quat::IDENTITY,
+          at.extend(2000.0).xzy(),
+          Vec3::new(0.0001, -1.0, 0.0002).normalize(),
+          4000.0,
+          true
+        )
+        .expect("ray hits terrain");
+      let found = 2000.0 - hit.0;
+      assert!(
+        (found - ground.height(at)).abs() < 0.5,
+        "{at} {found} {}",
+        ground.height(at)
+      );
+    }
   }
 
   #[test]
@@ -818,7 +826,7 @@ mod tests {
         (middle - anchor).abs().max_element() < 200.0 + leaf.size as f32 / 2.0
       })
       .collect();
-    near.iter().for_each(|&leaf| {
+    for &leaf in near.iter() {
       let mesh = work::run(tiling(leaf));
       let Some(bevy::mesh::VertexAttributeValues::Float32x3(positions)) =
         mesh.attribute(Mesh::ATTRIBUTE_POSITION)
@@ -831,7 +839,7 @@ mod tests {
         .filter(|gap| *gap < 1.5 * SPACING * leaf.size as f32 / FINEST as f32)
         .fold(0.0f32, f32::max);
       println!("{:?} size {} worst {worst:.3}", leaf.corner, leaf.size);
-    });
+    }
   }
 
   #[test]

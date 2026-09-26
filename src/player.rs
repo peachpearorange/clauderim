@@ -293,10 +293,10 @@ fn follow(
     **camera = Transform::from_translation(lifted(eye))
       .looking_at(opts().look.map_or(body.translation, lifted), Vec3::Y);
   }
-  hidden.iter_mut().for_each(|mut layers| {
+  for mut layers in hidden.iter_mut() {
     layers
       .set_if_neq(view.first_person.then_some(humanoid::SHADOW_ONLY).unwrap_or_default());
-  });
+  }
 }
 
 fn revive(

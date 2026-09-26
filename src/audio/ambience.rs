@@ -48,7 +48,7 @@ pub fn night() -> Wave {
   let mut rng = Rng::new(31);
   let mut left = vec![0.0; len(SPAN)];
   let mut right = vec![0.0; len(SPAN)];
-  (0..7).for_each(|_| {
+  for _ in 0..7 {
     let hz = rng.range(3800.0, 5200.0);
     let pulses = 3 + rng.below(2);
     let period = rng.range(0.45, 0.9);
@@ -62,15 +62,15 @@ pub fn night() -> Wave {
       })
       .collect();
     let offset = rng.range(0.0, period);
-    (0..(SPAN / period) as usize).for_each(|beat| {
+    for beat in 0..(SPAN / period) as usize {
       if rng.unit() < 0.85 {
         let at = len(offset + beat as f32 * period + rng.range(-0.02, 0.02));
         let level = gain * rng.range(0.8, 1.0);
         mix(&mut left, at, &chirp, level * (1.0 - pan));
         mix(&mut right, at, &chirp, level * pan)
       }
-    })
-  });
+    }
+  }
   let mut chorus: Vec<(Osc, f32, f32, f32)> = (0..6)
     .map(|_| {
       (
@@ -81,7 +81,7 @@ pub fn night() -> Wave {
       )
     })
     .collect();
-  left.iter_mut().zip(right.iter_mut()).enumerate().for_each(|(index, (l, r))| {
+  for (index, (l, r)) in left.iter_mut().zip(right.iter_mut()).enumerate() {
     let t = time(index);
     let hum = chorus
       .iter_mut()
@@ -93,7 +93,7 @@ pub fn night() -> Wave {
       * gust(t, SPAN, 5);
     *l += hum;
     *r += hum
-  });
+  }
   Hall::new(0.5, 0.5, 0.8).apply(&Wave::stereo(left, right), 0.3, true).normalized(0.9)
 }
 
@@ -125,7 +125,7 @@ pub fn cave() -> Wave {
   );
   let mut left = base.clone();
   let mut right = base;
-  (0..16).for_each(|_| {
+  for _ in 0..16 {
     let at = len(rng.range(0.0, SPAN));
     let hz = rng.range(700.0, 1700.0);
     let mut osc = Osc::default();
@@ -140,7 +140,7 @@ pub fn cave() -> Wave {
     let (pan, gain) = (rng.unit(), rng.range(0.1, 0.35));
     mix(&mut left, at, &drip, gain * (1.0 - pan));
     mix(&mut right, at, &drip, gain * pan)
-  });
+  }
   Hall::new(0.93, 0.25, 1.6).apply(&Wave::stereo(left, right), 1.2, true).normalized(0.9)
 }
 
@@ -152,7 +152,7 @@ pub fn chant(secs: f32, looping: bool, seed: u64) -> Wave {
     let mut phones = vec![Phone::HUSH.at(0.0)];
     let mut at = rng.range(0.2, 1.2);
     while at < secs - 2.0 {
-      (0..4 + rng.below(4)).for_each(|_| {
+      for _ in 0..4 + rng.below(4) {
         let consonant = CONSONANTS[rng.below(CONSONANTS.len())];
         let vowel = VOWELS[rng.below(VOWELS.len())].voiced(0.0, 0.5);
         let length = rng.range(0.22, 0.38);
@@ -163,7 +163,7 @@ pub fn chant(secs: f32, looping: bool, seed: u64) -> Wave {
           Phone::HUSH.at(at + length)
         ]);
         at += length + rng.range(0.0, 0.05)
-      });
+      }
       at += rng.range(0.8, 2.0)
     }
     phones.push(Phone::HUSH.at(at));
@@ -202,11 +202,11 @@ pub fn chant(secs: f32, looping: bool, seed: u64) -> Wave {
   let mut right = vec![0.0; len(total)];
   mix(&mut left, 0, &drone, 0.5);
   mix(&mut right, 0, &drone, 0.5);
-  [-0.8f32, 0.0, 0.8].iter().for_each(|&pan| {
+  for &pan in [-0.8f32, 0.0, 0.8].iter() {
     let voice = whisper(&mut rng);
     mix(&mut left, 0, &voice, 0.6 * (1.0 - pan) * 0.5 + 0.1);
     mix(&mut right, 0, &voice, 0.6 * (1.0 + pan) * 0.5 + 0.1)
-  });
+  }
   let sung = singer(&mut rng);
   mix(&mut left, 0, &sung, 0.12);
   mix(&mut right, 0, &sung, 0.12);

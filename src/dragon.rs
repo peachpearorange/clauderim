@@ -237,7 +237,9 @@ fn tiled(mut piece: Piece, around: f32, along: f32) -> Piece {
   if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
     piece.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
   {
-    uvs.iter_mut().for_each(|uv| *uv = [uv[0] * around.max(0.5).round(), uv[1] * along]);
+    for uv in uvs.iter_mut() {
+      *uv = [uv[0] * around.max(0.5).round(), uv[1] * along]
+    }
   }
   piece
 }
@@ -251,7 +253,7 @@ fn build(
   owner: Entity
 ) -> [Entity; BONES] {
   let mut bones = [Entity::PLACEHOLDER; BONES];
-  Bone::ALL.into_iter().for_each(|bone| {
+  for bone in Bone::ALL {
     let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
     bones[bone as usize] = commands
       .spawn((
@@ -260,7 +262,7 @@ fn build(
         ChildOf(parent)
       ))
       .id();
-  });
+  }
   let hide = Hide::BRONZE.flank;
   let horn = srgb(0.38, 0.35, 0.29);
   let spike = srgb(0.2, 0.19, 0.16);
@@ -335,17 +337,18 @@ fn build(
       seed
     )]
   };
-  [(Bone::Neck1, 0.6, 0.48), (Bone::Neck2, 0.48, 0.4), (Bone::Neck3, 0.4, 0.34)]
-    .into_iter()
-    .enumerate()
-    .for_each(|(index, (bone, girth, next))| {
-      parts.push((bone, Stuff::Scales, segment(-1.05, girth, next, 10 + index as u32)));
-      parts.push((
-        bone,
-        Stuff::Bone,
-        fins(Vec2::new(-0.1, girth * 0.82), Vec2::new(-0.85, next * 0.85), 3, 0.42, 0.2)
-      ));
-    });
+  for (index, (bone, girth, next)) in
+    [(Bone::Neck1, 0.6, 0.48), (Bone::Neck2, 0.48, 0.4), (Bone::Neck3, 0.4, 0.34)]
+      .into_iter()
+      .enumerate()
+  {
+    parts.push((bone, Stuff::Scales, segment(-1.05, girth, next, 10 + index as u32)));
+    parts.push((
+      bone,
+      Stuff::Bone,
+      fins(Vec2::new(-0.1, girth * 0.82), Vec2::new(-0.85, next * 0.85), 3, 0.42, 0.2)
+    ));
+  }
   let crown: Vec<Piece> = (0..11)
     .map(|index| {
       let t = index as f32 / 5.0 - 1.0;
@@ -487,7 +490,7 @@ fn build(
     (Bone::Jaw, Stuff::Scales, vec![jaw]),
     (Bone::Jaw, Stuff::Bone, fangs(0.06, 0.0).into_iter().chain(chin_spikes).collect())
   ]);
-  [
+  for (index, (bone, girth, next)) in [
     (Bone::Tail1, 0.64, 0.46),
     (Bone::Tail2, 0.46, 0.32),
     (Bone::Tail3, 0.32, 0.2),
@@ -495,7 +498,7 @@ fn build(
   ]
   .into_iter()
   .enumerate()
-  .for_each(|(index, (bone, girth, next))| {
+  {
     parts.push((bone, Stuff::Scales, segment(1.55, girth, next, 40 + index as u32)));
     parts.push((
       bone,
@@ -508,7 +511,7 @@ fn build(
         0.2
       )
     ));
-  });
+  }
   parts.push((Bone::Tail4, Stuff::Bone, vec![
     Piece::new(
       model::fan(
@@ -708,12 +711,12 @@ fn build(
     (Bone::ShinR, Stuff::Scales, [shin].into_iter().chain(toes).collect()),
     (Bone::ShinR, Stuff::Bone, claws),
   ];
-  right_side.into_iter().for_each(|(bone, stuff, pieces)| {
+  for (bone, stuff, pieces) in right_side {
     let mirrored: Vec<Piece> = pieces.iter().map(Piece::mirrored).collect();
     parts.push((bone.right_twin().unwrap_or(bone), stuff, mirrored));
     parts.push((bone, stuff, pieces));
-  });
-  parts.into_iter().for_each(|(bone, stuff, pieces)| {
+  }
+  for (bone, stuff, pieces) in parts {
     let mesh = model::merge(pieces);
     let mesh = (stuff == Stuff::Scales)
       .then(|| mesh.clone().with_generated_tangents().expect("dragon hide has uvs"))
@@ -729,7 +732,7 @@ fn build(
     if matches!(bone, Bone::WingL | Bone::WingR) && stuff == Stuff::Membrane {
       commands.entity(part).insert(FoldsAway);
     }
-  });
+  }
   bones
 }
 
@@ -833,316 +836,309 @@ fn fly(
   let hidden = daylight.shelter > SHELTERED;
   let exposed = !hero_dead && !hidden;
   let arrival = opts().dragon.unwrap_or(ARRIVAL);
-  dragons.iter_mut().for_each(
-    |(
-      entity,
-      mut dragon,
-      mut transform,
-      mut visibility,
-      mut motion,
-      vitals,
-      dead,
-      staggered
-    )| {
-      let at = transform.translation;
-      let before = dragon.velocity;
-      let floor = |spot: Vec3| ground.height(spot.xz());
-      let flat_gap = (target - at).with_y(0.0);
-      let distance = flat_gap.length();
-      dragon.breath_cooldown -= delta;
-      dragon.bite_cooldown -= delta;
-      dragon.breath = (dragon.breath - delta).max(0.0);
-      let aloft = at.y - floor(at) > STANCE + 1.5;
-      let flight = match dragon.flight {
-        Flight::Falling | Flight::Slain(_) => dragon.flight,
-        _ if dead && aloft => Flight::Falling,
-        _ if dead => Flight::Slain(0.0),
-        other => other
-      };
-      let next = match flight {
-        Flight::Waiting
-          if let Some(rest) =
-            opts().foe.as_deref().and_then(|foe| foe.strip_prefix("dragon"))
-            && time.elapsed_secs() > 1.0 =>
-        {
-          let aloft = rest == "aloft";
-          if rest == "slain" {
-            struck.write(Struck {
-              target: entity,
-              attacker: hero,
-              damage: HEALTH * 2.0,
-              power: true,
-              blocked: false,
-              at
-            });
-          }
-          let ahead =
-            target + view.flat_forward() * aloft.then_some(26.0).unwrap_or(13.0);
-          transform.translation = ground.surface(ahead.xz())
-            + Vec3::Y * aloft.then_some(14.0).unwrap_or(STANCE);
-          transform.look_to(view.flat_forward().cross(Vec3::Y), Vec3::Y);
-          *visibility = Visibility::Inherited;
-          Flight::Posing { aloft }
+  for (
+    entity,
+    mut dragon,
+    mut transform,
+    mut visibility,
+    mut motion,
+    vitals,
+    dead,
+    staggered
+  ) in dragons.iter_mut()
+  {
+    let at = transform.translation;
+    let before = dragon.velocity;
+    let floor = |spot: Vec3| ground.height(spot.xz());
+    let flat_gap = (target - at).with_y(0.0);
+    let distance = flat_gap.length();
+    dragon.breath_cooldown -= delta;
+    dragon.bite_cooldown -= delta;
+    dragon.breath = (dragon.breath - delta).max(0.0);
+    let aloft = at.y - floor(at) > STANCE + 1.5;
+    let flight = match dragon.flight {
+      Flight::Falling | Flight::Slain(_) => dragon.flight,
+      _ if dead && aloft => Flight::Falling,
+      _ if dead => Flight::Slain(0.0),
+      other => other
+    };
+    let next = match flight {
+      Flight::Waiting
+        if let Some(rest) =
+          opts().foe.as_deref().and_then(|foe| foe.strip_prefix("dragon"))
+          && time.elapsed_secs() > 1.0 =>
+      {
+        let aloft = rest == "aloft";
+        if rest == "slain" {
+          struck.write(Struck {
+            target: entity,
+            attacker: hero,
+            damage: HEALTH * 2.0,
+            power: true,
+            blocked: false,
+            at
+          });
         }
-        Flight::Posing { .. } => flight,
-        Flight::Waiting => {
-          *visibility = Visibility::Hidden;
-          let ready = time.elapsed_secs() > arrival && daylight.shelter < 0.3;
-          ready
-            .then(|| {
-              let away = Vec3::new(1.0, 0.0, -0.6).normalize() * 420.0;
-              transform.translation = target + away + Vec3::Y * 120.0;
-              *visibility = Visibility::Inherited;
-              dragon.velocity = -away.normalize() * CRUISE;
-              Flight::Arriving
-            })
-            .unwrap_or(Flight::Waiting)
+        let ahead = target + view.flat_forward() * aloft.then_some(26.0).unwrap_or(13.0);
+        transform.translation =
+          ground.surface(ahead.xz()) + Vec3::Y * aloft.then_some(14.0).unwrap_or(STANCE);
+        transform.look_to(view.flat_forward().cross(Vec3::Y), Vec3::Y);
+        *visibility = Visibility::Inherited;
+        Flight::Posing { aloft }
+      }
+      Flight::Posing { .. } => flight,
+      Flight::Waiting => {
+        *visibility = Visibility::Hidden;
+        let ready = time.elapsed_secs() > arrival && daylight.shelter < 0.3;
+        ready
+          .then(|| {
+            let away = Vec3::new(1.0, 0.0, -0.6).normalize() * 420.0;
+            transform.translation = target + away + Vec3::Y * 120.0;
+            *visibility = Visibility::Inherited;
+            dragon.velocity = -away.normalize() * CRUISE;
+            Flight::Arriving
+          })
+          .unwrap_or(Flight::Waiting)
+      }
+      Flight::Arriving => {
+        let goal = target + Vec3::Y * ALTITUDE;
+        dragon.velocity =
+          steer_toward(dragon.velocity, goal, at, CRUISE * 1.2, 0.8, delta);
+        if !dragon.roared && distance < 260.0 {
+          dragon.roared = true;
+          sounds.write(Sound::here(Cue::DragonRoar, at));
         }
-        Flight::Arriving => {
-          let goal = target + Vec3::Y * ALTITUDE;
-          dragon.velocity =
-            steer_toward(dragon.velocity, goal, at, CRUISE * 1.2, 0.8, delta);
-          if !dragon.roared && distance < 260.0 {
-            dragon.roared = true;
-            sounds.write(Sound::here(Cue::DragonRoar, at));
-          }
-          (distance < ORBIT * 1.1)
-            .then_some(Flight::Circling(0.0))
-            .unwrap_or(Flight::Arriving)
-        }
-        Flight::Circling(circled) => {
-          let bearing = f32::atan2(at.z - target.z, at.x - target.x) + 0.35;
-          let ahead = Vec3::new(bearing.cos(), 0.0, bearing.sin()) * ORBIT + target;
-          let goal = ahead.with_y(floor(ahead).max(floor(target)) + ALTITUDE);
-          dragon.velocity = steer_toward(dragon.velocity, goal, at, CRUISE, 1.4, delta);
-          if circled > 10.0 && exposed {
-            dragon.passes += 1;
-            let heading = flat_gap.normalize_or(Vec3::X);
-            let (from, to) = (target - heading * 110.0, target + heading * 120.0);
-            if dragon.passes % 3 == 0 {
-              Flight::Landing(ground.surface((target - heading * 16.0).xz()))
-            } else {
-              Flight::Strafing { from, to, low: 11.0 }
-            }
+        (distance < ORBIT * 1.1)
+          .then_some(Flight::Circling(0.0))
+          .unwrap_or(Flight::Arriving)
+      }
+      Flight::Circling(circled) => {
+        let bearing = f32::atan2(at.z - target.z, at.x - target.x) + 0.35;
+        let ahead = Vec3::new(bearing.cos(), 0.0, bearing.sin()) * ORBIT + target;
+        let goal = ahead.with_y(floor(ahead).max(floor(target)) + ALTITUDE);
+        dragon.velocity = steer_toward(dragon.velocity, goal, at, CRUISE, 1.4, delta);
+        if circled > 10.0 && exposed {
+          dragon.passes += 1;
+          let heading = flat_gap.normalize_or(Vec3::X);
+          let (from, to) = (target - heading * 110.0, target + heading * 120.0);
+          if dragon.passes % 3 == 0 {
+            Flight::Landing(ground.surface((target - heading * 16.0).xz()))
           } else {
-            Flight::Circling(circled + delta)
+            Flight::Strafing { from, to, low: 11.0 }
           }
+        } else {
+          Flight::Circling(circled + delta)
         }
-        Flight::Strafing { from, to, low } => {
-          let along = (to - from).with_y(0.0).normalize_or_zero();
-          let progress = (at - from).with_y(0.0).dot(along);
-          let pass_height = floor(at).max(floor(target)) + low;
-          let lookahead = from + along * (progress + 40.0);
-          let goal =
-            lookahead.with_y(pass_height + (progress - 110.0).abs().min(60.0) * 0.25);
-          dragon.velocity =
-            steer_toward(dragon.velocity, goal, at, CRUISE * 1.1, 1.6, delta);
-          let facing_player =
-            dragon.velocity.normalize_or_zero().dot((target - at).normalize_or_zero())
-              > 0.6;
-          if exposed && facing_player && distance < 60.0 && distance > 8.0 {
-            if dragon.breath <= 0.0 {
-              sounds.write(Sound::here(Cue::FireBreath, at));
-            }
-            dragon.breath = 0.3;
-          }
-          (hidden || progress > (to - from).with_y(0.0).length())
-            .then_some(Flight::Circling(0.0))
-            .unwrap_or(flight)
-        }
-        Flight::Landing(spot) => {
-          let high = spot + Vec3::Y * (STANCE + 14.0);
-          let horizontal = (spot - at).with_y(0.0).length();
-          let goal = if horizontal > 12.0 { high } else { spot + Vec3::Y * STANCE };
-          let speed = (horizontal * 0.8 + 4.0).min(CRUISE);
-          dragon.velocity = steer_toward(dragon.velocity, goal, at, speed, 1.5, delta);
-          let touched = at.y - (floor(at) + STANCE) < 0.6 && horizontal < 4.0;
-          if hidden {
-            Flight::Rising(0.0)
-          } else if touched {
-            shake.0 = shake.0.max(0.6);
-            sounds.write(Sound::here(Cue::DragonRoar, at));
-            dragon.velocity = Vec3::ZERO;
-            Flight::Grounded(0.0)
-          } else {
-            flight
-          }
-        }
-        Flight::Grounded(time_down) => {
-          let facing = flat_gap.normalize_or_zero();
-          let walking = distance > 9.5
-            && dragon.breath <= 0.0
-            && motion.swing.is_none()
-            && !staggered;
-          dragon.velocity = walking.then_some(facing * 3.2).unwrap_or(Vec3::ZERO);
-          if exposed
-            && !staggered
-            && distance < 8.5
-            && dragon.bite_cooldown <= 0.0
-            && motion.swing.is_none()
-          {
-            motion.swing = Some(0.0);
-            dragon.bite_cooldown = 2.6;
-          }
-          if exposed
-            && !staggered
-            && (8.5..BREATH_REACH).contains(&distance)
-            && dragon.breath_cooldown <= 0.0
-          {
-            dragon.breath = 2.6;
-            dragon.breath_cooldown = 7.0;
+      }
+      Flight::Strafing { from, to, low } => {
+        let along = (to - from).with_y(0.0).normalize_or_zero();
+        let progress = (at - from).with_y(0.0).dot(along);
+        let pass_height = floor(at).max(floor(target)) + low;
+        let lookahead = from + along * (progress + 40.0);
+        let goal =
+          lookahead.with_y(pass_height + (progress - 110.0).abs().min(60.0) * 0.25);
+        dragon.velocity =
+          steer_toward(dragon.velocity, goal, at, CRUISE * 1.1, 1.6, delta);
+        let facing_player =
+          dragon.velocity.normalize_or_zero().dot((target - at).normalize_or_zero())
+            > 0.6;
+        if exposed && facing_player && distance < 60.0 && distance > 8.0 {
+          if dragon.breath <= 0.0 {
             sounds.write(Sound::here(Cue::FireBreath, at));
           }
-          let restless = time_down > 28.0
-            || (hero_dead && time_down > 4.0)
-            || (hidden && time_down > 1.5)
-            || (vitals.health < HEALTH * 0.45 && !dragon.spent);
-          if restless {
-            dragon.spent = dragon.spent || vitals.health < HEALTH * 0.45;
-            Flight::Rising(0.0)
-          } else {
-            Flight::Grounded(time_down + delta)
-          }
+          dragon.breath = 0.3;
         }
-        Flight::Rising(lifted) => {
-          dragon.velocity = Vec3::Y * 9.0
-            + transform.forward().as_vec3().with_y(0.0).normalize_or_zero()
-              * lifted
-              * 6.0;
-          (lifted > 2.5)
-            .then_some(Flight::Circling(0.0))
-            .unwrap_or(Flight::Rising(lifted + delta))
-        }
-        Flight::Falling => {
-          dragon.velocity += Vec3::NEG_Y * 12.0 * delta;
-          dragon.velocity = dragon.velocity.with_y(dragon.velocity.y.max(-25.0));
-          (at.y <= floor(at) + STANCE * 0.5)
-            .then(|| {
-              shake.0 = 1.0;
-              Flight::Slain(0.0)
-            })
-            .unwrap_or(Flight::Falling)
-        }
-        Flight::Slain(since) => {
+        (hidden || progress > (to - from).with_y(0.0).length())
+          .then_some(Flight::Circling(0.0))
+          .unwrap_or(flight)
+      }
+      Flight::Landing(spot) => {
+        let high = spot + Vec3::Y * (STANCE + 14.0);
+        let horizontal = (spot - at).with_y(0.0).length();
+        let goal = if horizontal > 12.0 { high } else { spot + Vec3::Y * STANCE };
+        let speed = (horizontal * 0.8 + 4.0).min(CRUISE);
+        dragon.velocity = steer_toward(dragon.velocity, goal, at, speed, 1.5, delta);
+        let touched = at.y - (floor(at) + STANCE) < 0.6 && horizontal < 4.0;
+        if hidden {
+          Flight::Rising(0.0)
+        } else if touched {
+          shake.0 = shake.0.max(0.6);
+          sounds.write(Sound::here(Cue::DragonRoar, at));
           dragon.velocity = Vec3::ZERO;
-          Flight::Slain(since + delta)
+          Flight::Grounded(0.0)
+        } else {
+          flight
         }
-      };
-      dragon.flight = next;
-
-      let grounded = matches!(
-        next,
-        Flight::Grounded(_) | Flight::Slain(_) | Flight::Posing { aloft: false }
-      );
-      let moved = transform.translation + dragon.velocity * delta;
-      let clamped = moved.clamp(
-        Vec3::new(-BOUND * 1.4, -400.0, -BOUND * 1.4),
-        Vec3::new(BOUND * 1.4, 3000.0, BOUND * 1.4)
-      );
-      transform.translation = if grounded {
-        let settle = matches!(next, Flight::Slain(_)).then_some(1.2).unwrap_or(0.0);
-        clamped.with_y(
-          (floor(clamped) + STANCE - settle).lerp(clamped.y, (-6.0 * delta).exp())
-        )
-      } else {
-        clamped.with_y(clamped.y.max(floor(clamped) + 2.0))
-      };
-      let forward = transform.forward().as_vec3();
-      let hovering = match next {
-        Flight::Landing(spot) => (spot - at).with_y(0.0).length() < 12.0,
-        _ => false
-      };
-      let heading = if grounded || hovering {
-        flat_gap.normalize_or(forward)
-      } else if matches!(next, Flight::Rising(_)) {
-        forward.with_y(0.0).normalize_or(Vec3::X).with_y(0.35).normalize()
-      } else {
-        dragon.velocity.normalize_or(forward)
-      };
-      let (was, now) = (before.with_y(0.0), dragon.velocity.with_y(0.0));
-      let yaw_rate = (was.length() > 1.0 && now.length() > 1.0)
-        .then(|| {
-          was.normalize().cross(now.normalize()).y.clamp(-1.0, 1.0).asin()
-            / delta.max(1e-3)
-        })
-        .unwrap_or(0.0);
-      let bank = (!grounded && !hovering)
-        .then(|| (yaw_rate * now.length() / GRAVITY).atan())
-        .unwrap_or(0.0)
-        .clamp(-0.9, 0.9);
-      let pitch = (!grounded).then_some(heading.y.asin() * 0.8).unwrap_or(0.0);
-      let yaw = f32::atan2(-heading.x, -heading.z);
-      let aim = Quat::from_euler(EulerRot::YXZ, yaw, pitch, bank);
-      if !matches!(next, Flight::Slain(_) | Flight::Waiting | Flight::Posing { .. }) {
-        let agility = grounded.then_some(1.6).unwrap_or(2.2);
-        transform.rotation =
-          transform.rotation.slerp(aim, 1.0 - (-agility * delta).exp());
       }
-
-      dragon.flap_rate = match next {
-        Flight::Landing(_) | Flight::Rising(_) => 3.4,
-        Flight::Grounded(_)
-        | Flight::Slain(_)
-        | Flight::Waiting
-        | Flight::Posing { aloft: false } => 0.0,
-        Flight::Falling => 5.0,
-        _ => (dragon.velocity.y.max(0.0) * 0.3 + 1.4).min(3.0)
-      };
-      let before = dragon.flap;
-      dragon.flap += dragon.flap_rate * delta;
-      let beat = (before / TAU).floor() != (dragon.flap / TAU).floor();
-      if beat && distance < 140.0 && dragon.flap_rate > 0.0 {
-        sounds.write(Sound::here(Cue::Wingbeat, at));
-      }
-
-      let breathing = dragon.breath > 0.0 && !dead;
-      if breathing && exposed {
-        let mouth = at + transform.forward().as_vec3() * 5.5;
-        let chest = target + Vec3::Y;
-        let reach = target - mouth;
-        let earthed = (1..12).any(|step| {
-          let probe = mouth.lerp(chest, step as f32 / 12.0);
-          probe.y < floor(probe) - 0.2
-        });
-        let aimed = transform
-          .forward()
-          .as_vec3()
-          .with_y(0.0)
-          .normalize_or_zero()
-          .dot(reach.with_y(0.0).normalize_or_zero())
-          > 0.85;
-        if aimed
-          && !earthed
-          && reach.with_y(0.0).length() < BREATH_REACH
-          && reach.y.abs() < 16.0
+      Flight::Grounded(time_down) => {
+        let facing = flat_gap.normalize_or_zero();
+        let walking =
+          distance > 9.5 && dragon.breath <= 0.0 && motion.swing.is_none() && !staggered;
+        dragon.velocity = walking.then_some(facing * 3.2).unwrap_or(Vec3::ZERO);
+        if exposed
+          && !staggered
+          && distance < 8.5
+          && dragon.bite_cooldown <= 0.0
+          && motion.swing.is_none()
         {
-          let blocking = hero_motion.guard > 0.6;
-          dragon.scorch += delta;
-          if let Ok(mut vitals) = player_vitals.get_mut(hero) {
-            vitals.health -= BREATH_DPS * delta * blocking.then_some(0.4).unwrap_or(1.0);
-          }
-          if dragon.scorch > 0.45 {
-            dragon.scorch = 0.0;
-            struck.write(Struck {
-              target: hero,
-              attacker: entity,
-              damage: 0.0,
-              power: false,
-              blocked: blocking,
-              at: target + Vec3::Y * 0.5
-            });
-          }
+          motion.swing = Some(0.0);
+          dragon.bite_cooldown = 2.6;
+        }
+        if exposed
+          && !staggered
+          && (8.5..BREATH_REACH).contains(&distance)
+          && dragon.breath_cooldown <= 0.0
+        {
+          dragon.breath = 2.6;
+          dragon.breath_cooldown = 7.0;
+          sounds.write(Sound::here(Cue::FireBreath, at));
+        }
+        let restless = time_down > 28.0
+          || (hero_dead && time_down > 4.0)
+          || (hidden && time_down > 1.5)
+          || (vitals.health < HEALTH * 0.45 && !dragon.spent);
+        if restless {
+          dragon.spent = dragon.spent || vitals.health < HEALTH * 0.45;
+          Flight::Rising(0.0)
+        } else {
+          Flight::Grounded(time_down + delta)
+        }
+      }
+      Flight::Rising(lifted) => {
+        dragon.velocity = Vec3::Y * 9.0
+          + transform.forward().as_vec3().with_y(0.0).normalize_or_zero() * lifted * 6.0;
+        (lifted > 2.5)
+          .then_some(Flight::Circling(0.0))
+          .unwrap_or(Flight::Rising(lifted + delta))
+      }
+      Flight::Falling => {
+        dragon.velocity += Vec3::NEG_Y * 12.0 * delta;
+        dragon.velocity = dragon.velocity.with_y(dragon.velocity.y.max(-25.0));
+        (at.y <= floor(at) + STANCE * 0.5)
+          .then(|| {
+            shake.0 = 1.0;
+            Flight::Slain(0.0)
+          })
+          .unwrap_or(Flight::Falling)
+      }
+      Flight::Slain(since) => {
+        dragon.velocity = Vec3::ZERO;
+        Flight::Slain(since + delta)
+      }
+    };
+    dragon.flight = next;
+
+    let grounded = matches!(
+      next,
+      Flight::Grounded(_) | Flight::Slain(_) | Flight::Posing { aloft: false }
+    );
+    let moved = transform.translation + dragon.velocity * delta;
+    let clamped = moved.clamp(
+      Vec3::new(-BOUND * 1.4, -400.0, -BOUND * 1.4),
+      Vec3::new(BOUND * 1.4, 3000.0, BOUND * 1.4)
+    );
+    transform.translation = if grounded {
+      let settle = matches!(next, Flight::Slain(_)).then_some(1.2).unwrap_or(0.0);
+      clamped
+        .with_y((floor(clamped) + STANCE - settle).lerp(clamped.y, (-6.0 * delta).exp()))
+    } else {
+      clamped.with_y(clamped.y.max(floor(clamped) + 2.0))
+    };
+    let forward = transform.forward().as_vec3();
+    let hovering = match next {
+      Flight::Landing(spot) => (spot - at).with_y(0.0).length() < 12.0,
+      _ => false
+    };
+    let heading = if grounded || hovering {
+      flat_gap.normalize_or(forward)
+    } else if matches!(next, Flight::Rising(_)) {
+      forward.with_y(0.0).normalize_or(Vec3::X).with_y(0.35).normalize()
+    } else {
+      dragon.velocity.normalize_or(forward)
+    };
+    let (was, now) = (before.with_y(0.0), dragon.velocity.with_y(0.0));
+    let yaw_rate = (was.length() > 1.0 && now.length() > 1.0)
+      .then(|| {
+        was.normalize().cross(now.normalize()).y.clamp(-1.0, 1.0).asin() / delta.max(1e-3)
+      })
+      .unwrap_or(0.0);
+    let bank = (!grounded && !hovering)
+      .then(|| (yaw_rate * now.length() / GRAVITY).atan())
+      .unwrap_or(0.0)
+      .clamp(-0.9, 0.9);
+    let pitch = (!grounded).then_some(heading.y.asin() * 0.8).unwrap_or(0.0);
+    let yaw = f32::atan2(-heading.x, -heading.z);
+    let aim = Quat::from_euler(EulerRot::YXZ, yaw, pitch, bank);
+    if !matches!(next, Flight::Slain(_) | Flight::Waiting | Flight::Posing { .. }) {
+      let agility = grounded.then_some(1.6).unwrap_or(2.2);
+      transform.rotation = transform.rotation.slerp(aim, 1.0 - (-agility * delta).exp());
+    }
+
+    dragon.flap_rate = match next {
+      Flight::Landing(_) | Flight::Rising(_) => 3.4,
+      Flight::Grounded(_)
+      | Flight::Slain(_)
+      | Flight::Waiting
+      | Flight::Posing { aloft: false } => 0.0,
+      Flight::Falling => 5.0,
+      _ => (dragon.velocity.y.max(0.0) * 0.3 + 1.4).min(3.0)
+    };
+    let before = dragon.flap;
+    dragon.flap += dragon.flap_rate * delta;
+    let beat = (before / TAU).floor() != (dragon.flap / TAU).floor();
+    if beat && distance < 140.0 && dragon.flap_rate > 0.0 {
+      sounds.write(Sound::here(Cue::Wingbeat, at));
+    }
+
+    let breathing = dragon.breath > 0.0 && !dead;
+    if breathing && exposed {
+      let mouth = at + transform.forward().as_vec3() * 5.5;
+      let chest = target + Vec3::Y;
+      let reach = target - mouth;
+      let earthed = (1..12).any(|step| {
+        let probe = mouth.lerp(chest, step as f32 / 12.0);
+        probe.y < floor(probe) - 0.2
+      });
+      let aimed = transform
+        .forward()
+        .as_vec3()
+        .with_y(0.0)
+        .normalize_or_zero()
+        .dot(reach.with_y(0.0).normalize_or_zero())
+        > 0.85;
+      if aimed
+        && !earthed
+        && reach.with_y(0.0).length() < BREATH_REACH
+        && reach.y.abs() < 16.0
+      {
+        let blocking = hero_motion.guard > 0.6;
+        dragon.scorch += delta;
+        if let Ok(mut vitals) = player_vitals.get_mut(hero) {
+          vitals.health -= BREATH_DPS * delta * blocking.then_some(0.4).unwrap_or(1.0);
+        }
+        if dragon.scorch > 0.45 {
+          dragon.scorch = 0.0;
+          struck.write(Struck {
+            target: hero,
+            attacker: entity,
+            damage: 0.0,
+            power: false,
+            blocked: blocking,
+            at: target + Vec3::Y * 0.5
+          });
         }
       }
     }
-  );
+  }
 }
 
 fn kindle(dragons: Query<&Dragon>, mut breaths: Query<&mut EffectSpawner, With<Breath>>) {
   let breathing = dragons.iter().any(|dragon| {
     dragon.breath > 0.0 && !matches!(dragon.flight, Flight::Slain(_) | Flight::Falling)
   });
-  breaths.iter_mut().for_each(|mut spawner| spawner.active = breathing);
+  for mut spawner in breaths.iter_mut() {
+    spawner.active = breathing
+  }
 }
 
 fn pose(
@@ -1154,7 +1150,7 @@ fn pose(
   let delta = time.delta_secs();
   let blend = 1.0 - (-8.0 * delta).exp();
   let clock = time.elapsed_secs();
-  dragons.iter().for_each(|(dragon, motion)| {
+  for (dragon, motion) in dragons.iter() {
     let beat = dragon.flap.sin();
     let lag = (dragon.flap - 0.9).sin();
     let flying = !matches!(
@@ -1244,7 +1240,7 @@ fn pose(
         Quat::from_mat3(&Mat3::from_cols(outward.cross(along), outward, along));
       (wing.inverse() * folded, Vec3::new(0.13, 1.0, 0.95), 0.3)
     };
-    dragon.bones.iter().zip(Bone::ALL).for_each(|(&entity, bone)| {
+    for (&entity, bone) in dragon.bones.iter().zip(Bone::ALL) {
       if let Ok(mut transform) = bones.get_mut(entity) {
         let target = match bone {
           Bone::TipR => tip,
@@ -1256,11 +1252,11 @@ fn pose(
           transform.scale = transform.scale.lerp(spread, blend);
         }
       }
-    });
-    folding.iter_mut().for_each(|mut transform| {
+    }
+    for mut transform in folding.iter_mut() {
       transform.scale = transform.scale.lerp(Vec3::new(1.0, 1.0, furl), blend)
-    });
-  });
+    }
+  }
 }
 
 fn absorb(
@@ -1277,13 +1273,13 @@ fn absorb(
   mut streamed: Local<u32>,
   mut finished: Local<bool>
 ) {
-  dragons.iter().for_each(|(dragon, transform)| {
+  for (dragon, transform) in dragons.iter() {
     if let Flight::Slain(since) = dragon.flight
       && !*finished
     {
       let flowing = (since - 2.0).clamp(0.0, 5.0);
       let due = (flowing * 40.0) as u32;
-      (*streamed..due).for_each(|index| {
+      for index in *streamed..due {
         let mut roll = crate::noise::Roll::new(index * 97 + 5);
         let from = transform.transform_point(Vec3::new(
           roll.spread(1.5),
@@ -1291,22 +1287,26 @@ fn absorb(
           roll.range(-3.0, 4.0)
         ));
         shout::stream(&mut commands, &look, from, *player, index + 999, true);
-      });
+      }
       *streamed = due;
       if since > 2.0 && since - time.delta_secs() <= 2.0 {
         let embers = stuffs.of(Stuff::Cinder);
-        parts.iter_mut().for_each(|mut material| material.0 = embers.clone());
+        for mut material in parts.iter_mut() {
+          material.0 = embers.clone()
+        }
       }
       if since > 7.5 {
         let bone = stuffs.of(Stuff::Bone);
-        parts.iter_mut().for_each(|mut material| material.0 = bone.clone());
+        for mut material in parts.iter_mut() {
+          material.0 = bone.clone()
+        }
         *finished = true;
         shouts.cooldown = 0.0;
         sounds.write(Sound::flat(Cue::WordLearned));
         notices.write(Notice("Dragon Soul Absorbed".into()));
       }
     }
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {

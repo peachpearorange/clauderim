@@ -207,7 +207,7 @@ fn cycle_day(
   let adapting = *adapted && daylight.snap == 0;
   *adapted = !lenses.is_empty();
   daylight.snap = daylight.snap.saturating_sub(1);
-  lenses.iter_mut().for_each(|(mut exposure, mut fog, mut grading, ambient)| {
+  for (mut exposure, mut fog, mut grading, ambient) in lenses.iter_mut() {
     let rate = (settled > exposure.ev100).then_some(BRIGHTENING).unwrap_or(DARKENING);
     exposure.ev100 = adapting
       .then(|| exposure.ev100.lerp(settled, 1.0 - (-rate * time.delta_secs()).exp()))
@@ -222,7 +222,7 @@ fn cycle_day(
     fog.directional_light_exponent = 12.0.lerp(5.0, golden);
     grading.global.temperature = COOL.lerp(WARM, golden * outdoors);
     grading.global.tint = golden * outdoors * BLUSH;
-  });
+  }
 }
 
 const SHADOW_REACH: f32 = 4.0;
@@ -234,13 +234,13 @@ fn shade_close_lights(
   camera: Single<&GlobalTransform, With<crate::player::MainCamera>>,
   mut lights: Query<(&mut PointLight, &GlobalTransform), With<CloseShadows>>
 ) {
-  lights.iter_mut().for_each(|(mut light, place)| {
+  for (mut light, place) in lights.iter_mut() {
     let close =
       place.translation().distance(camera.translation()) < light.range * SHADOW_REACH;
     if light.shadow_maps_enabled != close {
       light.shadow_maps_enabled = close;
     }
-  });
+  }
 }
 
 fn refresh_mirror(

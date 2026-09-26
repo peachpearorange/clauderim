@@ -79,7 +79,7 @@ fn drift_wisps(
   targets: Query<&GlobalTransform, Without<Wisp>>,
   mut wisps: Query<(Entity, &mut Wisp, &mut Transform)>
 ) {
-  wisps.iter_mut().for_each(|(entity, mut wisp, mut transform)| {
+  for (entity, mut wisp, mut transform) in wisps.iter_mut() {
     wisp.progress += time.delta_secs() * wisp.pace;
     let goal = targets
       .get(wisp.target)
@@ -90,7 +90,7 @@ fn drift_wisps(
     if wisp.progress >= 1.0 {
       commands.entity(entity).despawn();
     }
-  });
+  }
 }
 
 fn shout(
@@ -128,21 +128,21 @@ fn shout(
         Fleeting(2.0),
         Transform::from_translation(mouth).looking_to(facing, Vec3::Y)
       ));
-      foes.iter_mut().filter(|(_, _, side, ..)| **side == Side::Wild).for_each(
-        |(entity, their, _, mut walker, mut vitals)| {
-          let gap = their.translation - transform.translation;
-          let flat = gap.with_y(0.0);
-          if flat.length() < REACH[power]
-            && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55
-          {
-            let falloff = 1.0 - flat.length() / REACH[power] * 0.5;
-            walker.shove += flat.normalize_or_zero() * FORCE[power] * falloff
-              + Vec3::Y * FORCE[power] * 0.35 * falloff;
-            vitals.health -= 4.0 * (power + 1) as f32;
-            commands.entity(entity).insert(Staggered(1.2 + power as f32 * 0.6));
-          }
+      for (entity, their, _, mut walker, mut vitals) in
+        foes.iter_mut().filter(|(_, _, side, ..)| **side == Side::Wild)
+      {
+        let gap = their.translation - transform.translation;
+        let flat = gap.with_y(0.0);
+        if flat.length() < REACH[power]
+          && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55
+        {
+          let falloff = 1.0 - flat.length() / REACH[power] * 0.5;
+          walker.shove += flat.normalize_or_zero() * FORCE[power] * falloff
+            + Vec3::Y * FORCE[power] * 0.35 * falloff;
+          vitals.health -= 4.0 * (power + 1) as f32;
+          commands.entity(entity).insert(Staggered(1.2 + power as f32 * 0.6));
         }
-      );
+      }
     }
   }
 }
@@ -152,7 +152,7 @@ fn stagger(
   mut commands: Commands,
   mut staggered: Query<(Entity, &mut Staggered, &mut Motion, &mut Walker, Has<Dead>)>
 ) {
-  staggered.iter_mut().for_each(|(entity, mut left, mut motion, mut walker, dead)| {
+  for (entity, mut left, mut motion, mut walker, dead) in staggered.iter_mut() {
     left.0 -= time.delta_secs();
     motion.swing = None;
     walker.wish = Vec3::ZERO;
@@ -164,7 +164,7 @@ fn stagger(
     if left.0 <= 0.0 {
       commands.entity(entity).remove::<Staggered>();
     }
-  });
+  }
 }
 
 fn word_walls(
@@ -199,12 +199,12 @@ fn word_walls(
   {
     chanting.elapsed += time.delta_secs();
     let burst = (chanting.elapsed * 26.0) as u32;
-    (*spawned..burst).for_each(|index| {
+    for index in *spawned..burst {
       let from = spot.translation()
         + spot.right() * ((index % 7) as f32 - 3.0) * 0.6
         + Vec3::Y * (1.0 + (index % 5) as f32 * 0.5);
       stream(&mut commands, &look, from, hero, index * 31 + 7, false);
-    });
+    }
     *spawned = burst;
     if chanting.elapsed > ABSORB_TIME {
       shouts.learned = 3;

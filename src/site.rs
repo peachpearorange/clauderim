@@ -186,8 +186,8 @@ mod tests {
   #[ignore]
   fn census() {
     println!("{} sites", SITES.len());
-    SITES.iter().for_each(|site| {
+    for site in SITES.iter() {
       println!("{:?} {} {} {}", site.marker, site.name, site.at, site.sunk)
-    });
+    }
   }
 }

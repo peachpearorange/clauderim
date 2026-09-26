@@ -212,7 +212,9 @@ impl Surface {
     let adjacency = faces.iter().enumerate().fold(
       vec![Vec::new(); self.vertices.len()],
       |mut adjacency: Vec<Vec<usize>>, (index, (corners, _))| {
-        corners.iter().for_each(|&corner| adjacency[corner].push(index));
+        for &corner in corners.iter() {
+          adjacency[corner].push(index)
+        }
         adjacency
       }
     );

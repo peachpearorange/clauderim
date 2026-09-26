@@ -312,7 +312,7 @@ fn exit_door(works: &mut Works, depths: Depths, entry: &Room) {
   match depths {
     Depths::Tomb => {
       works.slab(CARVED, Vec3::new(4.6, 0.9, 0.8), facing(at + Vec3::Y * 4.4, inward));
-      [-1.0, 1.0].into_iter().for_each(|side| {
+      for side in [-1.0, 1.0] {
         works.slab(
           CARVED,
           Vec3::new(0.9, 4.4, 0.8),
@@ -324,15 +324,15 @@ fn exit_door(works: &mut Works, depths: Depths, entry: &Room) {
           -0.3
         );
         works.parts.push((Stuff::Wood, leaf.moved(facing(at, inward))));
-        [0.8, 1.9, 3.0].into_iter().for_each(|height| {
+        for height in [0.8, 1.9, 3.0] {
           works.parts.push((
             Stuff::Iron,
             Piece::new(model::block(1.42, 0.12, 0.17), cave::IRON)
               .at_xyz(side * 0.72, height, -0.22)
               .moved(facing(at, inward))
           ));
-        });
-      });
+        }
+      }
     }
     Depths::Cave => {
       works.parts.push((
@@ -363,7 +363,7 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
   let mut roll = Roll::new(seed + 101);
   let last = chart.rooms.len() - 1;
   exit_door(&mut works, Depths::Tomb, &chart.rooms[0]);
-  chart.rooms.iter().enumerate().for_each(|(index, room)| {
+  for (index, room) in chart.rooms.iter().enumerate() {
     let low = room.floor.xz() - room.half;
     works.parts.extend(flagstones(
       seed + index as u32,
@@ -372,15 +372,15 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
       room.floor.y,
       |_| true
     ));
-    [Vec2::X, Vec2::NEG_X].into_iter().enumerate().for_each(|(turn, side)| {
+    for (turn, side) in [Vec2::X, Vec2::NEG_X].into_iter().enumerate() {
       let along = room.half.y * 0.55 * (turn as f32 * 2.0 - 1.0);
       let (at, inward) = wall_spot(room, side, along, 2.1, 0.02);
       (!chart.opening(index, at)).then(|| {
         works.put(sconce(), facing(at, inward));
         works.fire(at + inward * 0.34 + Vec3::Y * 0.36, 0.5, 45000.0, false);
       });
-    });
-    (0..3).for_each(|pot| {
+    }
+    for pot in 0..3 {
       let side = HEADINGS[roll.below(4)];
       let along = roll.spread((room.half * side.perp().abs()).element_sum() - 0.8);
       let (at, _) = wall_spot(room, side, along, 0.0, 0.5);
@@ -388,19 +388,19 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
         works
           .put(urn(seed * 13 + index as u32 * 5 + pot), Transform::from_translation(at))
       });
-    });
-    (0..1 + roll.below(2)).for_each(|pile| {
+    }
+    for pile in 0..1 + roll.below(2) {
       let at = room.floor
         + Vec3::new(roll.spread(room.half.x - 1.0), 0.0, roll.spread(room.half.y - 1.0));
       works.put(
         bones(seed * 7 + index as u32 * 3 + pile as u32),
         Transform::from_translation(at)
       );
-    });
-    [Vec2::X, Vec2::NEG_X].into_iter().for_each(|side| {
+    }
+    for side in [Vec2::X, Vec2::NEG_X] {
       let (at, inward) = wall_spot(room, side, room.half.y - 0.4, room.tall * 0.62, 0.05);
       works.put(cobweb(roll.range(0.7, 1.1)), facing(at, inward));
-    });
+    }
     let middle = index > 0 && index < last;
     if middle && room.half.x > 4.4 && room.half.y > 5.0 {
       works.put(
@@ -428,7 +428,7 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
         works.foe(spot, Vec3::new(roll.spread(1.0), 0.0, 1.0), FoeKind::Draugr, false);
       });
     }
-  });
+  }
   let hall = &chart.rooms[last];
   let heading = chart
     .links
@@ -444,13 +444,13 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
     noun: "Ancient Nord Chest",
     loot: TOMB_HOARDS[seed as usize % TOMB_HOARDS.len()]
   });
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     let foot = dais + toward * 3.0 + heading.perp().extend(0.0).xzy() * side * 3.6;
     works.put(brazier(), Transform::from_translation(foot));
     works
       .solid(Transform::from_translation(foot + Vec3::Y * 0.5), Vec3::new(0.8, 1.0, 0.8));
     works.fire(foot + Vec3::Y * 1.0, 1.1, 140000.0, side > 0.0);
-  });
+  }
   works.foe(dais + toward * 5.0, toward, FoeKind::DraugrOverlord, true);
   works.foe(
     dais + toward * 6.5 + heading.perp().extend(0.0).xzy() * 2.5,
@@ -467,7 +467,7 @@ fn furnish_cave(chart: &Chart, seed: u32) -> Works {
   let last = chart.rooms.len() - 1;
   let bandits = roll.chance(0.5);
   exit_door(&mut works, Depths::Cave, &chart.rooms[0]);
-  chart.rooms.iter().enumerate().for_each(|(index, room)| {
+  for (index, room) in chart.rooms.iter().enumerate() {
     let glow = bandits
       .then_some(Color::srgb(1.0, 0.75, 0.5))
       .unwrap_or(Color::srgb(0.6, 0.75, 1.0));
@@ -477,35 +477,35 @@ fn furnish_cave(chart: &Chart, seed: u32) -> Works {
       70000.0 + 12000.0 * room.half.max_element(),
       room.half.max_element() * 2.4
     ));
-    (0..1 + roll.below(2)).for_each(|pile| {
+    for pile in 0..1 + roll.below(2) {
       let side = HEADINGS[roll.below(4)];
       let (at, _) = wall_spot(room, side, roll.spread(2.5), 0.0, 1.8);
       works.parts.extend(moved(
         rubble(seed * 3 + index as u32 * 11 + pile as u32, 12, 2.2, 1.5),
         Transform::from_translation(at)
       ));
-    });
-    (0..2 + roll.below(3)).for_each(|pile| {
+    }
+    for pile in 0..2 + roll.below(3) {
       let at = room.floor
         + Vec3::new(roll.spread(room.half.x * 0.6), 0.02, roll.spread(room.half.y * 0.6));
       works.put(
         bones(seed * 5 + index as u32 * 7 + pile as u32),
         Transform::from_translation(at)
       );
-    });
+    }
     let middle = index > 0 && index < last;
     match (bandits, middle) {
       (false, true) => {
         let at = room.floor + Vec3::new(roll.spread(2.0), 0.03, roll.spread(2.0));
         works.put(nest(seed + index as u32), Transform::from_translation(at));
-        (0..1 + roll.below(2)).for_each(|pack| {
+        for pack in 0..1 + roll.below(2) {
           works.foe(
             at + Vec3::new(pack as f32 * 1.4 - 0.6, 0.0, 0.8),
             Vec3::new(roll.spread(1.0), 0.0, 1.0),
             FoeKind::Wolf,
             false
           );
-        });
+        }
       }
       (true, true) => {
         let hearth = room.floor + Vec3::new(roll.spread(1.5), 0.0, roll.spread(1.5));
@@ -514,16 +514,16 @@ fn furnish_cave(chart: &Chart, seed: u32) -> Works {
           Transform::from_translation(hearth)
         ));
         works.fire(hearth + Vec3::Y * 0.3, 0.9, 90000.0, false);
-        (0..1 + roll.below(2)).for_each(|guard| {
+        for guard in 0..1 + roll.below(2) {
           let angle = roll.range(0.0, PI * 2.0);
           let at =
             hearth + Vec3::new(angle.cos(), 0.0, angle.sin()) * (2.4 + guard as f32);
           works.foe(at, hearth - at, FoeKind::Bandit, false);
-        });
+        }
       }
       _ => {}
     }
-  });
+  }
   let den = &chart.rooms[last];
   let heading = chart
     .links
@@ -551,14 +551,14 @@ fn furnish_cave(chart: &Chart, seed: u32) -> Works {
     }
     false => {
       works.put(nest(seed + 77), Transform::from_translation(den.floor));
-      (0..3).for_each(|pack| {
+      for pack in 0..3 {
         works.foe(
           den.floor + Vec3::new(pack as f32 * 1.6 - 1.6, 0.0, 1.2),
           toward,
           FoeKind::Wolf,
           false
         );
-      });
+      }
     }
   }
   works
@@ -676,13 +676,11 @@ fn prepare(
     .collect();
   let Delving { delved, hewing, going, .. } = &mut *delving;
   let delving_going = going.is_some();
-  wanted.into_iter().filter(|_| !cfg!(target_arch = "wasm32")).for_each(
-    |(place, depths)| {
-      if !delved.contains_key(&place) && !hewing.contains_key(&place) {
-        hewing.insert(place, work::task(move || hew(depths, seed_of(place))));
-      }
+  for (place, depths) in wanted.into_iter().filter(|_| !cfg!(target_arch = "wasm32")) {
+    if !delved.contains_key(&place) && !hewing.contains_key(&place) {
+      hewing.insert(place, work::task(move || hew(depths, seed_of(place))));
     }
-  );
+  }
   pending.0.insert("depths", hewing.len() + usize::from(delving_going));
 }
 
@@ -710,7 +708,7 @@ fn delve(
     .iter_mut()
     .filter_map(|(&place, job)| job.done().map(|hewn| (place, hewn)))
     .collect();
-  finished.into_iter().for_each(|(place, Hewn { rock, works, exit })| {
+  for (place, Hewn { rock, works, exit }) in finished {
     delving.hewing.remove(&place);
     if let Some(entrance) = entrance(place) {
       let origin = origin(entrance);
@@ -725,7 +723,7 @@ fn delve(
         kit.raise(place.name(), Transform::from_translation(origin), rock, works);
       delving.delved.insert(place, Delved { root, foes, origin, exit: origin + exit });
     }
-  });
+  }
   let outside = settlement::layouts()
     .filter_map(|layout| layout.entrance.map(|entrance| (layout.place, entrance)))
     .find(|(_, entrance)| {
@@ -791,14 +789,14 @@ fn delve(
     })
     .map(|(&place, _)| place)
     .collect();
-  forgotten.into_iter().for_each(|place| {
+  for place in forgotten {
     if let Some(delved) = delving.delved.remove(&place) {
       commands.entity(delved.root).despawn();
-      delved.foes.into_iter().for_each(|foe| {
+      for foe in delved.foes {
         commands.entity(foe).try_despawn();
-      });
+      }
     }
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {
@@ -815,8 +813,8 @@ mod tests {
   #[test]
   #[ignore]
   fn charts() {
-    [Depths::Tomb, Depths::Cave].into_iter().for_each(|depths| {
-      (0..4).for_each(|seed| {
+    for depths in [Depths::Tomb, Depths::Cave] {
+      for seed in 0..4 {
         let chart = chart(depths, seed * 977);
         let start = web_time::Instant::now();
         let hewn = hew(depths, seed * 977);
@@ -828,7 +826,7 @@ mod tests {
           hewn.exit,
           start.elapsed()
         );
-      });
-    });
+      }
+    }
   }
 }

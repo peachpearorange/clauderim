@@ -150,9 +150,9 @@ fn swing(
         })
     })
     .collect();
-  hits.into_iter().for_each(|hit| {
+  for hit in hits {
     struck.write(hit);
-  });
+  }
 }
 
 fn wound(
@@ -166,7 +166,7 @@ fn wound(
   places: Query<&Transform>,
   heroes: Query<(), With<Player>>
 ) {
-  struck.read().for_each(|hit| {
+  for hit in struck.read() {
     if let Ok((mut vitals, mut motion, walker, transform, is_player)) =
       victims.get_mut(hit.target)
     {
@@ -189,7 +189,7 @@ fn wound(
         commands.entity(hit.target).insert(Dead);
       }
     }
-  });
+  }
 }
 
 fn recover(
@@ -201,7 +201,7 @@ fn recover(
   mut fallen: Query<(&mut Motion, Option<&mut Walker>), With<Dead>>
 ) {
   let delta = time.delta_secs();
-  living.iter_mut().for_each(|(mut vitals, mut motion, walker, is_player)| {
+  for (mut vitals, mut motion, walker, is_player) in living.iter_mut() {
     let sprint = is_player
       && walker
         .is_some_and(|walker| player::sprinting(walker) && walker.wish.length() > 0.1);
@@ -211,8 +211,8 @@ fn recover(
     vitals.health = (vitals.health + 0.5 * delta).min(vitals.health_max);
     vitals.magicka = (vitals.magicka + 4.0 * delta).min(vitals.magicka_max);
     motion.flinch = (motion.flinch - 3.5 * delta).max(0.0);
-  });
-  fallen.iter_mut().for_each(|(mut motion, walker)| {
+  }
+  for (mut motion, walker) in fallen.iter_mut() {
     motion.fallen = (motion.fallen + 2.2 * delta).min(1.0);
     motion.swing = None;
     motion.guard = 0.0;
@@ -221,7 +221,7 @@ fn recover(
       walker.wish = Vec3::ZERO;
       walker.facing = None;
     }
-  });
+  }
 }
 
 fn resound(
@@ -231,7 +231,7 @@ fn resound(
   swingers: Query<(&Motion, &Transform), (With<Player>, Changed<Motion>)>,
   mut swinging: Local<bool>
 ) {
-  struck.read().for_each(|hit| {
+  for hit in struck.read() {
     let cue = if hit.blocked {
       Cue::Block
     } else if heroes.contains(hit.target) {
@@ -240,14 +240,14 @@ fn resound(
       Cue::Hit
     };
     sounds.write(Sound::here(cue, hit.at));
-  });
-  swingers.iter().for_each(|(motion, transform)| {
+  }
+  for (motion, transform) in swingers.iter() {
     if motion.swing.is_some() && !*swinging {
       let cue = motion.power.then_some(Cue::PowerSwing).unwrap_or(Cue::Swing);
       sounds.write(Sound::here(cue, transform.translation));
     }
     *swinging = motion.swing.is_some();
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {

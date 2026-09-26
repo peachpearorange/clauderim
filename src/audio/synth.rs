@@ -184,10 +184,9 @@ pub fn noise(seed: u64, count: usize) -> Vec<f32> {
 
 pub fn mix(into: &mut [f32], at: usize, source: &[f32], gain: f32) {
   let span = into.len().max(1);
-  source
-    .iter()
-    .enumerate()
-    .for_each(|(index, sample)| into[(at + index) % span] += sample * gain)
+  for (index, sample) in source.iter().enumerate() {
+    into[(at + index) % span] += sample * gain
+  }
 }
 
 pub fn seamless(raw: Vec<f32>, span: usize) -> Vec<f32> {
@@ -377,9 +376,9 @@ impl Hall {
       dry.0.iter().map(|channel| channel[frame]).sum::<f32>() / channels as f32
     };
     if circular {
-      (0..frames).for_each(|frame| {
+      for frame in 0..frames {
         self.step(input(frame));
-      })
+      }
     }
     let (left, right) = (0..frames)
       .map(|frame| {

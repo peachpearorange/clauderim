@@ -142,9 +142,11 @@ static AROUND: LazyLock<HashMap<IVec2, Vec<Place>>> = LazyLock::new(|| {
     let reach = place.flat() * 2.5 + 16.0;
     let low = ((place.spot() - reach) / AROUND_BIN).floor().as_ivec2();
     let high = ((place.spot() + reach) / AROUND_BIN).floor().as_ivec2();
-    (low.y..=high.y).for_each(|y| {
-      (low.x..=high.x).for_each(|x| bins.entry(IVec2::new(x, y)).or_default().push(place))
-    });
+    for y in low.y..=high.y {
+      for x in low.x..=high.x {
+        bins.entry(IVec2::new(x, y)).or_default().push(place)
+      }
+    }
     bins
   })
 });
@@ -440,10 +442,11 @@ fn binned(segments: &[Segment], reach: f32) -> HashMap<IVec2, Vec<Segment>> {
   segments.iter().fold(HashMap::default(), |mut bins, &segment| {
     let low = ((segment.from.min(segment.to) - reach) / BIN).floor().as_ivec2();
     let high = ((segment.from.max(segment.to) + reach) / BIN).floor().as_ivec2();
-    (low.y..=high.y).for_each(|y| {
-      (low.x..=high.x)
-        .for_each(|x| bins.entry(IVec2::new(x, y)).or_default().push(segment))
-    });
+    for y in low.y..=high.y {
+      for x in low.x..=high.x {
+        bins.entry(IVec2::new(x, y)).or_default().push(segment)
+      }
+    }
     bins
   })
 }

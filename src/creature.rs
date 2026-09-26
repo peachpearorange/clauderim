@@ -151,7 +151,7 @@ fn raise(
   mut commands: Commands,
   spawns: Query<(Entity, &FoeSpawn, &Transform), Added<FoeSpawn>>
 ) {
-  spawns.iter().for_each(|(entity, spawn, transform)| {
+  for (entity, spawn, transform) in spawns.iter() {
     let stats = breed(spawn.kind);
     let seed = entity.index().index();
     let center = transform.translation + Vec3::Y * (stats.height / 2.0 + 0.05);
@@ -225,7 +225,7 @@ fn raise(
         }
       };
     commands.entity(entity).insert(Dressing { bones, tailoring });
-  });
+  }
 }
 
 #[derive(Component)]
@@ -242,12 +242,12 @@ pub fn dress(
   mut dressing: Query<(Entity, &mut Dressing)>
 ) {
   pending.0.insert("dressing", dressing.iter().count());
-  dressing.iter_mut().for_each(|(entity, mut dressing)| {
+  for (entity, mut dressing) in dressing.iter_mut() {
     if let Some(parts) = dressing.tailoring.done() {
       humanoid::dress(&mut commands, &mut meshes, &stuffs, &dressing.bones, parts);
       commands.entity(entity).remove::<Dressing>();
     }
-  });
+  }
 }
 
 fn alarm(kind: FoeKind) -> Cue {
@@ -273,91 +273,89 @@ fn think(
   let delta = time.delta_secs();
   let provoked: Vec<Entity> =
     struck.read().filter(|hit| hit.attacker == hero).map(|hit| hit.target).collect();
-  foes.iter_mut().for_each(
-    |(entity, mut foe, transform, mut walker, mut motion, fighter)| {
-      let stats = breed(foe.kind);
-      let at = transform.translation;
-      let gap = (target - at).with_y(0.0);
-      let distance = gap.length();
-      let noticed = !hero_dead && (distance < stats.aggro || provoked.contains(&entity));
-      foe.cooldown -= delta;
-      let mind = match foe.mind {
-        Mind::Dormant if distance < 6.5 || provoked.contains(&entity) => {
-          sounds.write(Sound::here(Cue::DraugrWake, at));
-          Mind::Hunt
-        }
-        Mind::Dormant => Mind::Dormant,
-        Mind::Idle(_) | Mind::Roam(_) | Mind::Return
-          if noticed && (foe.home - at).length() < 70.0 =>
-        {
-          sounds.write(Sound::here(alarm(foe.kind), at));
-          foe.cooldown = 0.6;
-          Mind::Hunt
-        }
-        Mind::Idle(wait) if wait <= 0.0 && distance < UNWATCHED => {
-          let wander =
-            foe.home + Vec3::new(foe.roll.spread(14.0), 0.0, foe.roll.spread(14.0));
-          Mind::Roam(wander)
-        }
-        Mind::Idle(wait) => Mind::Idle(wait - delta),
-        Mind::Roam(spot) if (spot - at).with_y(0.0).length() < 1.2 => {
-          Mind::Idle(foe.roll.range(3.0, 8.0))
-        }
-        Mind::Roam(spot) => Mind::Roam(spot),
+  for (entity, mut foe, transform, mut walker, mut motion, fighter) in foes.iter_mut() {
+    let stats = breed(foe.kind);
+    let at = transform.translation;
+    let gap = (target - at).with_y(0.0);
+    let distance = gap.length();
+    let noticed = !hero_dead && (distance < stats.aggro || provoked.contains(&entity));
+    foe.cooldown -= delta;
+    let mind = match foe.mind {
+      Mind::Dormant if distance < 6.5 || provoked.contains(&entity) => {
+        sounds.write(Sound::here(Cue::DraugrWake, at));
         Mind::Hunt
-          if hero_dead
-            || distance > stats.aggro * 2.8
-            || (foe.home - at).length() > 90.0 =>
-        {
-          Mind::Return
-        }
-        Mind::Hunt => Mind::Hunt,
-        Mind::Return if (foe.home - at).with_y(0.0).length() < 2.0 => Mind::Idle(4.0),
-        Mind::Return => Mind::Return
-      };
-      foe.mind = mind;
-      let toward = gap.normalize_or_zero();
-      let strike_range = fighter.reach + 0.2;
-      let busy = motion.swing.is_some() || motion.flinch > 0.4;
-      let (wish, facing) = match mind {
-        Mind::Dormant | Mind::Idle(_) => (Vec3::ZERO, None),
-        Mind::Roam(spot) => {
-          ((spot - at).with_y(0.0).normalize_or_zero() * stats.walk, None)
-        }
-        Mind::Return => {
-          ((foe.home - at).with_y(0.0).normalize_or_zero() * stats.run * 0.6, None)
-        }
-        Mind::Hunt => {
-          foe.circling += delta;
-          let side = Vec3::new(-toward.z, 0.0, toward.x) * (foe.circling * 0.7).sin();
-          let closing = if distance > strike_range * 0.85 {
-            toward * stats.run
-          } else if foe.kind == FoeKind::Wolf && foe.cooldown > 0.4 {
-            (side * 2.6 - toward * 0.8).normalize_or_zero() * stats.run * 0.45
-          } else {
-            Vec3::ZERO
-          };
-          (busy.then_some(closing * 0.2).unwrap_or(closing), Some(toward))
-        }
-      };
-      walker.wish = wish;
-      walker.facing = facing;
-      if mind == Mind::Hunt
-        && distance < strike_range
-        && foe.cooldown <= 0.0
-        && !busy
-        && !hero_dead
-      {
-        motion.swing = Some(0.0);
-        motion.power = foe.roll.chance(0.2);
-        foe.cooldown = stats.swing_time * motion.power.then_some(1.45).unwrap_or(1.0)
-          + foe.roll.range(0.5, 1.6);
-        let cue =
-          (foe.kind == FoeKind::Wolf).then_some(Cue::WolfBite).unwrap_or(Cue::Swing);
-        sounds.write(Sound::here(cue, at));
       }
+      Mind::Dormant => Mind::Dormant,
+      Mind::Idle(_) | Mind::Roam(_) | Mind::Return
+        if noticed && (foe.home - at).length() < 70.0 =>
+      {
+        sounds.write(Sound::here(alarm(foe.kind), at));
+        foe.cooldown = 0.6;
+        Mind::Hunt
+      }
+      Mind::Idle(wait) if wait <= 0.0 && distance < UNWATCHED => {
+        let wander =
+          foe.home + Vec3::new(foe.roll.spread(14.0), 0.0, foe.roll.spread(14.0));
+        Mind::Roam(wander)
+      }
+      Mind::Idle(wait) => Mind::Idle(wait - delta),
+      Mind::Roam(spot) if (spot - at).with_y(0.0).length() < 1.2 => {
+        Mind::Idle(foe.roll.range(3.0, 8.0))
+      }
+      Mind::Roam(spot) => Mind::Roam(spot),
+      Mind::Hunt
+        if hero_dead
+          || distance > stats.aggro * 2.8
+          || (foe.home - at).length() > 90.0 =>
+      {
+        Mind::Return
+      }
+      Mind::Hunt => Mind::Hunt,
+      Mind::Return if (foe.home - at).with_y(0.0).length() < 2.0 => Mind::Idle(4.0),
+      Mind::Return => Mind::Return
+    };
+    foe.mind = mind;
+    let toward = gap.normalize_or_zero();
+    let strike_range = fighter.reach + 0.2;
+    let busy = motion.swing.is_some() || motion.flinch > 0.4;
+    let (wish, facing) = match mind {
+      Mind::Dormant | Mind::Idle(_) => (Vec3::ZERO, None),
+      Mind::Roam(spot) => {
+        ((spot - at).with_y(0.0).normalize_or_zero() * stats.walk, None)
+      }
+      Mind::Return => {
+        ((foe.home - at).with_y(0.0).normalize_or_zero() * stats.run * 0.6, None)
+      }
+      Mind::Hunt => {
+        foe.circling += delta;
+        let side = Vec3::new(-toward.z, 0.0, toward.x) * (foe.circling * 0.7).sin();
+        let closing = if distance > strike_range * 0.85 {
+          toward * stats.run
+        } else if foe.kind == FoeKind::Wolf && foe.cooldown > 0.4 {
+          (side * 2.6 - toward * 0.8).normalize_or_zero() * stats.run * 0.45
+        } else {
+          Vec3::ZERO
+        };
+        (busy.then_some(closing * 0.2).unwrap_or(closing), Some(toward))
+      }
+    };
+    walker.wish = wish;
+    walker.facing = facing;
+    if mind == Mind::Hunt
+      && distance < strike_range
+      && foe.cooldown <= 0.0
+      && !busy
+      && !hero_dead
+    {
+      motion.swing = Some(0.0);
+      motion.power = foe.roll.chance(0.2);
+      foe.cooldown = stats.swing_time * motion.power.then_some(1.45).unwrap_or(1.0)
+        + foe.roll.range(0.5, 1.6);
+      let cue =
+        (foe.kind == FoeKind::Wolf).then_some(Cue::WolfBite).unwrap_or(Cue::Swing);
+      sounds.write(Sound::here(cue, at));
     }
-  );
+  }
 }
 
 fn perish(
@@ -366,17 +364,17 @@ fn perish(
   mut commands: Commands,
   bodies: Query<Entity, (With<Foe>, Added<Dead>)>
 ) {
-  fallen.iter().for_each(|(foe, transform)| {
+  for (foe, transform) in fallen.iter() {
     let cue = match foe.kind {
       FoeKind::Wolf => Cue::WolfDie,
       FoeKind::Draugr | FoeKind::DraugrOverlord => Cue::DraugrDie,
       FoeKind::Bandit | FoeKind::BanditChief => Cue::ManDie
     };
     sounds.write(Sound::here(cue, transform.translation));
-  });
-  bodies.iter().for_each(|entity| {
+  }
+  for entity in bodies.iter() {
     commands.entity(entity).insert(CollisionLayers::NONE);
-  });
+  }
 }
 
 fn search(
@@ -403,10 +401,10 @@ fn search(
     if keys.just_pressed(KeyCode::KeyE) {
       foe.looted = true;
       let kind = foe.kind;
-      loot(kind, &mut foe.roll).into_iter().for_each(|loot| {
+      for loot in loot(kind, &mut foe.roll) {
         notices.write(Notice(format!("{loot} added")));
         inventory.take(loot);
-      });
+      }
       sounds.write(Sound::here(Cue::Coins, transform.translation));
     }
   }
@@ -448,8 +446,8 @@ fn encounters(mut commands: Commands, ground: Res<Ground>) {
     (Vec2::new(-150.0, 20.0), FoeKind::Bandit, 3),
     (Vec2::new(-156.0, 14.0), FoeKind::BanditChief, 1)
   ];
-  packs.into_iter().enumerate().for_each(|(index, (spot, kind, count))| {
-    (0..count).for_each(|member| {
+  for (index, (spot, kind, count)) in packs.into_iter().enumerate() {
+    for member in 0..count {
       let angle = member as f32 * 2.3 + index as f32;
       let at = spot + Vec2::from_angle(angle) * (member as f32 * 2.5);
       commands.spawn((
@@ -457,8 +455,8 @@ fn encounters(mut commands: Commands, ground: Res<Ground>) {
         Transform::from_translation(ground.surface(at))
           .with_rotation(Quat::from_rotation_y(angle))
       ));
-    });
-  });
+    }
+  }
 }
 
 const MUSTER: f32 = 300.0;
@@ -510,16 +508,16 @@ fn garrison(
         !mustered.contains(index) && GARRISONS[*index].0.distance(here) < MUSTER
       })
       .collect();
-    due.into_iter().for_each(|index| {
+    for index in due {
       mustered.push(index);
-      GARRISONS[index].1.iter().enumerate().for_each(|(member, &(at, kind))| {
+      for (member, &(at, kind)) in GARRISONS[index].1.iter().enumerate() {
         commands.spawn((
           FoeSpawn { kind, dormant: false },
           Transform::from_translation(ground.surface(at))
             .with_rotation(Quat::from_rotation_y(member as f32 * 2.1))
         ));
-      });
-    });
+      }
+    }
   }
 }
 

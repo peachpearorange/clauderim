@@ -304,7 +304,7 @@ fn tally(parent: &mut ChildSpawnerCommands, fonts: &Fonts, label: &str, amount: 
 }
 
 fn kinds(column: &mut ChildSpawnerCommands, fonts: &Fonts, menu: Menu) {
-  Kind::ALL.into_iter().for_each(|kind| {
+  for kind in Kind::ALL {
     let chosen = kind == menu.kind;
     let tone = match (chosen, menu.column) {
       (true, Column::Kinds) => INK,
@@ -343,7 +343,7 @@ fn kinds(column: &mut ChildSpawnerCommands, fonts: &Fonts, menu: Menu) {
           });
         line.spawn((hud::words(&fonts.sans, 2.2, tone, kind.label()), hud::spaced(0.35)));
       });
-  });
+  }
 }
 
 fn goods(
@@ -359,7 +359,7 @@ fn goods(
         line.spawn(hud::words(&fonts.light, 2.0, DIM, "Nothing carried"));
       });
   }
-  shelf.iter().enumerate().for_each(|(index, &(item, count))| {
+  for (index, &(item, count)) in shelf.iter().enumerate() {
     let chosen = index == menu.row;
     let tone = match (chosen, menu.column) {
       (true, Column::Goods) => INK,
@@ -401,7 +401,7 @@ fn goods(
           });
         line.spawn(hud::words(&fonts.sans, 2.1, tone, label));
       });
-  });
+  }
 }
 
 fn details(column: &mut ChildSpawnerCommands, fonts: &Fonts, item: Item) {

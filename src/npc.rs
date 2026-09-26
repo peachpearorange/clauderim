@@ -127,7 +127,9 @@ fn spawn_villager(
     grip: lit.then_some(Grip::Torch).unwrap_or(Grip::Bare),
     hunch: 0.0
   };
-  torch.into_iter().for_each(|effects| kindle(commands, effects, &rig));
+  if let Some(effects) = torch {
+    kindle(commands, effects, &rig)
+  }
   commands.entity(entity).insert((rig, Dressing {
     bones: bones.to_vec(),
     tailoring: crate::work::task(move || {
@@ -149,7 +151,7 @@ fn gather(
 ) {
   if let Ok(player) = players.single() {
     let here = player.translation.xz();
-    HOMES.iter().enumerate().for_each(|(index, home)| {
+    for (index, home) in HOMES.iter().enumerate() {
       let distance = home.center.distance(here);
       match (present.contains_key(&index), distance < GATHER, distance > DISPERSE) {
         (false, true, _) => {
@@ -182,15 +184,13 @@ fn gather(
           present.insert(index, folk);
         }
         (true, _, true) => {
-          present
-            .remove(&index)
-            .into_iter()
-            .flatten()
-            .for_each(|entity| commands.entity(entity).despawn());
+          for entity in present.remove(&index).into_iter().flatten() {
+            commands.entity(entity).despawn()
+          }
         }
         _ => {}
       }
-    });
+    }
   }
 }
 
@@ -201,7 +201,7 @@ fn wander(
 ) {
   let delta = time.delta_secs();
   let hero = player.translation;
-  folk.iter_mut().for_each(|(mut person, mut walker, transform)| {
+  for (mut person, mut walker, transform) in folk.iter_mut() {
     let at = transform.translation.xz();
     let toward_hero = (hero - transform.translation).with_y(0.0);
     let attentive = toward_hero.length() < 3.5;
@@ -224,7 +224,7 @@ fn wander(
       .then(|| heading.extend(0.0).xzy() * STROLL)
       .unwrap_or(Vec3::ZERO);
     walker.facing = attentive.then_some(toward_hero);
-  });
+  }
 }
 
 #[derive(Component)]
@@ -254,10 +254,12 @@ fn set_out(
 ) {
   let roll = roll.get_or_insert_with(|| Roll::new(9091));
   let here = player.translation.xz();
-  travellers
+  for (entity, _) in travellers
     .iter()
     .filter(|(_, transform)| transform.translation.xz().distance(here) > PART)
-    .for_each(|(entity, _)| commands.entity(entity).despawn());
+  {
+    commands.entity(entity).despawn()
+  }
   *wait -= time.delta_secs();
   if *wait <= 0.0 && travellers.iter().count() < TRAVELLERS && daylight.shelter < 0.5 {
     *wait = roll.range(4.0, 10.0);
@@ -313,7 +315,7 @@ fn tramp(
 ) {
   let delta = time.delta_secs();
   let hero = player.translation;
-  travellers.iter_mut().for_each(|(mut travel, mut walker, transform)| {
+  for (mut travel, mut walker, transform) in travellers.iter_mut() {
     let path = &place::ROADS[travel.road].path;
     let at = transform.translation.xz();
     let toward_hero = (hero - transform.translation).with_y(0.0);
@@ -338,7 +340,7 @@ fn tramp(
     walker.wish =
       (!attentive).then(|| heading.extend(0.0).xzy() * TRAMP).unwrap_or(Vec3::ZERO);
     walker.facing = attentive.then_some(toward_hero);
-  });
+  }
 }
 
 const GREETINGS: [&str; 8] = [

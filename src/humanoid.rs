@@ -321,10 +321,10 @@ fn animate(
   mut bones: Query<&mut Transform>
 ) {
   let blend = 1.0 - (-18.0 * time.delta_secs()).exp();
-  rigs.iter_mut().for_each(|(rig, mut motion)| {
+  for (rig, mut motion) in rigs.iter_mut() {
     motion.breath += time.delta_secs() * 1.6;
     let pose = posed(rig, &motion);
-    rig.bones.iter().zip(Joint::ALL).for_each(|(&bone, joint)| {
+    for (&bone, joint) in rig.bones.iter().zip(Joint::ALL) {
       if let Ok(mut transform) = bones.get_mut(bone) {
         let angles = pose.angles[joint as usize];
         let target = Quat::from_euler(EulerRot::YXZ, angles.y, angles.x, angles.z);
@@ -337,8 +337,8 @@ fn animate(
           transform.translation.y = transform.translation.y.lerp(height, blend);
         }
       }
-    });
-  });
+    }
+  }
 }
 
 pub struct Kit(Vec<(Joint, Stuff, Piece)>);
@@ -377,7 +377,7 @@ pub fn skeleton(
   frame: Frame
 ) -> [Entity; JOINTS] {
   let mut bones = [Entity::PLACEHOLDER; JOINTS];
-  Joint::ALL.into_iter().for_each(|joint| {
+  for joint in Joint::ALL {
     let parent = joint.parent().map_or(owner, |parent| bones[parent as usize]);
     bones[joint as usize] = commands
       .spawn((
@@ -386,7 +386,7 @@ pub fn skeleton(
         ChildOf(parent)
       ))
       .id();
-  });
+  }
   bones
 }
 
@@ -415,7 +415,7 @@ pub fn dress(
   bones: &[Entity],
   parts: Vec<(usize, Stuff, Mesh)>
 ) {
-  parts.into_iter().for_each(|(bone, stuff, mesh)| {
+  for (bone, stuff, mesh) in parts {
     let mut part = commands.spawn((
       Mesh3d(meshes.add(mesh)),
       MeshMaterial3d(stuffs.of(stuff)),
@@ -424,7 +424,7 @@ pub fn dress(
     if matches!(stuff, Stuff::Frost | Stuff::Ember) {
       part.insert(NotShadowCaster);
     }
-  });
+  }
 }
 
 pub fn spawn_body(
@@ -940,13 +940,13 @@ fn torso(
       Stuff::Iron,
       Piece::new(sheath(&hoops, 0.07, 0.43, 1.08), plate)
     );
-    [0.11, 0.18, 0.25].into_iter().for_each(|height| {
+    for height in [0.11, 0.18, 0.25] {
       kit.add(
         Joint::Chest,
         Stuff::Iron,
         Piece::new(sheath(&hoops, height - 0.009, height + 0.009, 1.12), plate * 0.75)
       );
-    });
+    }
   }
   let front = hoop_at(&hoops, 0.03).front;
   kit
@@ -993,7 +993,7 @@ fn skirt(kit: &mut Kit, build: &Build, leather: Srgba, cloth: Srgba) {
     Stuff::Cloth,
     Piece::new(loft(&hip_hoops(build), TRUNK_SIDES), cloth)
   );
-  [
+  for (angle, depth, width) in [
     (0.0, -1.0, 0.16),
     (0.9, -0.7, 0.13),
     (-0.9, -0.7, 0.13),
@@ -1002,7 +1002,7 @@ fn skirt(kit: &mut Kit, build: &Build, leather: Srgba, cloth: Srgba) {
     (-1.3, 0.0, 0.12)
   ]
   .into_iter()
-  .for_each(|(angle, depth, width)| {
+  {
     let outward = Vec3::new((angle as f32).sin(), 0.0, depth);
     kit.add(
       Joint::Pelvis,
@@ -1012,7 +1012,7 @@ fn skirt(kit: &mut Kit, build: &Build, leather: Srgba, cloth: Srgba) {
         .yawed(angle * 1.2)
         .at(outward * Vec3::new(0.18, 0.0, 0.13) * build.waist + Vec3::Y * -0.14)
     );
-  });
+  }
 }
 
 fn arms(
@@ -1295,8 +1295,8 @@ fn shirt(kit: &mut Kit, build: &Build, color: Srgba, cuffs: Option<Srgba>, seed:
       Stuff::Skin,
       Piece::new(loft(&limb_hoops(&FOREARM, build), LIMB_SIDES), srgb(0.55, 0.41, 0.32))
     );
-  cuffs.into_iter().for_each(|trim| {
-    [-0.06, -0.1, -0.14].into_iter().for_each(|y| {
+  if let Some(trim) = cuffs {
+    for y in [-0.06, -0.1, -0.14] {
       kit.both(
         Joint::ElbowR,
         Stuff::Cloth,
@@ -1306,8 +1306,8 @@ fn shirt(kit: &mut Kit, build: &Build, color: Srgba, cuffs: Option<Srgba>, seed:
         )
         .rolled(0.25 * (y * 50.0).sin())
       );
-    });
-  });
+    }
+  }
 }
 
 fn hands(kit: &mut Kit, build: &Build, skin: Srgba) {
@@ -1367,7 +1367,7 @@ fn girdle(kit: &mut Kit, build: &Build, color: Srgba, buckle: Option<Srgba>) {
     Stuff::Leather,
     Piece::new(sheath(&hoops, 0.0, 0.045, 1.12), color)
   );
-  buckle.into_iter().for_each(|metal| {
+  if let Some(metal) = buckle {
     kit.add(
       Joint::Chest,
       Stuff::Iron,
@@ -1377,7 +1377,7 @@ fn girdle(kit: &mut Kit, build: &Build, color: Srgba, buckle: Option<Srgba>) {
         -hoop_at(&hoops, 0.02).front * 1.12 - 0.004
       )
     );
-  });
+  }
 }
 
 fn trousers(
@@ -1411,7 +1411,7 @@ fn trousers(
       Stuff::Leather,
       Piece::new(sheath(&shin, -0.33, -0.405, 1.12), shoe)
     );
-  (0..6).for_each(|band| {
+  for band in 0..6 {
     let y = -0.06 - band as f32 * 0.045;
     kit.both(
       Joint::KneeR,
@@ -1419,7 +1419,7 @@ fn trousers(
       Piece::new(sheath(&shin, y - 0.007, y + 0.007, 1.1), wraps)
         .rolled((band % 2) as f32 * 0.5 - 0.25)
     );
-  });
+  }
 }
 
 fn boots(
@@ -1447,7 +1447,7 @@ fn boots(
         0.0
       )
     );
-  fold.into_iter().for_each(|cuff| {
+  if let Some(cuff) = fold {
     kit.both(
       Joint::KneeR,
       Stuff::Fur,
@@ -1455,7 +1455,7 @@ fn boots(
         .sized(Vec3::new(0.07, 0.05, 0.08) * build.limbs)
         .at_xyz(0.0, top, 0.005)
     );
-  });
+  }
 }
 
 fn long_hair(kit: &mut Kit, color: Srgba, length: f32, seed: u32) {
@@ -1539,7 +1539,7 @@ fn harness(kit: &mut Kit, build: &Build, leather: Srgba, metal: Srgba) {
   let hoops = chest_hoops(build);
   let front = hoop_at(&hoops, 0.26).front * 1.05;
   let back = hoop_at(&hoops, 0.26).back * 1.05;
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     kit
       .add(
         Joint::Chest,
@@ -1555,7 +1555,7 @@ fn harness(kit: &mut Kit, build: &Build, leather: Srgba, metal: Srgba) {
           .rolled(side * 0.62)
           .at_xyz(0.0, 0.25, back)
       );
-  });
+  }
   kit.add(
     Joint::Chest,
     Stuff::Iron,
@@ -1667,7 +1667,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
         0.32,
         seed
       );
-      [-0.03, 0.0, 0.03].into_iter().for_each(|x| {
+      for x in [-0.03, 0.0, 0.03] {
         kit.add(
           Joint::Head,
           Stuff::Fur,
@@ -1675,7 +1675,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
             .rolled(0.5)
             .at_xyz(x + 0.035, 0.15, -0.101)
         );
-      });
+      }
       let leather = srgb(0.34, 0.24, 0.16);
       let iron = srgb(0.3, 0.32, 0.33);
       let hoops = chest_hoops(&build);
@@ -1699,7 +1699,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
             seed
           )
         );
-      [0.3, 0.23, 0.16].into_iter().for_each(|y| {
+      for y in [0.3, 0.23, 0.16] {
         kit.add(
           Joint::Chest,
           Stuff::Iron,
@@ -1709,7 +1709,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
             -hoop_at(&hoops, y).front * 1.1 - 0.006
           )
         );
-      });
+      }
       arms(
         &mut kit,
         &build,

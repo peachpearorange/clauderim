@@ -374,11 +374,11 @@ pub fn explore() -> Wave {
   const HARP_STEPS: [usize; 8] = [0, 1, 2, 3, 4, 3, 2, 1];
   const PIANO_STEPS: [(f32, usize); 3] = [(0.0, 2), (2.5, 1), (5.0, 0)];
   let mut score = Score::new(CHORD * CHORDS.len() as f32, 7);
-  CHORDS.iter().enumerate().for_each(|(index, &(bass, pad))| {
+  for (index, &(bass, pad)) in CHORDS.iter().enumerate() {
     let at = index as f32 * CHORD;
     let seed = score.seed();
     score.place(at, &Saws::BASS.play(bass, CHORD, seed), 0.3, 0.0);
-    pad.iter().enumerate().for_each(|(voice, &note)| {
+    for (voice, &note) in pad.iter().enumerate() {
       let seed = score.seed();
       score.place(
         at,
@@ -386,7 +386,7 @@ pub fn explore() -> Wave {
         0.3,
         voice as f32 * 0.6 - 0.6
       )
-    });
+    }
     if (4..12).contains(&index) {
       let seed = score.seed();
       let vowel = [Phone::A, Phone::O][index % 2];
@@ -399,13 +399,13 @@ pub fn explore() -> Wave {
       )
     }
     if index < 4 {
-      PIANO_STEPS.iter().for_each(|&(beat, voice)| {
+      for &(beat, voice) in PIANO_STEPS.iter() {
         let seed = score.seed();
         score.place(at + beat, &piano(pad[voice] + 12.0, 2.5, seed), 0.22, 0.15)
-      })
+      }
     } else {
       let strings = [bass + 12.0, pad[0], pad[1], pad[2], pad[0] + 12.0];
-      (0..16).for_each(|step| {
+      for step in 0..16 {
         let seed = score.seed();
         score.place(
           at + step as f32 * 0.5,
@@ -413,27 +413,27 @@ pub fn explore() -> Wave {
           0.14,
           0.4
         )
-      })
+      }
     }
-  });
-  [(16.0, &HORN_CALL[..], 0.0), (72.0, &LOW_HORN[..], 0.0)].into_iter().for_each(
-    |(start, line, shift)| {
-      line.iter().for_each(|&(at, held, note)| {
-        let seed = score.seed();
-        score.place(start + at, &Saws::HORN.play(note + shift, held, seed), 0.32, -0.25)
-      })
+  }
+  for (start, line, shift) in
+    [(16.0, &HORN_CALL[..], 0.0), (72.0, &LOW_HORN[..], 0.0)].into_iter()
+  {
+    for &(at, held, note) in line.iter() {
+      let seed = score.seed();
+      score.place(start + at, &Saws::HORN.play(note + shift, held, seed), 0.32, -0.25)
     }
-  );
-  FLUTE_SONG.iter().for_each(|&(at, held, note)| {
+  }
+  for &(at, held, note) in FLUTE_SONG.iter() {
     let seed = score.seed();
     score.place(40.0 + at, &flute(note, held, seed), 0.2, 0.3)
-  });
-  TIMPANI.iter().for_each(|&(at, note, gain)| {
+  }
+  for &(at, note, gain) in TIMPANI.iter() {
     let seed = score.seed();
     score.place(at, &timpani(note, seed), gain * 0.3, 0.1)
-  });
-  ROLLS.iter().for_each(|&(start, secs, note)| {
-    (0..(secs / 0.07) as usize).for_each(|stroke| {
+  }
+  for &(start, secs, note) in ROLLS.iter() {
+    for stroke in 0..(secs / 0.07) as usize {
       let seed = score.seed();
       let at = stroke as f32 * 0.07;
       score.place(
@@ -442,8 +442,8 @@ pub fn explore() -> Wave {
         0.02 + 0.08 * (at / secs).powi(2),
         0.1
       )
-    })
-  });
+    }
+  }
   score.finish(Hall::new(0.9, 0.4, 1.35), 1.1)
 }
 
@@ -495,11 +495,11 @@ pub fn combat() -> Wave {
   const SMALL: [f32; 3] = [0.5, 1.0, 2.5];
   let bars = 32;
   let mut score = Score::new(bars as f32 * 4.0 * BEAT, 11);
-  (0..bars).for_each(|bar| {
+  for bar in 0..bars {
     let bar_at = bar as f32 * 4.0 * BEAT;
     let (root, third) = CHORDS[(bar / 2) % CHORDS.len()];
     let pattern = [0.0, 0.0, 12.0, 0.0, third, 0.0, 7.0, 0.0];
-    pattern.iter().enumerate().for_each(|(step, &offset)| {
+    for (step, &offset) in pattern.iter().enumerate() {
       let seed = score.seed();
       let gain = if step % 4 == 0 { 0.6 } else { 0.45 };
       score.place(
@@ -508,8 +508,8 @@ pub fn combat() -> Wave {
         gain,
         -0.3
       )
-    });
-    BIG.iter().for_each(|&beat| {
+    }
+    for &beat in BIG.iter() {
       let seed = score.seed();
       score.place(
         bar_at + beat * BEAT,
@@ -517,17 +517,15 @@ pub fn combat() -> Wave {
         if beat == 0.0 { 0.55 } else { 0.38 },
         0.05
       )
-    });
-    [(0.0, root, 0.4), (2.0, root + 7.0, 0.28)].into_iter().for_each(
-      |(beat, note, gain)| {
-        let seed = score.seed();
-        score.place(bar_at + beat * BEAT, &timpani(note.max(33.0), seed), gain, -0.1)
-      }
-    );
-    SMALL.iter().for_each(|&beat| {
+    }
+    for (beat, note, gain) in [(0.0, root, 0.4), (2.0, root + 7.0, 0.28)] {
+      let seed = score.seed();
+      score.place(bar_at + beat * BEAT, &timpani(note.max(33.0), seed), gain, -0.1)
+    }
+    for &beat in SMALL.iter() {
       let seed = score.seed();
       score.place(bar_at + beat * BEAT, &drum(110.0, 0.14, seed), 0.2, -0.2)
-    });
+    }
     if bar % 8 == 6 {
       let seed = score.seed();
       score.place(bar_at, &cymbal(8.0 * BEAT, seed), 0.12, 0.3)
@@ -549,7 +547,7 @@ pub fn combat() -> Wave {
       )
     }
     if bar % 8 == 7 {
-      (0..4).for_each(|tick| {
+      for tick in 0..4 {
         let seed = score.seed();
         score.place(
           bar_at + (3.0 + tick as f32 * 0.25) * BEAT,
@@ -557,12 +555,12 @@ pub fn combat() -> Wave {
           0.15 + tick as f32 * 0.05,
           0.2
         )
-      })
+      }
     }
     if bar % 2 == 0 {
       let chord = [root, root + 7.0, root + 12.0, root + 12.0 + third];
-      [(0.0, 0.8), (2.5, 0.35), (6.5, 0.5)].into_iter().for_each(|(beat, held)| {
-        chord.iter().for_each(|&note| {
+      for (beat, held) in [(0.0, 0.8), (2.5, 0.35), (6.5, 0.5)] {
+        for &note in chord.iter() {
           let seed = score.seed();
           score.place(
             bar_at + beat * BEAT,
@@ -570,15 +568,15 @@ pub fn combat() -> Wave {
             0.16,
             0.25
           )
-        })
-      });
+        }
+      }
       let seed = score.seed();
       score.place(bar_at, &Saws::BASS.play(root, 8.0 * BEAT, seed), 0.2, 0.0)
     }
-  });
+  }
   MELODY.iter().fold(64.0 * BEAT, |at, &(note, beats)| {
     if note > 0.0 {
-      [(0.0, 0.3), (-12.0, 0.22)].into_iter().for_each(|(octave, gain)| {
+      for (octave, gain) in [(0.0, 0.3), (-12.0, 0.22)] {
         let seed = score.seed();
         score.place(
           at,
@@ -586,7 +584,7 @@ pub fn combat() -> Wave {
           gain,
           -0.1
         )
-      })
+      }
     }
     at + beats * BEAT
   });

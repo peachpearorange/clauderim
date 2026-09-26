@@ -333,19 +333,17 @@ impl Cards {
   fn ribbon(&mut self, card: Card, ribs: &[Rib]) {
     let first = self.positions.len() as u32;
     let last = (ribs.len() - 1) as f32;
-    ribs.iter().enumerate().for_each(
-      |(row, &Rib { center, side, drop, normal, tone })| {
-        let along = row as f32 / last;
-        self.positions.extend([center - side - drop, center, center + side - drop]);
-        self.normals.extend([
-          (normal - side.normalize_or_zero() * 0.4).normalize(),
-          normal,
-          (normal + side.normalize_or_zero() * 0.4).normalize()
-        ]);
-        self.uvs.extend([0.0, 0.5, 1.0].map(|across| card.uv(across, along)));
-        self.colors.extend([tone.to_f32_array(); 3]);
-      }
-    );
+    for (row, &Rib { center, side, drop, normal, tone }) in ribs.iter().enumerate() {
+      let along = row as f32 / last;
+      self.positions.extend([center - side - drop, center, center + side - drop]);
+      self.normals.extend([
+        (normal - side.normalize_or_zero() * 0.4).normalize(),
+        normal,
+        (normal + side.normalize_or_zero() * 0.4).normalize()
+      ]);
+      self.uvs.extend([0.0, 0.5, 1.0].map(|across| card.uv(across, along)));
+      self.colors.extend([tone.to_f32_array(); 3]);
+    }
     self.indices.extend((0..ribs.len() as u32 - 1).flat_map(|row| {
       let at = first + row * 3;
       [0, 1].into_iter().flat_map(move |column| {
@@ -380,13 +378,13 @@ fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
   let whorls = if coarse { 6 + roll.below(2) } else { 12 + roll.below(4) };
   let twist = roll.range(0.0, TAU);
   let mut cards = Cards::default();
-  (0..whorls).for_each(|whorl| {
+  for whorl in 0..whorls {
     let t = whorl as f32 / whorls as f32;
     let y =
       base + (height - base - 1.2) * (1.0 - (1.0 - t).powf(1.25)) + roll.spread(0.15);
     let reach = width * (1.0 - t).powf(0.85) * roll.range(0.85, 1.1) + 0.6;
     let boughs = if coarse { 4 } else { 5 + roll.below(3) };
-    (0..boughs).for_each(|bough| {
+    for bough in 0..boughs {
       let angle = twist
         + whorl as f32 * 2.4
         + (bough as f32 + roll.spread(0.3)) / boughs as f32 * TAU;
@@ -437,9 +435,9 @@ fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
       if hanging {
         cards.ribbon(Card::FROND, &under);
       }
-    });
-  });
-  [Vec3::X, Vec3::Z].into_iter().for_each(|across| {
+    }
+  }
+  for across in [Vec3::X, Vec3::Z] {
     let ribs: Vec<Rib> = (0..=1)
       .map(|step| Rib {
         center: Vec3::Y * (height - 2.6 + 3.0 * step as f32),
@@ -450,7 +448,7 @@ fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
       })
       .collect();
     cards.ribbon(Card::FROND, &ribs);
-  });
+  }
   let trunk = wood_piece(
     model::lathe(
       &[
@@ -549,14 +547,14 @@ fn gnarl(seed: u32) -> Tree {
       (pieces, tips)
     });
   let mut cards = Cards::default();
-  tips.iter().for_each(|&(tip, direction)| {
+  for &(tip, direction) in tips.iter() {
     let rise = (direction + Vec3::Y * 0.3).normalize();
     let size = roll.range(1.1, 1.8);
     let flat = rise.any_orthonormal_vector();
     let turn = |angle: f32| Quat::from_axis_angle(rise, angle) * flat;
     let hue =
       SPRAY.mix(&SPRAY_DRY, roll.next()).mix(&LinearRgba::BLACK, roll.range(0.0, 0.25));
-    [0.0, PI / 3.0, 2.0 * PI / 3.0].map(turn).into_iter().for_each(|side| {
+    for side in [0.0, PI / 3.0, 2.0 * PI / 3.0].map(turn) {
       let ribs: Vec<Rib> = (0..=1)
         .map(|step| Rib {
           center: tip - rise * size * 0.35 + rise * size * 1.75 * step as f32,
@@ -567,8 +565,8 @@ fn gnarl(seed: u32) -> Tree {
         })
         .collect();
       cards.ribbon(Card::SPRAY, &ribs);
-    });
-  });
+    }
+  }
   Tree { wood: model::merge(limbs), crown: cards.mesh(), height, girth }
 }
 
@@ -1505,17 +1503,19 @@ impl Stand {
           .collect();
       }
       (false, false) => {
-        self.merged.drain(..).for_each(|entity| commands.entity(entity).despawn());
+        for entity in self.merged.drain(..) {
+          commands.entity(entity).despawn()
+        }
       }
       _ => {}
     }
     if shadowless != self.shadowless {
-      self.merged.iter().for_each(|&entity| {
+      for &entity in self.merged.iter() {
         match shadowless {
           true => commands.entity(entity).insert(NotShadowCaster),
           false => commands.entity(entity).remove::<NotShadowCaster>()
         };
-      });
+      }
     }
     self.shadowless = shadowless;
     match (gap < SOLID_REACH, self.body) {
@@ -1532,21 +1532,21 @@ impl Stand {
       }
       _ => {}
     }
-    self.looks.iter_mut().for_each(|look| look.stream(commands, eye, true));
-    self.distant.iter_mut().for_each(|look| look.stream(commands, eye, !far));
+    for look in self.looks.iter_mut() {
+      look.stream(commands, eye, true)
+    }
+    for look in self.distant.iter_mut() {
+      look.stream(commands, eye, !far)
+    }
   }
 
   fn fell(mut self, commands: &mut Commands) {
-    self
-      .looks
-      .iter_mut()
-      .chain(self.distant.iter_mut())
-      .for_each(|look| look.stream(commands, Vec3::splat(FOREVER), false));
-    self
-      .merged
-      .drain(..)
-      .chain(self.body)
-      .for_each(|entity| commands.entity(entity).despawn());
+    for look in self.looks.iter_mut().chain(self.distant.iter_mut()) {
+      look.stream(commands, Vec3::splat(FOREVER), false)
+    }
+    for entity in self.merged.drain(..).chain(self.body) {
+      commands.entity(entity).despawn()
+    }
   }
 }
 
@@ -1727,39 +1727,43 @@ fn tend_woods(
     let (urgent, later): (Vec<IVec2>, Vec<IVec2>) = wanted
       .into_iter()
       .partition(|&cell| stands.is_empty() && cell_gap(cell, eye.xz()) < WOODS_NOW);
-    terrain::in_parallel(&urgent, |&cell| {
+    for (cell, grown) in terrain::in_parallel(&urgent, |&cell| {
       (cell, grow(&forms, work::run(sowing(ground.clone(), cell, near.clone()))))
     })
     .into_iter()
-    .for_each(|(cell, grown)| {
+    {
       let mut made = stand(&mut meshes, grown);
       made.tend(&mut commands, eye);
       stands.insert(cell, made);
-    });
-    later.into_iter().for_each(|cell| {
+    }
+    for cell in later {
       let (ground, near, forms) = (ground.clone(), near.clone(), forms.clone());
       growing.insert(
         cell,
         work::spawn(sowing(ground, cell, near).map(move |plants| grow(&forms, plants)))
       );
-    });
+    }
     let grown: Vec<(IVec2, Grown)> = growing
       .iter_mut()
       .filter_map(|(&cell, task)| task.done().map(|grown| (cell, grown)))
       .collect();
-    grown.into_iter().for_each(|(cell, grown)| {
+    for (cell, grown) in grown {
       growing.remove(&cell);
       let mut made = stand(&mut meshes, grown);
       made.tend(&mut commands, eye);
       stands.insert(cell, made);
-    });
+    }
     growing.retain(|&cell, _| cell_gap(cell, eye.xz()) < WOODS_REACH + WOODS_SLACK);
-    stands
-      .extract_if(|&cell, _| cell_gap(cell, eye.xz()) > WOODS_REACH + WOODS_SLACK)
-      .for_each(|(_, stand)| stand.fell(&mut commands));
+    for (_, stand) in
+      stands.extract_if(|&cell, _| cell_gap(cell, eye.xz()) > WOODS_REACH + WOODS_SLACK)
+    {
+      stand.fell(&mut commands)
+    }
     if last.is_none_or(|last| last.distance(eye) > RESTREAM_STEP) {
       *last = Some(eye);
-      stands.values_mut().for_each(|stand| stand.tend(&mut commands, eye));
+      for stand in stands.values_mut() {
+        stand.tend(&mut commands, eye)
+      }
     }
   }
 }
@@ -1839,13 +1843,13 @@ impl Tufts {
     tall: f32
   ) {
     let first = self.positions.len() as u32;
-    spine.iter().for_each(|&(point, half, tone)| {
+    for &(point, half, tone) in spine.iter() {
       let rise = ((point - root).length() / tall).clamp(0.0, 1.0);
       self.positions.extend([point - side * half, point + side * half]);
       self.normals.extend([normal; 2]);
       self.uvs.extend([Vec2::new(tall, rise); 2]);
       self.colors.extend([tone.to_f32_array(); 2]);
-    });
+    }
     self.indices.extend((0..spine.len() as u32 - 1).flat_map(|step| {
       let at = first + step * 2;
       [at, at + 1, at + 2, at + 1, at + 3, at + 2]
@@ -1861,7 +1865,7 @@ impl Tufts {
     base: LinearRgba,
     tip: LinearRgba
   ) {
-    (0..4 + roll.below(5)).for_each(|_| {
+    for _ in 0..4 + roll.below(5) {
       let angle = roll.range(0.0, TAU);
       let out = Vec3::new(angle.cos(), 0.0, angle.sin());
       let side = Vec3::new(-out.z, 0.0, out.x);
@@ -1885,12 +1889,12 @@ impl Tufts {
         (up + out * 0.35).normalize(),
         height
       );
-    });
+    }
   }
 
   fn fern(&mut self, roll: &mut Roll, root: Vec3, size: f32) {
     let fronds = 6 + roll.below(4);
-    (0..fronds).for_each(|index| {
+    for index in 0..fronds {
       let angle = index as f32 / fronds as f32 * TAU + roll.spread(0.3);
       let out = Vec3::new(angle.cos(), 0.0, angle.sin());
       let length = size * roll.range(0.7, 1.1);
@@ -1914,11 +1918,11 @@ impl Tufts {
         (Vec3::Y + out * 0.3).normalize(),
         length
       );
-    });
+    }
   }
 
   fn bloom(&mut self, roll: &mut Roll, root: Vec3, tall: f32, petal: LinearRgba) {
-    (0..3 + roll.below(4)).for_each(|_| {
+    for _ in 0..3 + roll.below(4) {
       let angle = roll.range(0.0, TAU);
       let out = Vec3::new(angle.cos(), 0.0, angle.sin());
       let side = Vec3::new(-out.z, 0.0, out.x);
@@ -1951,7 +1955,7 @@ impl Tufts {
         Vec3::Y,
         height
       );
-    });
+    }
   }
 
   fn mesh(self) -> Mesh {
@@ -2149,10 +2153,10 @@ fn tend_meadow(
           && !growing.contains_key(&cell)
       })
       .collect();
-    wanted.into_iter().for_each(|cell| {
+    for cell in wanted {
       let ground = ground.clone();
       growing.insert(cell, work::spawn(swarding(ground, cell)));
-    });
+    }
     growing.retain(|&cell, task| {
       task
         .done()

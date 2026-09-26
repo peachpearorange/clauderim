@@ -413,7 +413,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         ));
       }
       Marker::City => {
-        [(22.0, 1.0), (50.0, 1.6), (78.0, 1.0)].into_iter().for_each(|(left, tall)| {
+        for (left, tall) in [(22.0, 1.0), (50.0, 1.6), (78.0, 1.0)] {
           glyph.spawn(part(
             Stroke::Line,
             Node {
@@ -423,7 +423,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
             },
             centred()
           ));
-        });
+        }
         glyph.spawn(part(
           Stroke::Line,
           Node { width: VMin(1.8), height: VMin(0.22), ..at(50.0, 92.0) },
@@ -431,13 +431,13 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         ));
       }
       Marker::Farm => {
-        [45.0, -45.0].into_iter().for_each(|lean| {
+        for lean in [45.0, -45.0] {
           glyph.spawn(part(
             Stroke::Line,
             Node { width: VMin(0.2), height: VMin(1.6), ..at(50.0, 36.0) },
             UiTransform { rotation: Rot2::degrees(lean), ..centred() }
           ));
-        });
+        }
         glyph.spawn(part(
           Stroke::Solid,
           Node {
@@ -450,13 +450,13 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         ));
       }
       Marker::Fort => {
-        [22.0, 78.0].into_iter().for_each(|left| {
+        for left in [22.0, 78.0] {
           glyph.spawn(part(
             Stroke::Line,
             Node { width: VMin(0.4), height: VMin(0.4), ..at(left, 22.0) },
             centred()
           ));
-        });
+        }
         glyph.spawn(part(
           Stroke::Solid,
           Node { width: VMin(1.7), height: VMin(1.1), border: outline, ..at(50.0, 64.0) },
@@ -464,7 +464,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         ));
       }
       Marker::Ruin => {
-        [(24.0, 1.3), (50.0, 0.7), (76.0, 1.0)].into_iter().for_each(|(left, tall)| {
+        for (left, tall) in [(24.0, 1.3), (50.0, 0.7), (76.0, 1.0)] {
           glyph.spawn(part(
             Stroke::Line,
             Node {
@@ -474,7 +474,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
             },
             centred()
           ));
-        });
+        }
         glyph.spawn(part(
           Stroke::Line,
           Node { width: VMin(1.7), height: VMin(0.22), ..at(50.0, 92.0) },
@@ -506,13 +506,13 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         ));
       }
       Marker::Camp => {
-        [(28.0, 30.0), (72.0, -30.0)].into_iter().for_each(|(left, lean)| {
+        for (left, lean) in [(28.0, 30.0), (72.0, -30.0)] {
           glyph.spawn(part(
             Stroke::Line,
             Node { width: VMin(0.24), height: VMin(1.5), ..at(left, 47.0) },
             UiTransform { rotation: Rot2::degrees(lean), ..centred() }
           ));
-        });
+        }
         glyph.spawn(part(
           Stroke::Line,
           Node { width: VMin(1.7), height: VMin(0.22), ..at(50.0, 88.0) },
@@ -556,14 +556,14 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
           ]))
         ))
         .with_children(|bar| {
-          [0.0, 100.0].into_iter().for_each(|top| {
+          for top in [0.0, 100.0] {
             bar.spawn((
               Node { width: Percent(100.0), height: Px(1.0), ..at(0.0, top) },
               UiTransform::from_translation(Val2::percent(0.0, -top)),
               fading_line(true, FRAME)
             ));
-          });
-          (0..24).for_each(|step| {
+          }
+          for step in 0..24 {
             let degrees = step as f32 * 15.0;
             bar.spawn(heading(Heading::Fixed(degrees.to_radians()), 50.0)).with_children(
               |mark| {
@@ -589,13 +589,13 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
                 };
               }
             );
-          });
-          place::all().for_each(|place| {
+          }
+          for place in place::all() {
             bar
               .spawn(heading(Heading::Toward(place), 50.0))
               .with_children(|mark| icon(mark, place));
-          });
-          (0..DOTS).for_each(|index| {
+          }
+          for index in 0..DOTS {
             bar.spawn(heading(Heading::Hostile(index), 64.0)).with_children(|mark| {
               mark.spawn((
                 Node {
@@ -614,7 +614,7 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
                 )
               ));
             });
-          });
+          }
         });
       cap(row);
     }
@@ -751,7 +751,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
         ..default()
       })
       .with_children(|vitals| {
-        [
+        for (stat, place) in [
           (Stat::Magicka, Node {
             position_type: PositionType::Absolute,
             left: Vw(4.0),
@@ -765,7 +765,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
           })
         ]
         .into_iter()
-        .for_each(|(stat, place)| {
+        {
           let shift = matches!(stat, Stat::Health).then_some(-50.0).unwrap_or(0.0);
           vitals
             .spawn((
@@ -775,7 +775,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
               UiTransform::from_translation(Val2::percent(shift, 0.0))
             ))
             .with_children(|meter| gauge(meter, 28.0, Gauge::Own(stat), stat.hues()));
-        });
+        }
       });
 
     hud.spawn((
@@ -863,7 +863,7 @@ fn engage(
 ) {
   let now = time.elapsed_secs();
   let hero = *player;
-  struck
+  for foe in struck
     .read()
     .filter_map(|hit| {
       (hit.attacker == hero)
@@ -871,10 +871,10 @@ fn engage(
         .or((hit.target == hero).then_some(hit.attacker))
     })
     .filter(|&foe| foes.get(foe).is_ok_and(|(&side, _)| side == Side::Wild))
-    .for_each(|foe| {
-      contact.0.insert(foe, now);
-      engaged.0 = Some(foe);
-    });
+  {
+    contact.0.insert(foe, now);
+    engaged.0 = Some(foe);
+  }
   engaged.0 = engaged.0.filter(|foe| {
     foes.get(*foe).is_ok_and(|(_, dead)| !dead)
       && contact.0.get(foe).is_some_and(|&at| now - at < FORGET)
@@ -919,11 +919,11 @@ fn discover(
       !charted.0.contains(place) && place.spot().distance(here) < place.flat() * REACH
     })
     .collect();
-  fresh.into_iter().for_each(|place| {
+  for place in fresh {
     charted.0.push(place);
     found.write(Discovered(place));
     sound.write(Sound::flat(Cue::Discover));
-  });
+  }
 }
 
 fn herald(
@@ -955,21 +955,21 @@ fn post(
   board: Single<Entity, With<Board>>,
   mut lines: Query<(Entity, &mut Fleeting, &mut Fade)>
 ) {
-  notices.read().for_each(|Notice(text)| {
+  for Notice(text) in notices.read() {
     commands.spawn((
       Fleeting(0.0),
       Fade(0.0),
       words(&fonts.sans, 1.85, INK, text.clone()),
       ChildOf(*board)
     ));
-  });
-  lines.iter_mut().for_each(|(entity, mut age, mut fade)| {
+  }
+  for (entity, mut age, mut fade) in lines.iter_mut() {
     age.0 += time.delta_secs();
     fade.0 = envelope(age.0, [0.0, 0.3, NOTICE_TIME - 0.9, NOTICE_TIME]);
     if age.0 > NOTICE_TIME {
       commands.entity(entity).despawn();
     }
-  });
+  }
 }
 
 fn offer(
@@ -992,13 +992,13 @@ fn wane(
   mut meters: Query<(&mut Meter, &mut Fade)>
 ) {
   let delta = time.delta_secs();
-  meters.iter_mut().for_each(|(mut meter, mut fade)| {
+  for (mut meter, mut fade) in meters.iter_mut() {
     let now = meter.stat.of(&player);
     let settled = now > 0.995 && (now - meter.last).abs() < 1e-4;
     meter.idle = settled.then_some(meter.idle + delta).unwrap_or(0.0);
     meter.last = now;
     fade.0 = approach(fade.0, (meter.idle < 2.5) as u8 as f32, delta * 2.0);
-  });
+  }
 }
 
 fn drain(
@@ -1008,7 +1008,7 @@ fn drain(
   mut fills: Query<(&mut Fill, &mut Node)>
 ) {
   let blend = 1.0 - (-9.0 * time.delta_secs()).exp();
-  fills.iter_mut().for_each(|(mut fill, mut node)| {
+  for (mut fill, mut node) in fills.iter_mut() {
     let want = match fill.gauge {
       Gauge::Own(stat) => stat.of(&player),
       Gauge::Rival => rival.fill
@@ -1016,7 +1016,7 @@ fn drain(
     fill.shown = fill.shown.lerp(want, blend);
     node.left = Percent(50.0 * (1.0 - fill.shown));
     node.width = Percent(100.0 * fill.shown);
-  });
+  }
 }
 
 fn swing_compass(
@@ -1042,7 +1042,7 @@ fn swing_compass(
     .map(|(_, transform, ..)| transform.translation)
     .take(DOTS)
     .collect();
-  marks.iter_mut().for_each(|(&heading, mut node, mut fade)| {
+  for (&heading, mut node, mut fade) in marks.iter_mut() {
     let target = match heading {
       Heading::Fixed(angle) => Some(angle),
       Heading::Toward(place) => {
@@ -1055,11 +1055,11 @@ fn swing_compass(
     node.left = Percent(50.0 + offset.unwrap_or(0.0) / PI * 100.0);
     fade.0 =
       offset.map_or(0.0, |offset| smoothstep(FRAC_PI_2, FRAC_PI_2 * 0.78, offset.abs()));
-  });
+  }
 }
 
 fn ink(charted: Res<Charted>, mut parts: Query<(&Ink, &mut Paint)>) {
-  parts.iter_mut().for_each(|(ink, mut paint)| {
+  for (ink, mut paint) in parts.iter_mut() {
     let known = charted.0.contains(&ink.place);
     paint.back = Some(match (ink.stroke, known) {
       (_, true) => INK,
@@ -1067,7 +1067,7 @@ fn ink(charted: Res<Charted>, mut parts: Query<(&Ink, &mut Paint)>) {
       (Stroke::Solid, false) => Color::NONE
     });
     paint.border = Some(BorderColor::all(known.then_some(INK).unwrap_or(DIM)));
-  });
+  }
 }
 
 fn reticle(
@@ -1102,9 +1102,9 @@ fn unveil(
   let t = *clock;
   let (entity, mut veil) = intro.into_inner();
   veil.0 = 1.0 - smoothstep(4.3, INTRO_TIME - 0.2, t);
-  titles.iter_mut().for_each(|mut title| {
+  for mut title in titles.iter_mut() {
     title.0 = envelope(t, [0.5, 1.8, 3.5, 4.7]);
-  });
+  }
   if t > INTRO_TIME {
     commands.entity(entity).despawn();
   }
@@ -1115,9 +1115,9 @@ fn track(
   mut spaced: Query<(&Tracking, &mut LetterSpacing)>
 ) {
   let unit = window.width().min(window.height()) / 100.0;
-  spaced.iter_mut().for_each(|(&Tracking(vmin), mut spacing)| {
+  for (&Tracking(vmin), mut spacing) in spaced.iter_mut() {
     spacing.set_if_neq(LetterSpacing::Px(vmin * unit));
-  });
+  }
 }
 
 fn remember(
@@ -1137,21 +1137,20 @@ fn remember(
     (With<Node>, Without<Paint>)
   >
 ) {
-  fresh
-    .iter()
-    .filter(|(entity, ..)| {
+  for (entity, text, back, border, shadow, text_shadow, gradient) in
+    fresh.iter().filter(|(entity, ..)| {
       parents.iter_ancestors(*entity).any(|above| huds.contains(above))
     })
-    .for_each(|(entity, text, back, border, shadow, text_shadow, gradient)| {
-      commands.entity(entity).insert(Paint {
-        text: text.map(|color| color.0),
-        back: back.map(|color| color.0),
-        border: border.cloned(),
-        shadow: shadow.cloned(),
-        text_shadow: text_shadow.copied(),
-        gradient: gradient.cloned()
-      });
+  {
+    commands.entity(entity).insert(Paint {
+      text: text.map(|color| color.0),
+      back: back.map(|color| color.0),
+      border: border.cloned(),
+      shadow: shadow.cloned(),
+      text_shadow: text_shadow.copied(),
+      gradient: gradient.cloned()
     });
+  }
 }
 
 fn tint(
@@ -1168,79 +1167,79 @@ fn tint(
     Option<&mut BackgroundGradient>
   )>
 ) {
-  painted.iter_mut().for_each(
-    |(entity, paint, text, back, border, shadow, text_shadow, gradient)| {
-      let alpha: f32 = std::iter::once(entity)
-        .chain(parents.iter_ancestors(entity))
-        .filter_map(|above| fades.get(above).ok())
-        .map(|fade| fade.0)
-        .product();
-      let dim = |color: Color| color.with_alpha(color.alpha() * alpha);
-      let stops = |stops: &[ColorStop]| {
-        stops
-          .iter()
-          .map(|&stop| ColorStop { color: dim(stop.color), ..stop })
-          .collect::<Vec<_>>()
-      };
-      if let Some(mut text) = text
-        && let Some(color) = paint.text
-      {
-        text.set_if_neq(TextColor(dim(color)));
-      }
-      if let Some(mut back) = back
-        && let Some(color) = paint.back
-      {
-        back.set_if_neq(BackgroundColor(dim(color)));
-      }
-      if let Some(mut border) = border
-        && let Some(&BorderColor { top, right, bottom, left }) = paint.border.as_ref()
-      {
-        border.set_if_neq(BorderColor {
-          top: dim(top),
-          right: dim(right),
-          bottom: dim(bottom),
-          left: dim(left)
-        });
-      }
-      if let Some(mut shadow) = shadow
-        && let Some(base) = &paint.shadow
-      {
-        shadow.set_if_neq(BoxShadow(
-          base
-            .0
-            .iter()
-            .map(|&style| ShadowStyle { color: dim(style.color), ..style })
-            .collect()
-        ));
-      }
-      if let Some(mut text_shadow) = text_shadow
-        && let Some(base) = paint.text_shadow
-      {
-        text_shadow.set_if_neq(TextShadow { color: dim(base.color), ..base });
-      }
-      if let Some(mut gradient) = gradient
-        && let Some(base) = &paint.gradient
-      {
-        gradient.set_if_neq(BackgroundGradient(
-          base
-            .0
-            .iter()
-            .map(|layer| match layer {
-              Gradient::Linear(linear) => Gradient::Linear(LinearGradient {
-                stops: stops(&linear.stops),
-                ..linear.clone()
-              }),
-              Gradient::Radial(radial) => Gradient::Radial(RadialGradient {
-                stops: stops(&radial.stops),
-                ..radial.clone()
-              }),
-              other => other.clone()
-            })
-            .collect()
-        ));
-      }
+  for (entity, paint, text, back, border, shadow, text_shadow, gradient) in
+    painted.iter_mut()
+  {
+    let alpha: f32 = std::iter::once(entity)
+      .chain(parents.iter_ancestors(entity))
+      .filter_map(|above| fades.get(above).ok())
+      .map(|fade| fade.0)
+      .product();
+    let dim = |color: Color| color.with_alpha(color.alpha() * alpha);
+    let stops = |stops: &[ColorStop]| {
+      stops
+        .iter()
+        .map(|&stop| ColorStop { color: dim(stop.color), ..stop })
+        .collect::<Vec<_>>()
+    };
+    if let Some(mut text) = text
+      && let Some(color) = paint.text
+    {
+      text.set_if_neq(TextColor(dim(color)));
     }
-  );
+    if let Some(mut back) = back
+      && let Some(color) = paint.back
+    {
+      back.set_if_neq(BackgroundColor(dim(color)));
+    }
+    if let Some(mut border) = border
+      && let Some(&BorderColor { top, right, bottom, left }) = paint.border.as_ref()
+    {
+      border.set_if_neq(BorderColor {
+        top: dim(top),
+        right: dim(right),
+        bottom: dim(bottom),
+        left: dim(left)
+      });
+    }
+    if let Some(mut shadow) = shadow
+      && let Some(base) = &paint.shadow
+    {
+      shadow.set_if_neq(BoxShadow(
+        base
+          .0
+          .iter()
+          .map(|&style| ShadowStyle { color: dim(style.color), ..style })
+          .collect()
+      ));
+    }
+    if let Some(mut text_shadow) = text_shadow
+      && let Some(base) = paint.text_shadow
+    {
+      text_shadow.set_if_neq(TextShadow { color: dim(base.color), ..base });
+    }
+    if let Some(mut gradient) = gradient
+      && let Some(base) = &paint.gradient
+    {
+      gradient.set_if_neq(BackgroundGradient(
+        base
+          .0
+          .iter()
+          .map(|layer| match layer {
+            Gradient::Linear(linear) => Gradient::Linear(LinearGradient {
+              stops: stops(&linear.stops),
+              ..linear.clone()
+            }),
+            Gradient::Radial(radial) => Gradient::Radial(RadialGradient {
+              stops: stops(&radial.stops),
+              ..radial.clone()
+            }),
+            other => other.clone()
+          })
+          .collect()
+      ));
+    }
+  }
 }
 
 pub fn plugin(app: &mut App) {

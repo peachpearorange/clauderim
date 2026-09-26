@@ -62,7 +62,9 @@ impl Piece {
     let mut mesh =
       self.0.clone().transformed_by(Transform::from_scale(Vec3::new(-1.0, 1.0, 1.0)));
     if let Some(Indices::U32(indices)) = mesh.indices_mut() {
-      indices.chunks_exact_mut(3).for_each(|triangle| triangle.swap(1, 2));
+      for triangle in indices.chunks_exact_mut(3) {
+        triangle.swap(1, 2)
+      }
     }
     Self(mesh)
   }
@@ -103,7 +105,9 @@ impl Piece {
     if let Some(VertexAttributeValues::Float32x2(uvs)) =
       self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
     {
-      uvs.iter_mut().for_each(|uv| *uv = (Vec2::from(*uv) * repeats).to_array());
+      for uv in uvs.iter_mut() {
+        *uv = (Vec2::from(*uv) * repeats).to_array()
+      }
     }
     self
   }
@@ -122,10 +126,10 @@ impl Piece {
     if let Some(VertexAttributeValues::Float32x4(colors)) =
       self.0.attribute_mut(Mesh::ATTRIBUTE_COLOR)
     {
-      colors.iter_mut().zip(&folds).for_each(|(color, &fold)| {
+      for (color, &fold) in colors.iter_mut().zip(&folds) {
         let shade = (1.0 + 0.8 * fold).clamp(0.6, 1.25);
         *color = [color[0] * shade, color[1] * shade, color[2] * shade, color[3]]
-      });
+      }
     }
     self.0.insert_attribute(Mesh::ATTRIBUTE_POSITION, moved);
     self.0.compute_smooth_normals();
@@ -136,7 +140,9 @@ impl Piece {
     if let Some(VertexAttributeValues::Float32x2(uvs)) =
       self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
     {
-      uvs.iter_mut().for_each(|uv| *uv = uv.map(|coordinate| coordinate * repeats));
+      for uv in uvs.iter_mut() {
+        *uv = uv.map(|coordinate| coordinate * repeats)
+      }
     }
     self
   }
@@ -229,7 +235,9 @@ pub fn lathe(profile: &[Vec2], sides: u32) -> Mesh {
   );
   let mut indices = grid_indices(profile.len() as u32 - 1, sides);
   if !downward {
-    indices.chunks_exact_mut(3).for_each(|triangle| triangle.swap(1, 2));
+    for triangle in indices.chunks_exact_mut(3) {
+      triangle.swap(1, 2)
+    }
   }
   assemble(positions, normals, uvs, indices)
 }
@@ -503,7 +511,9 @@ pub fn loft(hoops: &[Hoop], sides: u32) -> Mesh {
     );
   let mut indices = grid_indices(last as u32, sides);
   if upward {
-    indices.chunks_exact_mut(3).for_each(|triangle| triangle.swap(1, 2));
+    for triangle in indices.chunks_exact_mut(3) {
+      triangle.swap(1, 2)
+    }
   }
   assemble(positions, normals, uvs, indices)
 }
@@ -555,9 +565,11 @@ mod tests {
       ],
       0.02
     );
-    [("up", up), ("tube", pipe), ("blade", edge), ("fan", plate)]
-      .into_iter()
-      .for_each(|(name, mesh)| println!("{name} {}", outwardness(&mesh)));
+    for (name, mesh) in
+      [("up", up), ("tube", pipe), ("blade", edge), ("fan", plate)].into_iter()
+    {
+      println!("{name} {}", outwardness(&mesh))
+    }
   }
 }
 

@@ -123,7 +123,7 @@ fn clicks(
   pitch: (f32, f32)
 ) {
   let mut rng = Rng::new(seed);
-  (0..count).for_each(|_| {
+  for _ in 0..count {
     let at = len(rng.range(from, to));
     let (hz, mut osc, mut tick) = (
       rng.range(pitch.0, pitch.1),
@@ -138,7 +138,7 @@ fn clicks(
       })
       .collect();
     mix(into, at, &click, rng.range(0.4, 1.0))
-  })
+  }
 }
 
 fn creak(seed: u64) -> Vec<f32> {
@@ -373,14 +373,13 @@ fn level_up(seed: u64) -> Wave {
       .collect::<Vec<f32>>()
   };
   let mut dry = vec![0.0; len(4.0)];
-  [57.0, 62.0, 66.0, 69.0, 74.0]
-    .iter()
-    .enumerate()
-    .for_each(|(step, &note)| mix(&mut dry, len(step as f32 * 0.11), &bell(note), 0.35));
+  for (step, &note) in [57.0, 62.0, 66.0, 69.0, 74.0].iter().enumerate() {
+    mix(&mut dry, len(step as f32 * 0.11), &bell(note), 0.35)
+  }
   mix(&mut dry, 0, &swell(&[50.0, 57.0, 62.0, 66.0], 1.6, Phone::A, seed), 0.8);
-  [62.0, 69.0]
-    .iter()
-    .for_each(|&note| mix(&mut dry, len(0.4), &Saws::HORN.play(note, 1.2, seed), 0.35));
+  for &note in [62.0, 69.0].iter() {
+    mix(&mut dry, len(0.4), &Saws::HORN.play(note, 1.2, seed), 0.35)
+  }
   Hall::new(0.85, 0.3, 1.3).apply(&Wave::mono(dry), 0.8, false)
 }
 
@@ -388,7 +387,7 @@ fn coins(seed: u64) -> Vec<f32> {
   let mut rng = Rng::new(seed);
   let mut dry = vec![0.0; len(0.8)];
   let count = 5 + rng.below(5);
-  (0..count).for_each(|clink| {
+  for clink in 0..count {
     let at = if clink == 0 { 0.0 } else { rng.range(0.02, 0.38) };
     let mut partials: Vec<(Osc, f32, f32)> = (0..3)
       .map(|_| (Osc(rng.unit()), rng.range(2800.0, 7500.0), rng.range(0.03, 0.12)))
@@ -406,7 +405,7 @@ fn coins(seed: u64) -> Vec<f32> {
       .collect();
     let gain = rng.range(0.4, 1.0);
     mix(&mut dry, len(at), &sound, gain)
-  });
+  }
   dry
 }
 

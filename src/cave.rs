@@ -615,7 +615,7 @@ pub(crate) fn flagstones(
 fn stairs(works: &mut Works, top: Vec3, bottom: Vec3, width: f32, count: usize) {
   let tread = (bottom - top) / count as f32;
   let mut roll = Roll::new(count as u32 * 7 + width as u32);
-  (0..count).for_each(|step| {
+  for step in 0..count {
     let center = top + tread * (step as f32 + 0.5);
     let color = jitter(&mut roll, WORN);
     works.parts.push((
@@ -623,7 +623,7 @@ fn stairs(works: &mut Works, top: Vec3, bottom: Vec3, width: f32, count: usize) 
       Piece::new(model::block(width, 1.2, tread.z.abs() + 0.03), color)
         .at(center - Vec3::Y * 0.6)
     ));
-  });
+  }
   let slope = bottom - top;
   works.solids.push((
     Transform::from_translation((top + bottom) / 2.0 - Vec3::Y * 0.15).with_rotation(
@@ -737,7 +737,7 @@ fn word_wall(works: &mut Works, radius: f32) {
   let thick = 0.8;
   let mut roll = Roll::new(77);
   works.wall_at = DAIS + Vec3::new(0.0, 0.0, -radius + thick / 2.0);
-  (0..segments).for_each(|index| {
+  for index in 0..segments {
     let t = index as f32 / (segments - 1) as f32;
     let angle = (t * 2.0 - 1.0) * spread;
     let height = 5.0 - 1.6 * (t * 2.0 - 1.0).powi(2) + roll.spread(0.3);
@@ -760,8 +760,8 @@ fn word_wall(works: &mut Works, radius: f32) {
     works.wall.extend(slab.map(|piece| (Stuff::Stone, piece.moved(seat))));
     works.solid(seat, Vec3::new(chord, height, thick));
     let rows = ((height - 1.0) / 0.42) as usize;
-    (0..2).for_each(|column| {
-      (0..rows).for_each(|row| {
+    for column in 0..2 {
+      for row in 0..rows {
         let glowing = (5..=7).contains(&index) && row == 3 && column == 1 - index % 2;
         let stuff = glowing.then_some(Stuff::Frost).unwrap_or(Stuff::Stone);
         let cell = Vec3::new(
@@ -779,9 +779,9 @@ fn word_wall(works: &mut Works, radius: f32) {
               .moved(seat)
           )
         }));
-      });
-    });
-  });
+      }
+    }
+  }
   works.wall.extend(moved(
     dragon_crest(),
     Transform::from_translation(DAIS + Vec3::new(0.0, 5.1, -radius + 0.1))
@@ -1043,7 +1043,7 @@ fn boulders(
   gap: f32
 ) {
   let mut roll = Roll::new(seed);
-  (0..count).for_each(|index| {
+  for index in 0..count {
     let angle = roll.range(gap, TAU - gap) + FRAC_PI_2;
     let reach = roll.range(near, far);
     let size = roll.range(1.2, 3.8);
@@ -1057,7 +1057,7 @@ fn boulders(
         .yawed(roll.range(0.0, TAU))
         .at(Vec3::new(local.x, ground - size * 0.25, local.y))
     ));
-  });
+  }
 }
 
 fn ground(frame: Transform, at: Vec2) -> f32 {
@@ -1091,7 +1091,7 @@ fn barrow_front(works: &mut Works, frame: Transform) {
     })
     .unwrap_or(90);
   let mut roll = Roll::new(5);
-  (0..count).for_each(|step| {
+  for step in 0..count {
     let z = 40.0 + run * (step as f32 + 0.5);
     let top = DOOR_FLOOR - rise * (step as f32 + 0.5);
     let depth = top - lowest(z) + 1.5;
@@ -1103,7 +1103,7 @@ fn barrow_front(works: &mut Works, frame: Transform) {
         z
       )
     ));
-  });
+  }
   let (top, bottom) = (
     Vec3::new(0.0, DOOR_FLOOR, 40.0),
     Vec3::new(0.0, DOOR_FLOOR - rise * count as f32, 40.0 + run * count as f32)
@@ -1115,7 +1115,7 @@ fn barrow_front(works: &mut Works, frame: Transform) {
       .with_rotation(tilt),
     Vec3::new(width, 0.3, slope.length())
   );
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     works.slab(
       CARVED,
       Vec3::new(0.8, 5.0, slope.length()),
@@ -1169,7 +1169,7 @@ fn barrow_front(works: &mut Works, frame: Transform) {
     ));
     works.put(brazier(), Transform::from_xyz(side * 5.0, DOOR_FLOOR, 39.2));
     works.fire(Vec3::new(side * 5.0, DOOR_FLOOR + 1.0, 39.2), 1.2, 60000.0, false);
-  });
+  }
   works.put(
     gable(3.3, DOOR_FLOOR + 11.0, DOOR_FLOOR + 15.0, 1.1, 1.6),
     Transform::from_xyz(0.0, 0.0, 36.6)
@@ -1193,20 +1193,20 @@ fn barrow_front(works: &mut Works, frame: Transform) {
     gable(2.2, DOOR_FLOOR + 4.2, DOOR_FLOOR + 5.4, 0.45, 1.5),
     Transform::from_xyz(0.0, 0.0, 35.7)
   );
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     let (stuff, leaf) = (Stuff::Wood, Piece::new(model::block(1.7, 4.1, 0.14), OLD_WOOD));
     let hinge = Transform::from_xyz(side * 1.7, DOOR_FLOOR + 2.05, 34.6)
       .with_rotation(Quat::from_rotation_y(-side * 1.2));
     works.parts.push((stuff, leaf.at_xyz(-side * 0.85, 0.0, 0.0).moved(hinge)));
-    [-1.3, 0.0, 1.3].into_iter().for_each(|height| {
+    for height in [-1.3, 0.0, 1.3] {
       works.parts.push((
         Stuff::Iron,
         Piece::new(model::block(1.72, 0.12, 0.17), IRON)
           .at_xyz(-side * 0.85, height, 0.0)
           .moved(hinge)
       ));
-    });
-  });
+    }
+  }
   let on_ground = |x: f32, z: f32| Vec3::new(x, ground(frame, Vec2::new(x, z)), z);
   works.parts.extend(moved(
     rubble(41, 14, 2.5, 1.6),
@@ -1265,10 +1265,10 @@ fn barrow_corridor(works: &mut Works) {
     3.4,
     40
   );
-  [33.0, 29.0, 25.0, 21.0, 17.0].into_iter().for_each(|z| {
+  for z in [33.0, 29.0, 25.0, 21.0, 17.0] {
     let floor = floor_at(z + 0.3).max(floor_at(z - 0.3));
     works.put(rib(1.55, 3.1, 3.95, 0.34, 0.45), Transform::from_xyz(0.0, floor - 0.1, z));
-  });
+  }
   works.put(
     sconce(),
     Transform::from_xyz(-1.7, floor_at(27.0) + 2.0, 27.0)
@@ -1305,18 +1305,18 @@ fn barrow_hall(works: &mut Works) {
     HALL_FLOOR,
     |_| true
   ));
-  [-2.0, 2.0, 6.0, 10.0, 14.0].into_iter().for_each(|z| {
+  for z in [-2.0, 2.0, 6.0, 10.0, 14.0] {
     works.put(rib(5.2, 4.7, 7.6, 0.55, 0.6), Transform::from_xyz(0.0, HALL_FLOOR, z));
-    [-1.0, 1.0].into_iter().for_each(|side| {
+    for side in [-1.0, 1.0] {
       works.solid(
         Transform::from_xyz(side * 5.2, HALL_FLOOR + 2.4, z),
         Vec3::new(0.6, 4.8, 0.6)
       )
-    });
-  });
+    }
+  }
   let mut roll = Roll::new(19);
-  [0.0, 4.0, 8.0, 12.0].into_iter().enumerate().for_each(|(slot, z)| {
-    [-1.0, 1.0].into_iter().for_each(|side| {
+  for (slot, z) in [0.0, 4.0, 8.0, 12.0].into_iter().enumerate() {
+    for side in [-1.0, 1.0] {
       let niche = Vec3::new(side * 6.3, HALL_FLOOR + 0.3, z);
       let facing = Vec3::new(-side, 0.0, 0.0);
       let inward = Transform::from_translation(niche).looking_to(-facing, Vec3::Y);
@@ -1354,11 +1354,11 @@ fn barrow_hall(works: &mut Works) {
               .with_rotation(Quat::from_rotation_y(roll.spread(0.2)))
           );
         });
-    });
-  });
+    }
+  }
   works.put(tomb(), Transform::from_xyz(0.0, HALL_FLOOR, 5.5));
   works.solid(Transform::from_xyz(0.0, HALL_FLOOR + 0.5, 5.5), Vec3::new(1.3, 1.0, 2.6));
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     works.put(brazier(), Transform::from_xyz(side * 2.4, HALL_FLOOR, 1.2));
     works.solid(
       Transform::from_xyz(side * 2.4, HALL_FLOOR + 0.5, 1.2),
@@ -1371,7 +1371,7 @@ fn barrow_hall(works: &mut Works) {
         .with_rotation(Quat::from_rotation_y(-side * FRAC_PI_2))
     );
     works.fire(Vec3::new(side * 4.56, HALL_FLOOR + 2.76, 13.4), 0.5, 40000.0, false);
-  });
+  }
   works
     .parts
     .extend(moved(rubble(51, 16, 1.4, 1.2), Transform::from_xyz(4.3, HALL_FLOOR, -1.8)));
@@ -1387,21 +1387,18 @@ fn barrow_hall(works: &mut Works) {
   ));
   works.put(bones(61), Transform::from_xyz(-1.2, HALL_FLOOR, 9.5));
   works.put(bones(62), Transform::from_xyz(1.6, HALL_FLOOR, -0.5));
-  [(-4.9, 10.0, 1.0), (4.9, 2.0, -1.0), (4.9, 14.0, -1.0)].into_iter().for_each(
-    |(x, z, side)| {
-      works.put(
-        cobweb(1.3),
-        Transform::from_xyz(x, HALL_FLOOR + 4.6, z + 0.3).with_rotation(
-          Quat::from_euler(
-            EulerRot::YXZ,
-            0.0,
-            0.0,
-            (side < 0.0) as u8 as f32 * FRAC_PI_2
-          )
-        )
-      );
-    }
-  );
+  for (x, z, side) in [(-4.9, 10.0, 1.0), (4.9, 2.0, -1.0), (4.9, 14.0, -1.0)].into_iter()
+  {
+    works.put(
+      cobweb(1.3),
+      Transform::from_xyz(x, HALL_FLOOR + 4.6, z + 0.3).with_rotation(Quat::from_euler(
+        EulerRot::YXZ,
+        0.0,
+        0.0,
+        (side < 0.0) as u8 as f32 * FRAC_PI_2
+      ))
+    );
+  }
   works.foe(Vec3::new(0.0, HALL_FLOOR, -0.8), Vec3::Z, FoeKind::Draugr, false);
   works.rooms.push((Vec3::new(-7.6, HALL_FLOOR - 1.0, -6.3), Vec3::new(7.6, 2.0, 15.5)));
 }
@@ -1416,19 +1413,19 @@ fn barrow_chamber(works: &mut Works) {
     |at| at.distance(CHAMBER.xz()) < 8.2 && at.distance(DAIS.xz()) > 6.0
   ));
   let mut roll = Roll::new(29);
-  [(6.4, HALL_FLOOR + 0.4), (5.7, HALL_FLOOR + 0.8), (5.0, DAIS.y)].into_iter().for_each(
-    |(radius, top)| {
-      let height = top - HALL_FLOOR + 0.5;
-      works.parts.push((
-        Stuff::Stone,
-        Piece::new(
-          Cylinder::new(radius, height).mesh().resolution(56),
-          jitter(&mut roll, WORN)
-        )
-        .at(Vec3::new(DAIS.x, top - height / 2.0, DAIS.z))
-      ));
-    }
-  );
+  for (radius, top) in
+    [(6.4, HALL_FLOOR + 0.4), (5.7, HALL_FLOOR + 0.8), (5.0, DAIS.y)].into_iter()
+  {
+    let height = top - HALL_FLOOR + 0.5;
+    works.parts.push((
+      Stuff::Stone,
+      Piece::new(
+        Cylinder::new(radius, height).mesh().resolution(56),
+        jitter(&mut roll, WORN)
+      )
+      .at(Vec3::new(DAIS.x, top - height / 2.0, DAIS.z))
+    ));
+  }
   let rim = |radius: f32, y: f32| {
     (0..24).map(move |index| {
       let angle = index as f32 / 24.0 * TAU;
@@ -1460,7 +1457,7 @@ fn barrow_chamber(works: &mut Works) {
     noun: "Ancient Nord Chest",
     loot: HOLLOWCRAG_LOOT
   });
-  [-1.0, 1.0].into_iter().for_each(|side| {
+  for side in [-1.0, 1.0] {
     let foot = Vec3::new(side * 4.6, HALL_FLOOR, -8.6);
     works.put(brazier(), Transform::from_translation(foot));
     works
@@ -1479,7 +1476,7 @@ fn barrow_chamber(works: &mut Works) {
       urn(80 + side as u32),
       Transform::from_translation(DAIS + Vec3::new(side * 5.9, -0.8, 2.2))
     );
-  });
+  }
   works.lamps.push((
     DAIS + Vec3::new(0.0, 2.0, -1.8),
     Color::srgb(0.45, 0.7, 1.0),
@@ -1523,13 +1520,13 @@ fn barrow_works(frame: Transform) -> Works {
 fn den_works(frame: Transform) -> Works {
   let mut works = Works::default();
   let floor = DEN_FLOOR + 0.05;
-  [
+  for (at, seed) in [
     (Vec3::new(-6.0, floor, -5.0), 1),
     (Vec3::new(4.0, floor, -7.0), 2),
     (Vec3::new(-2.0, floor, 3.5), 3)
   ]
   .into_iter()
-  .for_each(|(at, seed)| {
+  {
     works.put(nest(seed), Transform::from_translation(at));
     works.foe(
       at + Vec3::new(0.6, 0.0, 0.6),
@@ -1537,21 +1534,21 @@ fn den_works(frame: Transform) -> Works {
       FoeKind::Wolf,
       false
     );
-  });
+  }
   works.foe(
     Vec3::new(0.3, (18.0 - DEN_MOUTH) * DEN_SLOPE + 0.1, 18.0),
     Vec3::Z,
     FoeKind::Wolf,
     false
   );
-  (0..12).for_each(|index| {
+  for index in 0..12 {
     let angle = index as f32 * 2.1;
     let reach = 3.0 + (index % 4) as f32 * 2.0;
     works.put(
       bones(200 + index),
       Transform::from_xyz(angle.cos() * reach, floor, angle.sin() * reach - 1.0)
     );
-  });
+  }
   works.put(bones(230), Transform::from_xyz(0.8, (14.0 - DEN_MOUTH) * DEN_SLOPE, 14.0));
   let satchel = Vec3::new(-8.8, floor, -8.2);
   works.hoards.push(Hoard {
@@ -1645,14 +1642,14 @@ pub(crate) struct Kit<'a, 'w, 's> {
 
 impl Kit<'_, '_, '_> {
   fn dress(&mut self, parent: Entity, parts: Parts) {
-    grouped(parts).into_iter().for_each(|(stuff, mesh)| {
+    for (stuff, mesh) in grouped(parts) {
       self.commands.spawn((
         Mesh3d(self.meshes.add(mesh)),
         MeshMaterial3d(self.stuffs.of(stuff)),
         Transform::IDENTITY,
         ChildOf(parent)
       ));
-    });
+    }
   }
 
   pub(crate) fn raise(
@@ -1683,9 +1680,9 @@ impl Kit<'_, '_, '_> {
       ChildOf(root)
     ));
     self.dress(root, parts);
-    solids.into_iter().for_each(|(at, collider)| {
+    for (at, collider) in solids {
       self.commands.spawn((collider, at, ChildOf(root)));
-    });
+    }
     (!wall.is_empty()).then(|| {
       let entity = self
         .commands
@@ -1699,39 +1696,37 @@ impl Kit<'_, '_, '_> {
       self.dress(entity, moved(wall, Transform::from_translation(-wall_at)));
     });
     let flame = self.meshes.add(flame());
-    fires.into_iter().enumerate().for_each(
-      |(index, Fire { at, size, lumens, shadows })| {
-        let seed = index as f32 * 1.7 + at.x;
-        let fire = self
-          .commands
-          .spawn((Transform::from_translation(at), Visibility::default(), ChildOf(root)))
-          .id();
-        self.commands.spawn((
-          Flame { seed, size },
-          Mesh3d(flame.clone()),
-          MeshMaterial3d(self.stuffs.of(Stuff::Ember)),
-          Transform::from_scale(Vec3::splat(size)),
-          ChildOf(fire)
-        ));
-        let mut light = self.commands.spawn((
-          Flicker { lumens: lumens * FIRE_BOOST, seed },
-          PointLight {
-            color: Color::srgb(1.0, 0.62, 0.3),
-            intensity: lumens * FIRE_BOOST,
-            range: 8.0 + lumens.sqrt() * 0.06,
-            radius: 0.1 * size,
-            ..default()
-          },
-          crate::humanoid::shadowing(),
-          Transform::from_xyz(0.0, 0.45 * size, 0.0),
-          ChildOf(fire)
-        ));
-        if shadows {
-          light.insert(CloseShadows);
-        }
+    for (index, Fire { at, size, lumens, shadows }) in fires.into_iter().enumerate() {
+      let seed = index as f32 * 1.7 + at.x;
+      let fire = self
+        .commands
+        .spawn((Transform::from_translation(at), Visibility::default(), ChildOf(root)))
+        .id();
+      self.commands.spawn((
+        Flame { seed, size },
+        Mesh3d(flame.clone()),
+        MeshMaterial3d(self.stuffs.of(Stuff::Ember)),
+        Transform::from_scale(Vec3::splat(size)),
+        ChildOf(fire)
+      ));
+      let mut light = self.commands.spawn((
+        Flicker { lumens: lumens * FIRE_BOOST, seed },
+        PointLight {
+          color: Color::srgb(1.0, 0.62, 0.3),
+          intensity: lumens * FIRE_BOOST,
+          range: 8.0 + lumens.sqrt() * 0.06,
+          radius: 0.1 * size,
+          ..default()
+        },
+        crate::humanoid::shadowing(),
+        Transform::from_xyz(0.0, 0.45 * size, 0.0),
+        ChildOf(fire)
+      ));
+      if shadows {
+        light.insert(CloseShadows);
       }
-    );
-    lamps.into_iter().for_each(|(at, color, lumens, range)| {
+    }
+    for (at, color, lumens, range) in lamps {
       self.commands.spawn((
         PointLight {
           color,
@@ -1742,8 +1737,8 @@ impl Kit<'_, '_, '_> {
         Transform::from_translation(at),
         ChildOf(root)
       ));
-    });
-    beams.into_iter().for_each(|(top, length)| {
+    }
+    for (top, length) in beams {
       self.commands.spawn((
         SpotLight {
           color: Color::srgb(1.0, 0.95, 0.85),
@@ -1771,14 +1766,14 @@ impl Kit<'_, '_, '_> {
         Transform::from_translation(top - Vec3::Y * length / 2.0),
         ChildOf(root)
       ));
-    });
+    }
     let spawned = foes
       .into_iter()
       .map(|(at, kind, dormant)| {
         self.commands.spawn((FoeSpawn { kind, dormant }, frame.mul_transform(at))).id()
       })
       .collect();
-    hoards.into_iter().for_each(|Hoard { at, size, noun, loot }| {
+    for Hoard { at, size, noun, loot } in hoards {
       let (body, lid) = chest(size);
       let entity = self
         .commands
@@ -1811,7 +1806,7 @@ impl Kit<'_, '_, '_> {
         ))
         .id();
       self.dress(hinge, lid);
-    });
+    }
     (root, spawned)
   }
 }
@@ -1888,10 +1883,10 @@ fn flicker(
       + 0.06 * (now * 23.1 + seed * 3.1).sin()
       + 0.12 * noise::perlin(Vec2::new(now * 5.0, seed * 7.0), 3)
   };
-  lights.iter_mut().for_each(|(&Flicker { lumens, seed }, mut light)| {
+  for (&Flicker { lumens, seed }, mut light) in lights.iter_mut() {
     light.intensity = lumens * wave(seed)
-  });
-  flames.iter_mut().for_each(|(&Flame { seed, size }, mut transform)| {
+  }
+  for (&Flame { seed, size }, mut transform) in flames.iter_mut() {
     let pulse = wave(seed + 0.4);
     transform.scale = Vec3::new(
       size * (1.6 - pulse * 0.6),
@@ -1899,7 +1894,7 @@ fn flicker(
       size * (1.6 - pulse * 0.6)
     );
     transform.rotation = Quat::from_rotation_y(now * 1.7 + seed);
-  });
+  }
 }
 
 fn open_chests(
@@ -1929,10 +1924,10 @@ fn open_chests(
     prompt.0 = Some(Prompting { verb: "Open".into(), noun: chest.noun.into() });
     if keys.just_pressed(KeyCode::KeyE) {
       chest.opened = true;
-      chest.loot.iter().for_each(|&loot| {
+      for &loot in chest.loot.iter() {
         notices.write(Notice(loot.to_string()));
         inventory.take(loot);
-      });
+      }
       sounds.write(Sound::here(Cue::ChestOpen, spot));
     }
   }
@@ -1944,7 +1939,7 @@ fn swing_lids(
   parents: Query<&ChildOf>,
   mut lids: Query<(Entity, &mut Lid, &mut Transform)>
 ) {
-  lids.iter_mut().for_each(|(entity, mut lid, mut transform)| {
+  for (entity, mut lid, mut transform) in lids.iter_mut() {
     let opened = parents
       .iter_ancestors(entity)
       .find_map(|ancestor| chests.get(ancestor).ok())
@@ -1953,7 +1948,7 @@ fn swing_lids(
       + time.delta_secs() * 1.6 * if opened { 1.0 } else { -1.0 })
     .clamp(0.0, 1.0);
     transform.rotation = Quat::from_rotation_x(-1.9 * smooth(0.0, 1.0, lid.openness));
-  });
+  }
 }
 
 pub fn plugin(app: &mut App) {

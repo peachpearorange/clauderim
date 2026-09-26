@@ -240,12 +240,12 @@ fn fade_out(
   mut commands: Commands,
   mut fleeting: Query<(Entity, &mut Fleeting)>
 ) {
-  fleeting.iter_mut().for_each(|(entity, mut left)| {
+  for (entity, mut left) in fleeting.iter_mut() {
     left.0 -= time.delta_secs();
     if left.0 <= 0.0 {
       commands.entity(entity).despawn();
     }
-  });
+  }
 }
 
 fn splatter(
@@ -255,7 +255,7 @@ fn splatter(
   mut commands: Commands
 ) {
   if let Some(effects) = effects {
-    struck.read().for_each(|hit| {
+    for hit in struck.read() {
       let dry = foes
         .get(hit.target)
         .is_ok_and(|foe| matches!(foe.kind, FoeKind::Draugr | FoeKind::DraugrOverlord));
@@ -265,7 +265,7 @@ fn splatter(
         Fleeting(1.5),
         Transform::from_translation(hit.at)
       ));
-    });
+    }
   }
 }
 

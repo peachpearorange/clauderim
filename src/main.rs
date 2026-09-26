@@ -80,20 +80,18 @@ fn snapshot(
     *warmed = warmed.map(|frames| frames + 1).or(settled.then_some(0));
     let drawing = warmed.is_some();
     let glimpse = Viewport { physical_size: UVec2::ONE, ..default() };
-    cameras
-      .iter_mut()
-      .filter(|(_, camera)| camera.viewport.is_none() != drawing)
-      .for_each(|(entity, mut camera)| {
-        camera.viewport = (!drawing).then(|| glimpse.clone());
-        match drawing {
-          true => commands.entity(entity).remove::<RenderLayers>(),
-          false => commands.entity(entity).insert(RenderLayers::layer(UNSEEN))
-        };
-      });
-    suns
-      .iter_mut()
-      .filter(|sun| sun.shadow_maps_enabled != drawing)
-      .for_each(|mut sun| sun.shadow_maps_enabled = drawing);
+    for (entity, mut camera) in
+      cameras.iter_mut().filter(|(_, camera)| camera.viewport.is_none() != drawing)
+    {
+      camera.viewport = (!drawing).then(|| glimpse.clone());
+      match drawing {
+        true => commands.entity(entity).remove::<RenderLayers>(),
+        false => commands.entity(entity).insert(RenderLayers::layer(UNSEEN))
+      };
+    }
+    for mut sun in suns.iter_mut().filter(|sun| sun.shadow_maps_enabled != drawing) {
+      sun.shadow_maps_enabled = drawing
+    }
     let compiled = compiling.0.load(std::sync::atomic::Ordering::Relaxed) == 0;
     let ready = !*taken
       && warmed.is_some_and(|frames| {
@@ -122,7 +120,7 @@ fn press(
   mut buttons: ResMut<ButtonInput<MouseButton>>
 ) {
   let (now, before) = (time.elapsed_secs(), time.elapsed_secs() - time.delta_secs());
-  opts::opts().press.iter().for_each(|&(at, ref name)| {
+  for &(at, ref name) in opts::opts().press.iter() {
     let (start, stop) =
       (before < at && at <= now, before < at + 0.15 && at + 0.15 <= now);
     let key = match name.as_str() {
@@ -152,7 +150,7 @@ fn press(
       (Err(button), _, true) => buttons.release(button),
       _ => {}
     }
-  });
+  }
 }
 
 fn main() {
