@@ -72,7 +72,7 @@ fn fragment(in: Varying) -> @location(0) vec4<f32> {
   let range = length(in.world - eye);
   let close = smoothstep(40.0, 260.0, range);
   let far = 1.0 - smoothstep(6500.0, 9000.0, range);
-  let alpha = clamp(density * above * close * far * 0.7, 0.0, 1.0);
+  let alpha = clamp(density * above * close * far * 0.8, 0.0, 1.0);
   let ray = normalize(in.world - eye);
   let facing = max(dot(ray, toward_light.xyz), 0.0);
   let lit = light.rgb * (0.05 + 0.06 * pow(facing, 6.0)) * (0.55 + 0.45 * billow);

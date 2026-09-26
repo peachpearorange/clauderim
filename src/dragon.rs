@@ -1061,7 +1061,10 @@ fn fly(
       };
       let (was, now) = (before.with_y(0.0), dragon.velocity.with_y(0.0));
       let yaw_rate = (was.length() > 1.0 && now.length() > 1.0)
-        .then(|| was.normalize().cross(now.normalize()).y.asin() / delta.max(1e-3))
+        .then(|| {
+          was.normalize().cross(now.normalize()).y.clamp(-1.0, 1.0).asin()
+            / delta.max(1e-3)
+        })
         .unwrap_or(0.0);
       let bank = (!grounded && !hovering)
         .then(|| (yaw_rate * now.length() / GRAVITY).atan())

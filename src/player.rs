@@ -126,7 +126,7 @@ fn spawn_player(
     pitch: opts().pitch.unwrap_or(-8.0).to_radians(),
     distance: opts().zoom.unwrap_or(3.2),
     first_person: opts().first,
-    captured: true,
+    captured: !cfg!(target_arch = "wasm32"),
     combat: 0.0
   });
   commands.spawn((
@@ -153,12 +153,11 @@ fn capture_cursor(
   if keys.just_pressed(KeyCode::Escape) {
     view.captured = false;
   }
-  if mouse.just_pressed(MouseButton::Left) {
-    view.captured = true;
-  }
+  let clicked = mouse.just_pressed(MouseButton::Left);
+  view.captured |= clicked;
   let grab =
     view.captured.then_some(CursorGrabMode::Locked).unwrap_or(CursorGrabMode::None);
-  if cursor.grab_mode != grab || cursor.visible == view.captured {
+  if clicked || cursor.grab_mode != grab || cursor.visible == view.captured {
     cursor.visible = !view.captured;
     cursor.grab_mode = grab;
   }
@@ -282,7 +281,10 @@ fn follow(
   shake.0 = (shake.0 - time.delta_secs() * 1.6).max(0.0);
   let placed = eye + gap.normalize_or_zero() * reach + jitter;
   camera.translation = crate::river::water_level(placed.xz())
-    .filter(|&level| ground.height(placed.xz()) < level)
+    .filter(|&level| {
+      let floor = ground.height(placed.xz());
+      floor < level && placed.y > floor - 4.0
+    })
     .map_or(placed, |level| placed.with_y(placed.y.max(level + 0.25)));
   camera.rotation = rotation;
   if let Some(eye) = opts().eye {

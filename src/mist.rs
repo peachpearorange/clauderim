@@ -61,7 +61,7 @@ fn banks_in_row(row: usize) -> Vec<Bank> {
       let gathering =
         noise::fbm(at / 700.0, 3, 907) + 0.35 * noise::fbm(at / 2400.0, 2, 909);
       let chosen = height > FOOT
-        && (height - belt).abs() < 210.0
+        && ((height - belt).abs() < 210.0 || (height - belt * 2.6).abs() < 260.0)
         && noise::hash(column as i32, row as i32, 911) < smooth(-0.25, 0.25, gathering);
       chosen.then(|| {
         let slope = |offset: Vec2| {
@@ -69,7 +69,8 @@ fn banks_in_row(row: usize) -> Vec<Bank> {
             - terrain::wild_height(at - offset * 30.0))
             / 60.0
         };
-        let size = 90.0 + 170.0 * noise::hash(column as i32, row as i32, 913);
+        let size = (90.0 + 170.0 * noise::hash(column as i32, row as i32, 913))
+          * smooth(500.0, 1200.0, height).mul_add(0.6, 1.0);
         Bank {
           center: at.extend(height + size * 0.3 + 15.0).xzy(),
           size,

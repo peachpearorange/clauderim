@@ -67,7 +67,7 @@ fn walk(
         let float_line = level.unwrap_or(f32::MIN) - FLOAT_DEPTH;
         let swimming = level
           .is_some_and(|level| level - ground.height(translation.xz()) > SWIM_DEPTH)
-          && feet < float_line + 0.3;
+          && (float_line - 6.0..float_line + 0.3).contains(&feet);
         let grounded = !swimming
           && (walker.grounded || velocity.y < LANDING_SPEED)
           && move_and_slide
