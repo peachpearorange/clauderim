@@ -1025,6 +1025,7 @@ fn survey(ground: &Ground, at: Vec2) -> Site {
     treeline: smooth(line + 130.0, line + 60.0, height),
     open: at.abs().max_element() < BOUND
       && height > LAKE_LEVEL + 0.8
+      && crate::river::course_distance(at) > 11.0
       && at.distance(START) > 6.0
       && Place::ALL.into_iter().all(|place| {
         at.distance(place.spot()) > place.flat() * place.clearance()
@@ -1913,6 +1914,7 @@ fn sward(ground: &Ground, cell: IVec2) -> Option<(Vec3, Mesh)> {
         * smooth(0.7, 0.84, normal.y)
         * smooth(line + 5.0, line - 30.0, height)
         * smooth(LAKE_LEVEL + 0.5, LAKE_LEVEL + 1.8, height)
+        * (1.0 - crate::river::bank(at))
         * (0.25 + 0.75 * clump)
         * f32::from(u8::from(at.abs().max_element() < BOUND))
         * f32::from(u8::from(Place::ALL.into_iter().all(|place| {

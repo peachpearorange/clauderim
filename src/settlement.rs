@@ -70,6 +70,7 @@ pub enum Work {
   Gate { at: Vec2, facing: f32, tall: f32 },
   Clutter { at: Vec2, facing: f32, kind: Clutter },
   Tent { at: Vec2, facing: f32 },
+  Mill { at: Vec2, facing: f32 },
   Fire { at: Vec2 }
 }
 
@@ -118,6 +119,7 @@ impl Plan {
     at.distance(self.center) + radius < self.reach
       && self.taken.iter().all(|&(spot, room)| spot.distance(at) > room + radius)
       && self.streets.iter().all(|&(from, to)| segment_gap(at, from, to) > kerb + 2.5)
+      && crate::river::course_distance(at) > radius + 9.0
   }
 
   fn free(&self, at: Vec2, radius: f32) -> bool { self.clear(at, radius, radius) }
@@ -211,6 +213,18 @@ fn town(place: Place, seed: u32, entry: Vec2, roof: Roof, walls: Walls) -> Layou
   ];
   ends.iter().for_each(|&end| plan.street(center, end));
   plan.worn.push((center, 15.0));
+  if let Some(bank) = crate::river::PATH
+    .iter()
+    .copied()
+    .min_by(|a, b| a.distance(center).total_cmp(&b.distance(center)))
+    .filter(|bank| bank.distance(center) < place.flat() * 1.6)
+  {
+    let inward = (center - bank).normalize();
+    let at = bank + inward * 12.0;
+    plan.works.push(Work::Mill { at, facing: facing_toward(inward.perp()) });
+    plan.taken.push((at, 9.0));
+    plan.worn.push((at + inward * 5.0, 5.0));
+  }
   plan.works.push(Work::Well { at: center + cross * 5.0 });
   plan.taken.push((center, 9.0));
   let hall_at = center - entry * 17.0 + cross * 16.0;
@@ -496,7 +510,7 @@ const CANVAS: Srgba = Srgba::new(0.62, 0.55, 0.44, 1.0);
 struct Works {
   parts: Vec<(Stuff, Piece)>,
   solids: Vec<(Vec3, Quat, Collider)>,
-  spinners: Vec<(Vec3, Vec<(Stuff, Piece)>)>,
+  spinners: Vec<(Transform, Vec<(Stuff, Piece)>)>,
   fires: Vec<Vec3>
 }
 
@@ -524,15 +538,7 @@ impl Works {
       spinners: self
         .spinners
         .into_iter()
-        .map(|(at, parts)| {
-          (
-            frame.transform_point(at),
-            parts
-              .into_iter()
-              .map(|(stuff, piece)| (stuff, piece.turned(frame.rotation)))
-              .collect()
-          )
-        })
+        .map(|(hub, parts)| (frame * hub, parts))
         .collect(),
       fires: self.fires.into_iter().map(|at| frame.transform_point(at)).collect()
     }
@@ -1103,7 +1109,7 @@ fn windmill(ground: Ground, roll: &mut Roll) -> Works {
     })
     .chain([(Stuff::Wood, Piece::new(rod(0.35, 0.8), BEAM).pitched(FRAC_PI_2))])
     .collect();
-  works.spinners.push((hub, sails));
+  works.spinners.push((Transform::from_translation(hub), sails));
   works.solid(Vec3::Y * (high + 5.0), Quat::IDENTITY, Collider::cylinder(3.3, 12.0));
   works
 }
@@ -1397,9 +1403,76 @@ fn clutter(kind: Clutter, ground: Ground, roll: &mut Roll) -> Works {
   works
 }
 
+fn wheel(radius: f32, roll: &mut Roll) -> Vec<(Stuff, Piece)> {
+  let timber = tinted(TIMBER * 0.8, roll, 0.08);
+  let rims = [-0.5, 0.5].map(|side| {
+    let hoop: Vec<Vec3> = (0..=24)
+      .map(|step| {
+        Vec2::from_angle(step as f32 / 24.0 * TAU).extend(side).xyz()
+          * Vec3::new(radius, radius, 1.0)
+      })
+      .collect();
+    (Stuff::Wood, Piece::new(crate::model::tube(&hoop, &[0.12], 6), timber))
+  });
+  let spokes = (0..8).map(|spoke| {
+    let angle = spoke as f32 / 8.0 * TAU;
+    (Stuff::Wood, Piece::new(block(0.14, radius * 2.0, 0.14), BEAM).rolled(angle))
+  });
+  let paddles = (0..16).map(|paddle| {
+    let angle = paddle as f32 / 16.0 * TAU;
+    (
+      Stuff::Planks,
+      Piece::new(block(0.7, 0.08, 1.1), timber)
+        .rolled(angle)
+        .at(Vec2::from_angle(angle + FRAC_PI_2).extend(0.0) * radius)
+    )
+  });
+  rims
+    .into_iter()
+    .chain(spokes)
+    .chain(paddles)
+    .chain([(Stuff::Wood, Piece::new(rod(0.3, 1.6), BEAM).pitched(FRAC_PI_2))])
+    .collect()
+}
+
+fn mill(site: &Site, roll: &mut Roll) -> Works {
+  let ground: Ground = &|offset| site.ground(offset);
+  let plan = House {
+    at: Vec2::ZERO,
+    facing: 0.0,
+    length: 10.0,
+    depth: 7.0,
+    tall: 3.4,
+    roof: Roof::Shingle,
+    walls: Walls::Timber
+  };
+  let mut works = house(&plan, ground, roll);
+  let side = Vec2::new(-(plan.length / 2.0 + 1.2), -1.0);
+  let world = site.origin + site.frame.transform_point(side.extend(0.0).xzy());
+  let level = crate::river::reach(world.xz())
+    .map_or(ground(side), |reach| reach.level - site.origin.y);
+  let radius = 2.8;
+  works.spinners.push((
+    Transform::from_xyz(side.x, level + radius - 0.6, side.y)
+      .with_rotation(Quat::from_rotation_y(FRAC_PI_2)),
+    wheel(radius, roll)
+  ));
+  works.add(
+    Stuff::Wood,
+    beam(
+      Vec3::new(side.x - 0.2, level + radius + 1.2, side.y),
+      Vec3::new(side.x + 2.2, level + radius + 1.2, side.y),
+      0.3,
+      BEAM
+    )
+  );
+  works
+}
+
 fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
   let ground: Ground = &|offset| site.ground(offset);
   match work {
+    Work::Mill { .. } => mill(site, roll),
     Work::House(house_plan) => house(house_plan, ground, roll),
     Work::Keep { .. } => keep(ground, roll),
     Work::Windmill { .. } => windmill(ground, roll),
@@ -1438,7 +1511,8 @@ fn anchor(work: &Work) -> (Vec2, f32) {
     | Work::Field { at, facing, .. }
     | Work::Gate { at, facing, .. }
     | Work::Clutter { at, facing, .. }
-    | Work::Tent { at, facing } => (*at, *facing),
+    | Work::Tent { at, facing }
+    | Work::Mill { at, facing } => (*at, *facing),
     Work::Well { at } | Work::Tower { at, .. } | Work::Fire { at } => (*at, 0.0),
     Work::Fence { .. } | Work::Rampart { .. } => (Vec2::ZERO, 0.0)
   }
@@ -1448,7 +1522,7 @@ struct Raised {
   origin: Vec3,
   parts: Vec<(Stuff, Mesh)>,
   solids: Vec<(Vec3, Quat, Collider)>,
-  spinners: Vec<(Vec3, Vec<(Stuff, Mesh)>)>,
+  spinners: Vec<(Transform, Vec<(Stuff, Mesh)>)>,
   hearths: Vec<Vec3>
 }
 
@@ -1554,15 +1628,8 @@ fn erect(
       child.insert(NotShadowCaster);
     }
   });
-  spinners.into_iter().for_each(|(at, parts)| {
-    let hub = commands
-      .spawn((
-        Spin(0.5),
-        Transform::from_translation(at),
-        Visibility::Inherited,
-        ChildOf(root)
-      ))
-      .id();
+  spinners.into_iter().for_each(|(hub, parts)| {
+    let hub = commands.spawn((Spin(0.5), hub, Visibility::Inherited, ChildOf(root))).id();
     parts.into_iter().for_each(|part| {
       commands.spawn((look(part, meshes), ChildOf(hub)));
     });

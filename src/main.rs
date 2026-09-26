@@ -17,6 +17,7 @@ mod par;
 mod paving;
 mod place;
 mod player;
+mod river;
 mod sdf;
 mod settlement;
 mod shout;
@@ -148,7 +149,7 @@ fn main() {
       hud::plugin,
       inventory::plugin
     ))
-    .add_plugins((cave::plugin, paving::plugin, settlement::plugin))
+    .add_plugins((cave::plugin, paving::plugin, settlement::plugin, river::plugin))
     .add_plugins(audio::plugin)
     .add_systems(Update, snapshot)
     .add_systems(

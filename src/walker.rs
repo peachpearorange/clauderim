@@ -1,5 +1,5 @@
 use {crate::{humanoid::Motion,
-             place::{LAKE, LAKE_LEVEL, LAKE_RADIUS},
+             river,
              terrain::{BOUND, Footing, Ground}},
      avian3d::{math::AdjustPrecision, prelude::*},
      bevy::prelude::*};
@@ -63,9 +63,10 @@ fn walk(
         let filter = SpatialQueryFilter::from_excluded_entities([entity]);
         let &Transform { translation, rotation, .. } = &*transform;
         let feet = collider.aabb(translation.adjust_precision(), rotation).min.y;
-        let float_line = LAKE_LEVEL - FLOAT_DEPTH;
-        let swimming = translation.xz().distance(LAKE) < LAKE_RADIUS * 2.0
-          && LAKE_LEVEL - ground.height(translation.xz()) > SWIM_DEPTH
+        let level = river::water_level(translation.xz());
+        let float_line = level.unwrap_or(f32::MIN) - FLOAT_DEPTH;
+        let swimming = level
+          .is_some_and(|level| level - ground.height(translation.xz()) > SWIM_DEPTH)
           && feet < float_line + 0.3;
         let grounded = !swimming
           && (walker.grounded || velocity.y < LANDING_SPEED)

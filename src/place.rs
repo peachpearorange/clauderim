@@ -130,13 +130,14 @@ pub struct Road {
   pub path: Vec<Vec2>
 }
 
-const SOUTH_ROAD: [Vec2; 7] = [
+const SOUTH_ROAD: [Vec2; 8] = [
   Vec2::new(90.0, 360.0),
-  Vec2::new(125.0, 520.0),
-  Vec2::new(175.0, 720.0),
-  Vec2::new(235.0, 910.0),
-  Vec2::new(280.0, 1100.0),
-  Vec2::new(310.0, 1250.0),
+  Vec2::new(104.0, 520.0),
+  Vec2::new(110.0, 700.0),
+  Vec2::new(140.0, 880.0),
+  Vec2::new(185.0, 1040.0),
+  Vec2::new(250.0, 1160.0),
+  Vec2::new(300.0, 1255.0),
   Vec2::new(330.0, 1330.0)
 ];
 
@@ -188,15 +189,15 @@ const ALDVIK_TRAIL: [Vec2; 3] =
   [Vec2::new(1600.0, 485.0), Vec2::new(1625.0, 610.0), Vec2::new(1660.0, 730.0)];
 
 const HALLGRIM_TRAIL: [Vec2; 3] =
-  [Vec2::new(280.0, 1100.0), Vec2::new(450.0, 1150.0), Vec2::new(610.0, 1190.0)];
+  [Vec2::new(300.0, 1255.0), Vec2::new(450.0, 1215.0), Vec2::new(610.0, 1190.0)];
 
 const BLACKBRIAR_TRAIL: [Vec2; 3] =
-  [Vec2::new(235.0, 910.0), Vec2::new(400.0, 870.0), Vec2::new(548.0, 806.0)];
+  [Vec2::new(140.0, 880.0), Vec2::new(380.0, 860.0), Vec2::new(548.0, 806.0)];
 
 const WOLFSKULL_TRAIL: [Vec2; 3] =
   [Vec2::new(-450.0, 60.0), Vec2::new(-650.0, 250.0), Vec2::new(-868.0, 412.0)];
 
-fn smoothed(path: &[Vec2]) -> Vec<Vec2> {
+pub fn smoothed(path: &[Vec2]) -> Vec<Vec2> {
   let key = |index: isize| path[index.clamp(0, path.len() as isize - 1) as usize];
   (0..path.len() as isize - 1)
     .flat_map(|segment| {

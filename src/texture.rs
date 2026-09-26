@@ -224,12 +224,13 @@ pub fn cobbles() -> Image {
     let (dome, edge, cell) = cobble_grain(u, v);
     let tint = crate::noise::hash(cell.x, cell.y, 153);
     let warm = crate::noise::hash(cell.x, cell.y, 155);
-    let ragged = (cell.x == 0 || cell.x == COBBLES - 1) && tint < 0.5;
-    let mortar = 1.0 - ((edge - 0.02) / 0.04).clamp(0.0, 1.0);
+    let ragged = (cell.x == 0 || cell.x == COBBLES - 1) && tint < 0.5
+      || crate::noise::hash(cell.x, cell.y, 159) < 0.1;
+    let mortar = 1.0 - ((edge - 0.03) / 0.05).clamp(0.0, 1.0);
     let speck = tile_fbm(u, v, 48, 3, 157);
-    let stone = (0.34 + 0.16 * tint + 0.12 * (speck - 0.5)) * (0.85 + 0.15 * dome);
+    let stone = (0.25 + 0.14 * tint + 0.1 * (speck - 0.5)) * (0.8 + 0.2 * dome);
     let stone = Vec3::new(stone * (1.0 + 0.1 * warm), stone, stone * (1.0 - 0.08 * warm));
-    let dirt = Vec3::new(0.26, 0.21, 0.16) * (0.8 + 0.4 * speck);
+    let dirt = Vec3::new(0.22, 0.18, 0.13) * (0.8 + 0.4 * speck);
     let tone = stone.lerp(dirt, mortar);
     let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0) as u8;
     [byte(tone.x), byte(tone.y), byte(tone.z), (!ragged) as u8 * 255]

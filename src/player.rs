@@ -280,11 +280,9 @@ fn follow(
   ) * tremor;
   shake.0 = (shake.0 - time.delta_secs() * 1.6).max(0.0);
   let placed = eye + gap.normalize_or_zero() * reach + jitter;
-  let over_lake = placed.xz().distance(place::LAKE) < place::LAKE_RADIUS * 2.0
-    && ground.height(placed.xz()) < place::LAKE_LEVEL;
-  camera.translation = over_lake
-    .then(|| placed.with_y(placed.y.max(place::LAKE_LEVEL + 0.25)))
-    .unwrap_or(placed);
+  camera.translation = crate::river::water_level(placed.xz())
+    .filter(|&level| ground.height(placed.xz()) < level)
+    .map_or(placed, |level| placed.with_y(placed.y.max(level + 0.25)));
   camera.rotation = rotation;
   if let Some(eye) = opts().eye {
     let lifted =

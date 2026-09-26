@@ -1,7 +1,7 @@
 use {crate::{noise,
              place::{self, LAKE, LAKE_LEVEL, LAKE_RADIUS, Marker, Place},
              player::{MainCamera, Player},
-             settlement, texture},
+             river, settlement, texture},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             color::Mix,
@@ -121,7 +121,7 @@ fn wild_height(at: Vec2) -> f32 {
   24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
-fn lake_height(at: Vec2) -> f32 {
+pub fn natural_height(at: Vec2) -> f32 {
   let shore = LAKE_RADIUS * (1.0 + 0.25 * noise::fbm(at / 90.0, 3, 21));
   let reach = at.distance(LAKE);
   let bowl = smooth(shore * 1.6, shore * 0.55, reach);
@@ -132,20 +132,22 @@ fn graded_height(at: Vec2) -> f32 {
   let road = place::nearest_road(at);
   let width = road.paving.half_width();
   let bed = smooth(width + 7.0, width + 1.0, road.distance);
-  let natural = lake_height(at);
-  (bed > 0.0).then(|| natural.lerp(lake_height(road.point), bed)).unwrap_or(natural)
+  let natural = natural_height(at);
+  (bed > 0.0).then(|| natural.lerp(natural_height(road.point), bed)).unwrap_or(natural)
 }
 
-fn place_level(place: Place) -> f32 { lake_height(place.spot()) + place.rise() }
+fn place_level(place: Place) -> f32 { natural_height(place.spot()) + place.rise() }
 
 pub fn height_at(at: Vec2) -> f32 {
   let near = |place: &Place| at.distance(place.spot()) < place.flat() * 1.9;
-  Place::ALL.into_iter().filter(near).fold(graded_height(at), |height, place| {
-    let reach = at.distance(place.spot());
-    let flatten = smooth(place.flat() * 1.9, place.flat(), reach);
-    let pit = smooth(place.flat() * 0.95, place.flat() * 0.6, reach) * place.sunk();
-    height.lerp(place_level(place), flatten) - pit
-  })
+  let settled =
+    Place::ALL.into_iter().filter(near).fold(graded_height(at), |height, place| {
+      let reach = at.distance(place.spot());
+      let flatten = smooth(place.flat() * 1.9, place.flat(), reach);
+      let pit = smooth(place.flat() * 0.95, place.flat() * 0.6, reach) * place.sunk();
+      height.lerp(place_level(place), flatten) - pit
+    });
+  river::carve(at, settled)
 }
 
 pub fn forest(at: Vec2) -> f32 {
@@ -156,6 +158,7 @@ pub fn forest(at: Vec2) -> f32 {
       smooth(place.flat() * 2.2, place.flat() * 1.2, at.distance(place.spot()))
     })
     .fold(smooth(10.0, 4.0, place::road_distance(at)), f32::max)
+    .max(smooth(16.0, 8.0, river::course_distance(at)))
     .max(settlement::tilled(at));
   let lowland_woods = 0.12 * smooth(1200.0, 700.0, at.length());
   (smooth(-0.1 + lowland_woods, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
@@ -198,7 +201,7 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
     .mix(&TRODDEN, worn.max(verge))
     .mix(&settlement::SOIL, soil)
     .mix(&surface, paved * 0.9)
-    .mix(&PEBBLES, shore)
+    .mix(&PEBBLES, shore.max(river::bank(at) * 0.85))
     .mix(&SEABED, drowned)
     .mix(&stone, cliff.max(alpine) * (1.0 - paved * 0.8))
     .mix(&SNOW, snow)
@@ -766,23 +769,6 @@ mod tests {
           ground.height(at)
         );
       });
-  }
-
-  #[test]
-  #[ignore]
-  fn steepest_spot() {
-    let (from, to) = (THROAT - Vec2::X * 1600.0, THROAT - Vec2::X * 200.0);
-    let worst = (0..4000)
-      .map(|index| {
-        let at = from.lerp(to, index as f32 / 4000.0);
-        let rise = |offset: Vec2| (height_at(at + offset * 8.0) - height_at(at)).abs();
-        (rise(Vec2::X).max(rise(Vec2::Y)) / 8.0, at, height_at(at))
-      })
-      .fold(
-        (0.0, Vec2::ZERO, 0.0),
-        |best, each| if each.0 > best.0 { each } else { best }
-      );
-    println!("{worst:?} route {}", place::route_distance(worst.1));
   }
 
   #[test]
