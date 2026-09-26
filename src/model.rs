@@ -314,7 +314,7 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   mesh
 }
 
-pub fn hewn(seed: u32, cuts: u32, ledges: f32, layers: Option<f32>, detail: u32) -> Mesh {
+pub fn hewn(seed: u32, cuts: u32, ledges: f32, detail: u32) -> Mesh {
   let mut roll = noise::Roll::new(seed);
   let planes: Vec<(Vec3, f32)> = (0..cuts)
     .map(|cut| {
@@ -329,10 +329,8 @@ pub fn hewn(seed: u32, cuts: u32, ledges: f32, layers: Option<f32>, detail: u32)
       ((even + jitter).normalize_or(even), roll.range(0.6, 1.0))
     })
     .collect();
-  let (layers, tilt) = layers.map_or_else(
-    || (roll.range(1.6, 2.4), Vec2::new(roll.spread(0.2), roll.spread(0.2))),
-    |layers| (layers, Vec2::ZERO)
-  );
+  let (layers, tilt) =
+    (roll.range(1.6, 2.4), Vec2::new(roll.spread(0.2), roll.spread(0.2)));
   let carve = |direction: Vec3| {
     let reach = planes
       .iter()
@@ -356,45 +354,58 @@ pub fn hewn(seed: u32, cuts: u32, ledges: f32, layers: Option<f32>, detail: u32)
   mesh
 }
 
-pub fn cliff(seed: u32, layers: f32, detail: u32) -> Mesh {
+pub fn crag(seed: u32, blades: u32, detail: u32) -> Vec<Mesh> {
   let mut roll = noise::Roll::new(seed);
-  let lean = roll.range(0.05, 0.2);
-  let planes: Vec<(Vec3, f32)> = [
-    (Vec3::new(roll.spread(0.15), lean, 1.0), 0.55),
-    (Vec3::new(1.0, 0.1, roll.spread(0.3)), 0.95),
-    (Vec3::new(-1.0, 0.1, roll.spread(0.3)), 0.95),
-    (Vec3::new(roll.spread(0.2), 1.0, roll.spread(0.3)), roll.range(0.8, 0.95)),
-    (Vec3::new(roll.spread(0.4), 0.8, 0.9), roll.range(0.8, 1.0)),
-    (Vec3::new(0.7, 0.2, 0.8), roll.range(0.8, 0.95)),
-    (Vec3::new(-0.7, 0.2, 0.8), roll.range(0.8, 0.95)),
-    (Vec3::new(0.0, -0.3, -1.0), 0.7)
-  ]
-  .map(|(normal, offset)| (normal.normalize(), offset))
-  .into();
-  let carve = |direction: Vec3| {
-    let fracture = 0.05
-      * (1.0
-        - noise::perlin(Vec2::new(direction.x * 7.0, direction.y * 1.2), seed).abs())
-      + 0.03 * noise::fbm3(direction * 4.0, 2, seed + 1);
-    let reach = planes
-      .iter()
-      .filter(|&&(normal, _)| normal.dot(direction) > 0.05)
-      .map(|&(normal, offset)| (offset - fracture) / normal.dot(direction))
-      .fold(1.4, f32::min);
-    let point = direction * reach;
-    let bed = point.y * layers + 0.15 * noise::fbm3(point * 1.5, 2, seed + 3);
-    let shelf = 0.08 * ((bed.fract() - 0.75) / 0.07).clamp(0.0, 1.0);
-    point - Vec3::new(0.0, 0.0, point.z.max(0.0)) * shelf * 4.0
-  };
-  let mut mesh = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
-  let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
-    .into_iter()
-    .map(|point| carve(point.normalize()))
-    .collect();
-  mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-  mesh.duplicate_vertices();
-  mesh.compute_flat_normals();
-  mesh
+  let (lean, recline, crown) =
+    (roll.spread(0.3), roll.range(0.12, 0.3), roll.spread(0.4));
+  (0..blades)
+    .map(|blade| {
+      let along = (blade as f32 + 0.5) / blades as f32 * 2.0 - 1.0;
+      let x = along * 0.6 + roll.spread(0.08);
+      let height = roll.range(0.7, 1.2) * (1.0 - 0.45 * (x - crown).abs());
+      let size = Vec3::new(roll.range(0.38, 0.55), height, roll.range(0.55, 0.8));
+      let center = Vec3::new(x, height - 1.0, roll.spread(0.12) - 0.2 * (1.0 - height));
+      let turn = Quat::from_rotation_z(lean + roll.spread(0.12))
+        * Quat::from_rotation_x(-recline + roll.spread(0.08));
+      let ridge = roll.spread(0.25);
+      let planes: Vec<(Vec3, f32)> = [
+        (Vec3::new(roll.spread(0.2), 0.0, 1.0), roll.range(0.45, 0.6)),
+        (Vec3::new(roll.spread(0.2), 0.0, -1.0), 0.6),
+        (Vec3::new(1.0, 0.0, roll.spread(0.3)), roll.range(0.45, 0.65)),
+        (Vec3::new(-1.0, 0.0, roll.spread(0.3)), roll.range(0.45, 0.65)),
+        (Vec3::new(0.7, roll.spread(0.2), 0.7), roll.range(0.55, 0.7)),
+        (Vec3::new(-0.7, roll.spread(0.2), 0.7), roll.range(0.55, 0.7)),
+        (Vec3::new(1.3 + ridge, 1.0, roll.spread(0.4)), roll.range(0.5, 0.65)),
+        (Vec3::new(-1.3 + ridge, 1.0, roll.spread(0.4)), roll.range(0.5, 0.65)),
+        (Vec3::new(roll.spread(0.4), 1.0, 1.1), roll.range(0.55, 0.7))
+      ]
+      .map(|(normal, offset)| (normal.normalize(), offset))
+      .into();
+      let carve = |direction: Vec3| {
+        let groove = noise::perlin(
+          Vec2::new((direction.x + direction.z) * 4.0, direction.y * 0.8),
+          seed + blade
+        );
+        let fracture =
+          0.05 * (1.0 - groove.abs()) + 0.012 * noise::fbm3(direction * 3.0, 2, seed);
+        let reach = planes
+          .iter()
+          .filter(|&&(normal, _)| normal.dot(direction) > 0.05)
+          .map(|&(normal, offset)| (offset - fracture) / normal.dot(direction))
+          .fold(1.4, f32::min);
+        center + turn * (direction * reach * size)
+      };
+      let mut mesh = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
+      let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
+        .into_iter()
+        .map(|point| carve(point.normalize()))
+        .collect();
+      mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
+      mesh.duplicate_vertices();
+      mesh.compute_flat_normals();
+      mesh
+    })
+    .collect()
 }
 
 pub fn blade(length: f32, width: f32, thickness: f32, tip: f32) -> Mesh {

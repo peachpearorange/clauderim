@@ -32,7 +32,6 @@ const THROAT_REACH: f32 = 1700.0;
 const THROAT_RISE: f32 = 1000.0;
 const THROAT_DETAIL: i32 = 512;
 const LEDGE: f32 = 38.0;
-const STRATUM: f32 = 26.0;
 
 pub const fn srgb(red: f32, green: f32, blue: f32) -> LinearRgba {
   const fn decode(value: f32) -> f32 { value * value * (0.8 + 0.2 * value) }
@@ -82,14 +81,6 @@ fn ledged(height: f32, at: Vec2) -> f32 {
   (level.floor() + smooth(0.0, 1.0, level.fract()) - shift) * thickness
 }
 
-fn strata(height: f32, at: Vec2) -> f32 {
-  let dip = 0.07 * at.dot(Vec2::from_angle(noise::fbm(at / 2400.0, 2, 95) * 3.0));
-  let thickness = STRATUM * (1.0 + 0.5 * noise::fbm(at / 260.0, 3, 97));
-  let level = (height + dip) / thickness + 1.5 * noise::fbm(at / 380.0, 2, 99);
-  let bedded = smooth(-0.35, 0.15, noise::fbm(at / 320.0, 3, 101));
-  height + (level.floor() + smooth(0.35, 0.75, level.fract()) - level) * thickness * bedded
-}
-
 fn settled(place: Place) -> bool {
   matches!(place.marker(), Marker::Town | Marker::City | Marker::Farm | Marker::Fort)
 }
@@ -125,9 +116,7 @@ pub fn land(at: Vec2, pass: f32) -> f32 {
   let border = (far > 0.0).then(|| far * throat_calm * spires(at)).unwrap_or(0.0);
   let massif =
     highland(at, bent, far, pass) * (40.0 + crags * (320.0 + 110.0 * range)) + border;
-  let rugged = smooth(50.0, 200.0, massif) * (1.0 - far);
-  let layered = massif.lerp(strata(massif, bent), 0.65 * rugged);
-  24.0 + hills + layered.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
+  24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
 pub fn wild_height(at: Vec2) -> f32 {

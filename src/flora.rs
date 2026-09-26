@@ -73,8 +73,8 @@ const PATCH: f32 = 32.0;
 const NEAR_TREE: f32 = 170.0;
 const FADE: f32 = 40.0;
 const ROCK_REACH: f32 = 50.0;
+const CLIFF_REACH: f32 = 300.0;
 const ROCK_DETAIL: [u32; 3] = [15, 6, 3];
-const CRAG_LAYERS: f32 = 2.0;
 const TIER: f32 = 4.0;
 const CELL: f32 = 64.0;
 const RESTREAM_STEP: f32 = 8.0;
@@ -789,33 +789,54 @@ fn log(seed: u32) -> (Mesh, Collider) {
 
 fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
   let grain = noise::fbm3(point * 1.3, 3, seed);
-  let strata = (point.y * 9.0 + 2.0 * noise::fbm3(point * 0.9, 2, seed + 2)).sin();
-  let top = smooth(0.55, 0.85, normal.y + 0.4 * noise::fbm3(point * 2.3, 2, seed + 5));
+  let streak =
+    noise::fbm(Vec2::new((point.x + point.z) * 9.0, point.y * 1.2), 3, seed + 2);
+  let top = smooth(
+    0.4,
+    0.75,
+    normal.y + 0.3 * streak + 0.2 * noise::fbm3(point * 2.3, 2, seed + 5)
+  );
   let rock = STONE
     .mix(&DARK_STONE, smooth(-0.2, 0.25, grain))
-    .mix(&CRAG, smooth(0.3, 0.9, strata) * 0.35)
+    .mix(&CRAG, smooth(-0.1, 0.4, streak) * 0.6)
+    .mix(&DARK_STONE, smooth(0.1, -0.4, normal.y) * 0.4)
     .mix(&LICHEN, smooth(0.3, 0.6, noise::fbm3(point * 3.0, 2, seed + 3)) * 0.12);
   rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.35 })
 }
 
-fn rock_shape(seed: u32, snowy: bool, carve: impl Fn(u32) -> Mesh) -> Shape {
+fn rock_shape(
+  seed: u32,
+  snowy: bool,
+  reach: Reach,
+  carve: impl Fn(u32) -> Vec<Mesh>
+) -> Shape {
   let [near, far @ ..] = ROCK_DETAIL.map(|detail| {
-    Piece::new(carve(detail), Srgba::WHITE)
+    Piece::new(model::merge(carve(detail).into_iter().map(Piece)), Srgba::WHITE)
       .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
       .0
   });
-  let collider = near
-    .attribute(Mesh::ATTRIBUTE_POSITION)
-    .and_then(|values| values.as_float3())
-    .and_then(|points| {
-      Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
-    })
-    .unwrap_or_else(|| Collider::sphere(1.0));
+  let hull = |mesh: Mesh| {
+    mesh
+      .attribute(Mesh::ATTRIBUTE_POSITION)
+      .and_then(|values| values.as_float3())
+      .and_then(|points| {
+        Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
+      })
+  };
+  let hulls: Vec<(Vec3, Quat, Collider)> = carve(ROCK_DETAIL[1])
+    .into_iter()
+    .filter_map(hull)
+    .map(|collider| (Vec3::ZERO, Quat::IDENTITY, collider))
+    .collect();
   Shape {
     parts: vec![(Coat::Plain(Stuff::Stone), near)],
     far: far.into_iter().map(|mesh| (Coat::Plain(Stuff::Stone), mesh)).collect(),
-    collider: Some(collider),
-    reach: Reach::PerSize(ROCK_REACH)
+    collider: Some(if hulls.is_empty() {
+      Collider::sphere(1.0)
+    } else {
+      Collider::compound(hulls)
+    }),
+    reach
   }
 }
 
@@ -982,21 +1003,30 @@ fn shape(growth: Growth, variant: usize) -> Shape {
     }
     Growth::Boulder | Growth::SnowyBoulder => {
       let seed = variant as u32 + 300;
-      rock_shape(seed, growth == Growth::SnowyBoulder, |detail| {
-        model::hewn(seed, 13, 0.07, None, detail)
-      })
+      rock_shape(
+        seed,
+        growth == Growth::SnowyBoulder,
+        Reach::PerSize(ROCK_REACH),
+        |detail| vec![model::hewn(seed, 13, 0.07, detail)]
+      )
     }
     Growth::Crag | Growth::SnowyCrag => {
       let seed = variant as u32 + 500;
-      rock_shape(seed, growth == Growth::SnowyCrag, |detail| {
-        model::hewn(seed, 9, 0.14, Some(CRAG_LAYERS), detail)
-      })
+      rock_shape(
+        seed,
+        growth == Growth::SnowyCrag,
+        Reach::PerSize(ROCK_REACH),
+        |detail| model::crag(seed, 2 + variant as u32 % 2, detail.min(10))
+      )
     }
     Growth::Cliff | Growth::SnowyCliff => {
       let seed = variant as u32 + 700;
-      rock_shape(seed, growth == Growth::SnowyCliff, |detail| {
-        model::cliff(seed, CRAG_LAYERS, detail)
-      })
+      rock_shape(
+        seed,
+        growth == Growth::SnowyCliff,
+        Reach::Fixed(CLIFF_REACH),
+        |detail| model::crag(seed, 4 + variant as u32 % 3, detail.min(10))
+      )
     }
     Growth::Juniper => Shape {
       parts: vec![(Coat::Plain(Stuff::Needles), juniper(seed))],
@@ -1181,11 +1211,11 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       let steep = smooth(0.84, 0.62, site.normal.y);
       let size = roll.range(3.0, 8.0);
       let contour = site.normal.xz().normalize_or(Vec2::X).perp();
-      let (pick, crowd) = (roll.next(), 1 + roll.below(3));
+      let (pick, crowd) = (roll.next(), 2 + roll.below(3));
       (site.spot.x.abs() < BOUND
         && site.spot.z.abs() < BOUND
         && site.road > 6.0
-        && pick < 0.4 * steep)
+        && pick < 0.2 * steep)
         .then(|| {
           (0..crowd)
             .map(|_| {
@@ -1215,23 +1245,21 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         .unwrap_or_default()
     })
     .collect();
-  let bluffs: Vec<Plant> = (0..3)
+  let bluffs: Vec<Plant> = (0..1)
     .flat_map(|_| {
       let at = anywhere(&mut roll);
       let site = survey(ground, at);
       let steep = smooth(0.8, 0.6, site.normal.y);
-      let size = roll.range(14.0, 30.0);
-      let (pick, crowd) = (roll.next(), 3 + roll.below(4));
-      let tall = size * roll.range(1.0, 1.4);
-      let bed = tall / CRAG_LAYERS;
+      let size = roll.range(35.0, 70.0);
+      let (pick, crowd) = (roll.next(), 2 + roll.below(3));
       let across = |normal: Vec3, toward: Vec2| {
         let contour = normal.xz().normalize_or(Vec2::X).perp();
         if contour.dot(toward) < 0.0 { -contour } else { contour }
       };
       (site.spot.x.abs() < BOUND
         && site.spot.z.abs() < BOUND
-        && site.road > size
-        && pick < 0.45 * steep * smooth(40.0, 140.0, site.spot.y))
+        && place::route_distance(at) > size
+        && pick < 0.5 * steep * smooth(40.0, 140.0, site.spot.y))
       .then(|| {
         let start = across(site.normal, Vec2::X);
         (0..crowd)
@@ -1239,22 +1267,23 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
             let site = survey(ground, *point);
             let contour = across(site.normal, *heading);
             let downhill = site.normal.xz().normalize_or(Vec2::Y);
-            let width = size * roll.range(0.9, 1.2);
-            let scale = Vec3::new(width, tall, size * 0.6);
+            let width = size * roll.range(0.8, 1.2);
+            let scale = Vec3::new(width, size * roll.range(0.7, 1.1), size * 0.8);
             let snowy = site.snow > 0.5;
-            let base = ((site.spot.y - tall * 0.2) / bed).floor() * bed;
             let plant = Plant {
               growth: if snowy { Growth::SnowyCliff } else { Growth::Cliff },
               variant: roll.below(6),
               place: Transform::from_translation(
-                site.spot.with_y(base) - (downhill * size * 0.15).extend(0.0).xzy()
+                site.spot
+                  - Vec3::Y * scale.y * 0.15
+                  - (downhill * size * 0.2).extend(0.0).xzy()
               )
               .with_rotation(Quat::from_rotation_y(
                 downhill.x.atan2(downhill.y) + roll.spread(0.1)
               ))
               .with_scale(scale)
             };
-            *point += contour * width * roll.range(1.5, 1.8);
+            *point += contour * width * roll.range(1.3, 1.7);
             *heading = contour;
             Some(plant)
           })
@@ -2262,9 +2291,10 @@ mod tests {
       Growth::SnowyCliff
     ]);
     println!(
-      "trees {trees} ({:.0}/km²), rocks {rocks} ({:.0}/km²), shrubs {}",
+      "trees {trees} ({:.0}/km²), rocks {rocks} ({:.0}/km²), cliffs {}, shrubs {}",
       trees as f32 / area,
       rocks as f32 / area,
+      count(&[Growth::Cliff, Growth::SnowyCliff]),
       count(&[Growth::Juniper])
     );
     let marks =
