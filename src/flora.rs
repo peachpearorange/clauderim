@@ -798,15 +798,9 @@ fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
   rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.35 })
 }
 
-fn rock_shape(
-  seed: u32,
-  cuts: u32,
-  ledges: f32,
-  layers: Option<f32>,
-  snowy: bool
-) -> Shape {
+fn rock_shape(seed: u32, snowy: bool, carve: impl Fn(u32) -> Mesh) -> Shape {
   let [near, far @ ..] = ROCK_DETAIL.map(|detail| {
-    Piece::new(model::hewn(seed, cuts, ledges, layers, detail), Srgba::WHITE)
+    Piece::new(carve(detail), Srgba::WHITE)
       .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
       .0
   });
@@ -864,12 +858,16 @@ enum Growth {
   Crag,
   #[assoc(variants = 6)]
   SnowyCrag,
+  #[assoc(variants = 6)]
+  Cliff,
+  #[assoc(variants = 6)]
+  SnowyCliff,
   #[assoc(variants = 4)]
   Juniper
 }
 
 impl Growth {
-  const ALL: [Growth; 12] = [
+  const ALL: [Growth; 14] = [
     Growth::Pine,
     Growth::SnowyPine,
     Growth::Birch,
@@ -881,6 +879,8 @@ impl Growth {
     Growth::SnowyBoulder,
     Growth::Crag,
     Growth::SnowyCrag,
+    Growth::Cliff,
+    Growth::SnowyCliff,
     Growth::Juniper
   ];
 }
@@ -981,15 +981,23 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       }
     }
     Growth::Boulder | Growth::SnowyBoulder => {
-      rock_shape(variant as u32 + 300, 13, 0.07, None, growth == Growth::SnowyBoulder)
+      let seed = variant as u32 + 300;
+      rock_shape(seed, growth == Growth::SnowyBoulder, |detail| {
+        model::hewn(seed, 13, 0.07, None, detail)
+      })
     }
-    Growth::Crag | Growth::SnowyCrag => rock_shape(
-      variant as u32 + 500,
-      9,
-      0.14,
-      Some(CRAG_LAYERS),
-      growth == Growth::SnowyCrag
-    ),
+    Growth::Crag | Growth::SnowyCrag => {
+      let seed = variant as u32 + 500;
+      rock_shape(seed, growth == Growth::SnowyCrag, |detail| {
+        model::hewn(seed, 9, 0.14, Some(CRAG_LAYERS), detail)
+      })
+    }
+    Growth::Cliff | Growth::SnowyCliff => {
+      let seed = variant as u32 + 700;
+      rock_shape(seed, growth == Growth::SnowyCliff, |detail| {
+        model::cliff(seed, CRAG_LAYERS, detail)
+      })
+    }
     Growth::Juniper => Shape {
       parts: vec![(Coat::Plain(Stuff::Needles), juniper(seed))],
       far: vec![],
@@ -1207,14 +1215,14 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         .unwrap_or_default()
     })
     .collect();
-  let bluffs: Vec<Plant> = (0..2)
+  let bluffs: Vec<Plant> = (0..3)
     .flat_map(|_| {
       let at = anywhere(&mut roll);
       let site = survey(ground, at);
-      let steep = smooth(0.76, 0.55, site.normal.y);
-      let size = roll.range(12.0, 28.0);
+      let steep = smooth(0.8, 0.6, site.normal.y);
+      let size = roll.range(14.0, 30.0);
       let (pick, crowd) = (roll.next(), 3 + roll.below(4));
-      let tall = size * roll.range(0.75, 1.1);
+      let tall = size * roll.range(1.0, 1.4);
       let bed = tall / CRAG_LAYERS;
       let across = |normal: Vec3, toward: Vec2| {
         let contour = normal.xz().normalize_or(Vec2::X).perp();
@@ -1223,27 +1231,30 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       (site.spot.x.abs() < BOUND
         && site.spot.z.abs() < BOUND
         && site.road > size
-        && pick < 0.32 * steep * smooth(40.0, 140.0, site.spot.y))
+        && pick < 0.45 * steep * smooth(40.0, 140.0, site.spot.y))
       .then(|| {
         let start = across(site.normal, Vec2::X);
         (0..crowd)
           .scan((at, start), |(point, heading), _| {
             let site = survey(ground, *point);
             let contour = across(site.normal, *heading);
-            let width = size * roll.range(0.8, 1.1);
-            let scale = Vec3::new(width, tall, size * 0.9);
+            let downhill = site.normal.xz().normalize_or(Vec2::Y);
+            let width = size * roll.range(0.9, 1.2);
+            let scale = Vec3::new(width, tall, size * 0.6);
             let snowy = site.snow > 0.5;
-            let base = ((site.spot.y - tall * 0.45) / bed).floor() * bed;
+            let base = ((site.spot.y - tall * 0.2) / bed).floor() * bed;
             let plant = Plant {
-              growth: if snowy { Growth::SnowyCrag } else { Growth::Crag },
+              growth: if snowy { Growth::SnowyCliff } else { Growth::Cliff },
               variant: roll.below(6),
-              place: Transform::from_translation(site.spot.with_y(base))
-                .with_rotation(Quat::from_rotation_y(
-                  -contour.to_angle() + roll.spread(0.12)
-                ))
-                .with_scale(scale)
+              place: Transform::from_translation(
+                site.spot.with_y(base) - (downhill * size * 0.15).extend(0.0).xzy()
+              )
+              .with_rotation(Quat::from_rotation_y(
+                downhill.x.atan2(downhill.y) + roll.spread(0.1)
+              ))
+              .with_scale(scale)
             };
-            *point += contour * width * roll.range(1.1, 1.4);
+            *point += contour * width * roll.range(1.5, 1.8);
             *heading = contour;
             Some(plant)
           })
@@ -2242,8 +2253,14 @@ mod tests {
       Growth::Gnarl,
       Growth::Snag
     ]);
-    let rocks =
-      count(&[Growth::Boulder, Growth::SnowyBoulder, Growth::Crag, Growth::SnowyCrag]);
+    let rocks = count(&[
+      Growth::Boulder,
+      Growth::SnowyBoulder,
+      Growth::Crag,
+      Growth::SnowyCrag,
+      Growth::Cliff,
+      Growth::SnowyCliff
+    ]);
     println!(
       "trees {trees} ({:.0}/km²), rocks {rocks} ({:.0}/km²), shrubs {}",
       trees as f32 / area,
@@ -2258,9 +2275,12 @@ mod tests {
               LinearRgba::rgb(0.0, 0.08, 0.02)
             }
             Growth::Birch | Growth::Gnarl => LinearRgba::rgb(0.6, 0.35, 0.0),
-            Growth::Boulder | Growth::SnowyBoulder | Growth::Crag | Growth::SnowyCrag => {
-              LinearRgba::rgb(0.9, 0.9, 0.9)
-            }
+            Growth::Boulder
+            | Growth::SnowyBoulder
+            | Growth::Crag
+            | Growth::SnowyCrag
+            | Growth::Cliff
+            | Growth::SnowyCliff => LinearRgba::rgb(0.9, 0.9, 0.9),
             _ => LinearRgba::rgb(0.1, 0.25, 0.1)
           };
           marks[pixel] = Some(tone);

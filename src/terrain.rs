@@ -86,8 +86,8 @@ fn strata(height: f32, at: Vec2) -> f32 {
   let dip = 0.07 * at.dot(Vec2::from_angle(noise::fbm(at / 2400.0, 2, 95) * 3.0));
   let thickness = STRATUM * (1.0 + 0.5 * noise::fbm(at / 260.0, 3, 97));
   let level = (height + dip) / thickness + 1.5 * noise::fbm(at / 380.0, 2, 99);
-  let bedded = smooth(-0.15, 0.35, noise::fbm(at / 320.0, 3, 101));
-  height + (level.floor() + smooth(0.3, 0.8, level.fract()) - level) * thickness * bedded
+  let bedded = smooth(-0.35, 0.15, noise::fbm(at / 320.0, 3, 101));
+  height + (level.floor() + smooth(0.4, 0.72, level.fract()) - level) * thickness * bedded
 }
 
 fn settled(place: Place) -> bool {
@@ -126,7 +126,7 @@ pub fn land(at: Vec2, pass: f32) -> f32 {
   let massif =
     highland(at, bent, far, pass) * (40.0 + crags * (320.0 + 110.0 * range)) + border;
   let rugged = smooth(50.0, 200.0, massif) * (1.0 - far);
-  let layered = massif.lerp(strata(massif, bent), 0.55 * rugged);
+  let layered = massif.lerp(strata(massif, bent), 0.75 * rugged);
   24.0 + hills + layered.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
@@ -215,7 +215,7 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   let gully = hollow.clamp(-1.0, 1.0);
   let above = height - snow_line + 6.0 * noise::fbm(at / 11.0, 2, 59);
   let drift = normal.y + 0.03 * noise::fbm(at / 7.0, 2, 53) + 0.1 * gully;
-  let snow_hold = 0.64 - 0.2 * alpine;
+  let snow_hold = 0.68 - 0.2 * alpine;
   let snow = smooth(snow_hold - 0.03, snow_hold + 0.03, drift)
     * smooth(-4.0, 4.0, above)
     * (1.0 - paved * 0.45);
