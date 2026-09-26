@@ -1,6 +1,6 @@
 use {crate::{model::{self, Piece},
              noise::{self, Roll},
-             place::{self, LAKE_LEVEL, Place, START, START_FACING},
+             place::{self, START, START_FACING},
              player::{MainCamera, Player},
              signal::Pending,
              sky,
@@ -1025,10 +1025,10 @@ fn survey(ground: &Ground, at: Vec2) -> Site {
     snow: smooth(line - 45.0, line, height),
     treeline: smooth(line + 130.0, line + 60.0, height),
     open: at.abs().max_element() < BOUND
-      && height > LAKE_LEVEL + 0.8
+      && crate::river::water_level(at).is_none_or(|level| height > level + 0.8)
       && crate::river::course_distance(at) > 11.0
       && at.distance(START) > 6.0
-      && Place::ALL.into_iter().all(|place| {
+      && place::around(at).iter().all(|place| {
         at.distance(place.spot()) > place.flat() * place.clearance()
           && at.distance(place.spot() + Vec2::Y * (place.flat() * 1.6 + 6.0)) > 7.0
       })
@@ -1073,14 +1073,20 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
           * PATCH
           / 6.0;
       let site = survey(ground, at);
-      let chance = (site.forest * 0.9 + 0.03) * site.treeline;
+      let line = snow_line(at);
+      let alpine = 0.3
+        * smooth(-0.15, 0.35, noise::fbm(at / 90.0, 2, 67))
+        * smooth(line + 340.0, line + 200.0, site.spot.y)
+        * smooth(70.0, 150.0, site.spot.y);
+      let footing = site.normal.y > 0.78 || (alpine > 0.02 && site.normal.y > 0.62);
+      let chance = ((site.forest * 0.9 + 0.03) * site.treeline).max(alpine);
       let birchy = smooth(0.2, 0.45, noise::fbm(at / 240.0, 3, 61))
         * smooth(110.0, 70.0, site.spot.y);
       let (pick, kind, snowy) = (roll.next(), roll.next(), roll.next());
       let (yaw, lean) =
         (roll.range(0.0, TAU), Vec2::new(roll.spread(0.04), roll.spread(0.04)));
       let size = roll.range(0.7, 1.35) * (0.85 + 0.25 * site.forest);
-      (site.open && site.road > 4.5 && site.normal.y > 0.78 && pick < chance).then(|| {
+      (site.open && site.road > 4.5 && footing && pick < chance).then(|| {
         let growth = if kind < 0.04 {
           Growth::Snag
         } else if kind < 0.04 + birchy * 0.85 {
@@ -1922,11 +1928,12 @@ fn sward(ground: &Ground, cell: IVec2) -> Option<(Vec3, Mesh)> {
         * smooth(1.9, 3.4, road + noise::fbm(at / 3.0, 2, 85))
         * smooth(0.7, 0.84, normal.y)
         * smooth(line + 5.0, line - 30.0, height)
-        * smooth(LAKE_LEVEL + 0.5, LAKE_LEVEL + 1.8, height)
+        * crate::river::water_level(at)
+          .map_or(1.0, |level| smooth(level + 0.5, level + 1.8, height))
         * (1.0 - crate::river::bank(at))
         * (0.25 + 0.75 * clump)
         * f32::from(u8::from(at.abs().max_element() < BOUND))
-        * f32::from(u8::from(Place::ALL.into_iter().all(|place| {
+        * f32::from(u8::from(place::around(at).iter().all(|place| {
           place.sunk() <= 0.0 || at.distance(place.spot()) > place.flat() * 0.95
         })));
       let root = at.extend(height).xzy() - center;

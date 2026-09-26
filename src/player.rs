@@ -52,9 +52,7 @@ fn capsule_offset() -> f32 { CAPSULE_HEIGHT / 2.0 }
 
 fn start_spot() -> (Vec2, Vec2) {
   let named = opts().at.as_deref().and_then(|name| {
-    place::Place::ALL
-      .into_iter()
-      .find(|place| place.name().to_lowercase().contains(&name.to_lowercase()))
+    place::all().find(|place| place.name().to_lowercase().contains(&name.to_lowercase()))
   });
   named
     .map(|place| {

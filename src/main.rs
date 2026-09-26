@@ -22,6 +22,7 @@ mod sdf;
 mod settlement;
 mod shout;
 mod signal;
+mod site;
 mod sky;
 mod stuff;
 mod terrain;

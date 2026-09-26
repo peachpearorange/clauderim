@@ -1,5 +1,4 @@
 use {bevy::{platform::collections::HashMap, prelude::*},
-     enum_assoc::Assoc,
      std::sync::LazyLock};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -12,82 +11,126 @@ pub enum Marker {
   Town,
   City,
   Farm,
-  Fort
+  Fort,
+  Ruin,
+  Shack,
+  Shrine
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Assoc)]
-#[func(pub const fn name(self) -> &'static str)]
-#[func(pub const fn spot(self) -> Vec2)]
-#[func(pub const fn marker(self) -> Marker)]
-#[func(pub const fn flat(self) -> f32)]
-#[func(pub const fn sunk(self) -> f32 { 0.0 })]
-#[func(pub const fn rise(self) -> f32 { 0.0 })]
-pub enum Place {
-  #[assoc(name = "Hollowcrag Barrow", spot = Vec2::new(-250.0, -170.0), marker = Marker::Barrow, flat = 36.0, sunk = 9.0)]
-  Hollowcrag,
-  #[assoc(name = "Fellhound Den", spot = Vec2::new(302.8, -216.2), marker = Marker::Cave, flat = 24.0, sunk = 6.0)]
-  Fellhound,
-  #[assoc(name = "Greymoor Watch", spot = Vec2::new(175.0, 70.0), marker = Marker::Tower, flat = 16.0)]
-  Greymoor,
-  #[assoc(name = "The Warrior Stone", spot = Vec2::new(-10.0, 70.0), marker = Marker::Stone, flat = 11.0)]
-  WarriorStone,
-  #[assoc(name = "Rotfen Camp", spot = Vec2::new(-150.0, 20.0), marker = Marker::Camp, flat = 14.0)]
-  Rotfen,
-  #[assoc(name = "Kjeldholm", spot = Vec2::new(2080.0, 420.0), marker = Marker::City, flat = 100.0, rise = 26.0)]
-  Kjeldholm,
-  #[assoc(name = "Brookhollow", spot = Vec2::new(330.0, 1330.0), marker = Marker::Town, flat = 62.0)]
-  Brookhollow,
-  #[assoc(name = "Frostmere", spot = Vec2::new(-1950.0, -620.0), marker = Marker::Town, flat = 60.0)]
-  Frostmere,
-  #[assoc(name = "Aldvik Farm", spot = Vec2::new(1660.0, 730.0), marker = Marker::Farm, flat = 36.0)]
-  Aldvik,
-  #[assoc(name = "Hallgrim Farm", spot = Vec2::new(610.0, 1190.0), marker = Marker::Farm, flat = 32.0)]
-  Hallgrim,
-  #[assoc(name = "Fort Greyhelm", spot = Vec2::new(-1300.0, -1720.0), marker = Marker::Fort, flat = 44.0)]
-  Greyhelm,
-  #[assoc(name = "Fort Skarn", spot = Vec2::new(1910.0, -1320.0), marker = Marker::Fort, flat = 44.0)]
-  Skarn,
-  #[assoc(name = "Blackbriar Camp", spot = Vec2::new(560.0, 800.0), marker = Marker::Camp, flat = 14.0)]
-  Blackbriar,
-  #[assoc(name = "Wolfskull Camp", spot = Vec2::new(-880.0, 420.0), marker = Marker::Camp, flat = 14.0)]
-  Wolfskull,
-  #[assoc(name = "Snowgate Watch", spot = Vec2::new(-640.0, -40.0), marker = Marker::Tower, flat = 16.0)]
-  Snowgate
+#[derive(Clone, Copy, Debug)]
+pub struct Spot {
+  pub name: &'static str,
+  pub at: Vec2,
+  pub marker: Marker,
+  pub flat: f32,
+  pub sunk: f32,
+  pub rise: f32
 }
+
+impl Spot {
+  pub const fn new(name: &'static str, at: Vec2, marker: Marker, flat: f32) -> Self {
+    Spot { name, at, marker, flat, sunk: 0.0, rise: 0.0 }
+  }
+
+  const fn sunk(self, sunk: f32) -> Self { Spot { sunk, ..self } }
+
+  const fn rise(self, rise: f32) -> Self { Spot { rise, ..self } }
+}
+
+const NAMED: [Spot; 15] = [
+  Spot::new("Hollowcrag Barrow", Vec2::new(-250.0, -170.0), Marker::Barrow, 36.0)
+    .sunk(9.0),
+  Spot::new("Fellhound Den", Vec2::new(302.8, -216.2), Marker::Cave, 24.0).sunk(6.0),
+  Spot::new("Greymoor Watch", Vec2::new(175.0, 70.0), Marker::Tower, 16.0),
+  Spot::new("The Warrior Stone", Vec2::new(-10.0, 70.0), Marker::Stone, 11.0),
+  Spot::new("Rotfen Camp", Vec2::new(-150.0, 20.0), Marker::Camp, 14.0),
+  Spot::new("Kjeldholm", Vec2::new(2080.0, 420.0), Marker::City, 100.0).rise(26.0),
+  Spot::new("Brookhollow", Vec2::new(330.0, 1330.0), Marker::Town, 62.0),
+  Spot::new("Frostmere", Vec2::new(-1950.0, -620.0), Marker::Town, 60.0),
+  Spot::new("Aldvik Farm", Vec2::new(1660.0, 730.0), Marker::Farm, 36.0),
+  Spot::new("Hallgrim Farm", Vec2::new(610.0, 1190.0), Marker::Farm, 32.0),
+  Spot::new("Fort Greyhelm", Vec2::new(-1300.0, -1720.0), Marker::Fort, 44.0),
+  Spot::new("Fort Skarn", Vec2::new(1910.0, -1320.0), Marker::Fort, 44.0),
+  Spot::new("Blackbriar Camp", Vec2::new(560.0, 800.0), Marker::Camp, 14.0),
+  Spot::new("Wolfskull Camp", Vec2::new(-880.0, 420.0), Marker::Camp, 14.0),
+  Spot::new("Snowgate Watch", Vec2::new(-640.0, -40.0), Marker::Tower, 16.0)
+];
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub struct Place(u16);
 
 impl Place {
-  pub const fn clearance(self) -> f32 {
+  pub const HOLLOWCRAG: Place = Place(0);
+  pub const FELLHOUND: Place = Place(1);
+  pub const GREYMOOR: Place = Place(2);
+  pub const WARRIOR_STONE: Place = Place(3);
+  pub const ROTFEN: Place = Place(4);
+  pub const KJELDHOLM: Place = Place(5);
+  pub const BROOKHOLLOW: Place = Place(6);
+  pub const FROSTMERE: Place = Place(7);
+  pub const ALDVIK: Place = Place(8);
+  pub const HALLGRIM: Place = Place(9);
+  pub const GREYHELM: Place = Place(10);
+  pub const SKARN: Place = Place(11);
+  pub const BLACKBRIAR: Place = Place(12);
+  pub const WOLFSKULL: Place = Place(13);
+  pub const SNOWGATE: Place = Place(14);
+
+  fn info(self) -> &'static Spot {
+    let index = usize::from(self.0);
+    NAMED.get(index).unwrap_or_else(|| &crate::site::SITES[index - NAMED.len()])
+  }
+
+  pub fn name(self) -> &'static str { self.info().name }
+
+  pub fn spot(self) -> Vec2 { self.info().at }
+
+  pub fn marker(self) -> Marker { self.info().marker }
+
+  pub fn flat(self) -> f32 { self.info().flat }
+
+  pub fn sunk(self) -> f32 { self.info().sunk }
+
+  pub fn rise(self) -> f32 { self.info().rise }
+
+  pub fn clearance(self) -> f32 {
     match self.marker() {
       Marker::Town | Marker::City | Marker::Farm | Marker::Fort => 1.25,
       _ => 1.4
     }
   }
+}
 
-  pub const ALL: [Place; 15] = [
-    Place::Hollowcrag,
-    Place::Fellhound,
-    Place::Greymoor,
-    Place::WarriorStone,
-    Place::Rotfen,
-    Place::Kjeldholm,
-    Place::Brookhollow,
-    Place::Frostmere,
-    Place::Aldvik,
-    Place::Hallgrim,
-    Place::Greyhelm,
-    Place::Skarn,
-    Place::Blackbriar,
-    Place::Wolfskull,
-    Place::Snowgate
-  ];
+pub fn named() -> impl Iterator<Item = Place> { (0..NAMED.len() as u16).map(Place) }
+
+pub fn sites() -> impl Iterator<Item = Place> {
+  (NAMED.len() as u16..(NAMED.len() + crate::site::SITES.len()) as u16).map(Place)
+}
+
+pub fn all() -> impl Iterator<Item = Place> {
+  (0..(NAMED.len() + crate::site::SITES.len()) as u16).map(Place)
+}
+
+const AROUND_BIN: f32 = 128.0;
+
+static AROUND: LazyLock<HashMap<IVec2, Vec<Place>>> = LazyLock::new(|| {
+  all().fold(HashMap::default(), |mut bins, place| {
+    let reach = place.flat() * 2.5 + 16.0;
+    let low = ((place.spot() - reach) / AROUND_BIN).floor().as_ivec2();
+    let high = ((place.spot() + reach) / AROUND_BIN).floor().as_ivec2();
+    (low.y..=high.y).for_each(|y| {
+      (low.x..=high.x).for_each(|x| bins.entry(IVec2::new(x, y)).or_default().push(place))
+    });
+    bins
+  })
+});
+
+pub fn around(at: Vec2) -> &'static [Place] {
+  AROUND.get(&(at / AROUND_BIN).floor().as_ivec2()).map_or(&[], Vec::as_slice)
 }
 
 pub const START: Vec2 = Vec2::new(70.0, 290.0);
 pub const START_FACING: Vec2 = Vec2::new(-0.25, -1.0);
-
-pub const LAKE: Vec2 = Vec2::new(-150.0, 230.0);
-pub const LAKE_RADIUS: f32 = 95.0;
-pub const LAKE_LEVEL: f32 = 4.0;
 
 pub const ROAD: [Vec2; 9] = [
   Vec2::new(90.0, 360.0),

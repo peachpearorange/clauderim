@@ -453,14 +453,13 @@ static GARRISONS: LazyLock<Vec<(Vec2, Vec<(Vec2, FoeKind)>)>> = LazyLock::new(||
     (spot, crew)
   };
   let pack = |spot: Vec2, count: usize| (spot, circle(spot, FoeKind::Wolf, count, 2.5));
-  crate::settlement::LAYOUTS
-    .iter()
+  crate::settlement::layouts()
     .filter(|layout| !layout.foes.is_empty())
     .map(|layout| (layout.place.spot(), layout.foes.clone()))
     .chain([
-      camp(Place::Blackbriar, 3, true),
-      camp(Place::Wolfskull, 3, false),
-      camp(Place::Snowgate, 2, false),
+      camp(Place::BLACKBRIAR, 3, true),
+      camp(Place::WOLFSKULL, 3, false),
+      camp(Place::SNOWGATE, 2, false),
       pack(Vec2::new(880.0, 620.0), 3),
       pack(Vec2::new(-1380.0, 180.0), 2),
       pack(Vec2::new(1250.0, -380.0), 3),

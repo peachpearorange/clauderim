@@ -1,5 +1,5 @@
 use {crate::{noise,
-             place::{self, LAKE, LAKE_LEVEL, LAKE_RADIUS, Marker, Place},
+             place::{self, Marker, Place},
              player::{MainCamera, Player},
              river, settlement,
              signal::Pending,
@@ -7,7 +7,6 @@ use {crate::{noise,
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             color::Mix,
-            math::Affine2,
             mesh::{Indices, PrimitiveTopology},
             platform::collections::{HashMap, HashSet},
             prelude::*,
@@ -93,17 +92,15 @@ fn highland(at: Vec2, bent: Vec2, far: f32) -> f32 {
   let ranges =
     smooth(-0.02, 0.32, noise::fbm(bent / 1500.0, 3, 91)) * smooth(900.0, 1500.0, reach);
   let pass = smooth(45.0, 230.0, place::route_distance(at));
-  let open = Place::ALL.into_iter().filter(|&place| settled(place)).fold(
-    1.0_f32,
-    |open, place| {
+  let open =
+    place::named().filter(|&place| settled(place)).fold(1.0_f32, |open, place| {
       open.min(smooth(place.flat() * 2.0, place.flat() * 4.5, at.distance(place.spot())))
-    }
-  );
+    });
   let massif = smooth(2700.0, 1700.0, at.distance(THROAT));
   (ring.max(ranges).max(massif) * pass.min(open)).max(far)
 }
 
-fn wild_height(at: Vec2) -> f32 {
+pub fn wild_height(at: Vec2) -> f32 {
   let warp =
     Vec2::new(noise::fbm(at / 520.0, 3, 11), noise::fbm(at / 520.0 + 9.3, 3, 12)) * 110.0;
   let bent = at + warp;
@@ -124,10 +121,15 @@ fn wild_height(at: Vec2) -> f32 {
 }
 
 pub fn natural_height(at: Vec2) -> f32 {
-  let shore = LAKE_RADIUS * (1.0 + 0.25 * noise::fbm(at / 90.0, 3, 21));
-  let reach = at.distance(LAKE);
-  let bowl = smooth(shore * 1.6, shore * 0.55, reach);
-  wild_height(at).lerp(LAKE_LEVEL - 9.0, bowl)
+  river::BASINS
+    .iter()
+    .enumerate()
+    .filter(|(_, basin)| at.distance(basin.center) < basin.radius * 2.0)
+    .fold(wild_height(at), |height, (index, &river::Basin { center, radius, .. })| {
+      let shore = radius * (1.0 + 0.25 * noise::fbm(at / 90.0, 3, 21 + index as u32));
+      let bowl = smooth(shore * 1.6, shore * 0.55, at.distance(center));
+      height.lerp(river::LAKE_LEVELS[index] - 9.0, bowl)
+    })
 }
 
 fn graded_height(at: Vec2) -> f32 {
@@ -142,19 +144,21 @@ fn place_level(place: Place) -> f32 { natural_height(place.spot()) + place.rise(
 
 pub fn height_at(at: Vec2) -> f32 {
   let near = |place: &Place| at.distance(place.spot()) < place.flat() * 1.9;
-  let settled =
-    Place::ALL.into_iter().filter(near).fold(graded_height(at), |height, place| {
+  let settled = place::around(at).iter().copied().filter(near).fold(
+    graded_height(at),
+    |height, place| {
       let reach = at.distance(place.spot());
       let flatten = smooth(place.flat() * 1.9, place.flat(), reach);
       let pit = smooth(place.flat() * 0.95, place.flat() * 0.6, reach) * place.sunk();
       height.lerp(place_level(place), flatten) - pit
-    });
+    }
+  );
   river::carve(at, settled)
 }
 
 pub fn forest(at: Vec2) -> f32 {
-  let clearing = Place::ALL
-    .into_iter()
+  let clearing = place::around(at)
+    .iter()
     .filter(|place| at.distance(place.spot()) < place.flat() * 2.2)
     .map(|place| {
       smooth(place.flat() * 2.2, place.flat() * 1.2, at.distance(place.spot()))
@@ -177,9 +181,16 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   };
   let verge = smooth(2.5, 0.0, edge) * 0.5;
   let (worn, soil) = (settlement::worn(at), settlement::tilled(at));
-  let lakeside = smooth(LAKE_RADIUS * 2.4, LAKE_RADIUS * 2.0, at.distance(LAKE));
-  let shore = smooth(LAKE_LEVEL + 2.2, LAKE_LEVEL + 0.6, height) * lakeside;
-  let drowned = smooth(LAKE_LEVEL - 0.5, LAKE_LEVEL - 4.0, height) * lakeside;
+  let (shore, drowned) = river::lake_near(at, 2.4).map_or(
+    (0.0, 0.0),
+    |river::Lake { center, radius, level }| {
+      let lakeside = smooth(radius * 2.4, radius * 2.0, at.distance(center));
+      (
+        smooth(level + 2.2, level + 0.6, height) * lakeside,
+        smooth(level - 0.5, level - 4.0, height) * lakeside
+      )
+    }
+  );
   let snow_line = 150.0 + 40.0 * noise::fbm(at / 200.0, 3, 45);
   let alpine = smooth(snow_line + 150.0, snow_line + 900.0, height);
   let gully = hollow.clamp(-1.0, 1.0);
@@ -668,65 +679,14 @@ fn prepare_terrain(
   commands.insert_resource(Ground::default());
 }
 
-fn spawn_lake(
-  mut commands: Commands,
-  mut meshes: ResMut<Assets<Mesh>>,
-  mut materials: ResMut<Assets<StandardMaterial>>,
-  mut images: ResMut<Assets<Image>>
-) {
-  let ripples = images.add(texture::bumps(256, 0.02, |u, v| {
-    texture::tile_fbm(u, v, 6, 4, 131) + 0.5 * texture::tile_fbm(u, v, 24, 2, 133)
-  }));
-  commands.spawn((
-    Name::new("Lake"),
-    Ripples,
-    Mesh3d(
-      meshes.add(
-        Plane3d::default()
-          .mesh()
-          .size(LAKE_RADIUS * 4.0, LAKE_RADIUS * 4.0)
-          .subdivisions(8)
-          .build()
-          .with_generated_tangents()
-          .expect("lake tangents")
-      )
-    ),
-    MeshMaterial3d(materials.add(StandardMaterial {
-      base_color: Color::srgba(0.10, 0.16, 0.18, 0.86),
-      normal_map_texture: Some(ripples),
-      perceptual_roughness: 0.06,
-      reflectance: 0.6,
-      alpha_mode: AlphaMode::Blend,
-      uv_transform: Affine2::from_scale(Vec2::splat(18.0)),
-      ..default()
-    })),
-    Transform::from_translation(LAKE.extend(LAKE_LEVEL).xzy())
-  ));
-}
-
-#[derive(Component)]
-struct Ripples;
-
-fn ripple(
-  time: Res<Time>,
-  lakes: Query<&MeshMaterial3d<StandardMaterial>, With<Ripples>>,
-  mut materials: ResMut<Assets<StandardMaterial>>
-) {
-  lakes.iter().for_each(|lake| {
-    if let Some(mut water) = materials.get_mut(&lake.0) {
-      water.uv_transform.translation = Vec2::new(0.013, 0.007) * time.elapsed_secs();
-    }
-  });
-}
-
 pub fn plugin(app: &mut App) {
   app
     .init_resource::<Lands>()
     .init_resource::<Footing>()
-    .add_systems(PreStartup, (prepare_terrain, spawn_lake))
+    .add_systems(PreStartup, prepare_terrain)
     .add_systems(PreUpdate, tend_footing)
     .add_systems(FixedPostUpdate, settle_footing.after(PhysicsSystems::Last))
-    .add_systems(Update, (tend_lands, report_streaming.after(tend_lands), ripple));
+    .add_systems(Update, (tend_lands, report_streaming.after(tend_lands)));
 }
 
 #[cfg(test)]
@@ -788,9 +748,16 @@ mod tests {
   #[test]
   #[ignore]
   fn map() {
+    println!(
+      "{} places: {:?}",
+      place::all().count(),
+      place::all().fold(HashMap::<String, usize>::default(), |mut counts, place| {
+        *counts.entry(format!("{:?}", place.marker())).or_default() += 1;
+        counts
+      })
+    );
     map_image("screenshots/map.png", |at| {
-      Place::ALL
-        .into_iter()
+      place::all()
         .any(|place| at.distance(place.spot()) < 14.0)
         .then_some(LinearRgba::rgb(1.0, 0.0, 0.0))
     });
@@ -826,7 +793,13 @@ pub fn map_image(path: &str, mark: impl Fn(Vec2) -> Option<LinearRgba> + Sync) {
     .normalize();
     let light = 0.55 + 0.6 * normal.dot(Vec3::new(-0.5, 0.7, -0.4).normalize()).max(0.0);
     let at = spot(index);
-    let tone = mark(at).unwrap_or_else(|| paint(at, height(x, z), normal, 0.0) * light);
+    let ground = height(x, z);
+    let gridline = (at + WORLD).rem_euclid(Vec2::splat(500.0)).min_element() < step;
+    let land = paint(at, ground, normal, 0.0) * light;
+    let wet = river::water_level(at)
+      .filter(|&level| level > ground)
+      .map_or(land, |_| LinearRgba::rgb(0.05, 0.14, 0.4));
+    let tone = mark(at).unwrap_or(wet * (1.0 - 0.35 * f32::from(u8::from(gridline))));
     Srgba::from(tone).to_u8_array()
   })
   .concat();

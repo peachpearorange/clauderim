@@ -1,7 +1,7 @@
 use {crate::{combat::{Dead, Side, Struck, Vitals},
              creature::Foe,
              opts::opts,
-             place::{Marker, Place},
+             place::{self, Marker, Place},
              player::{Player, View},
              signal::{Cue, Discovered, Engaged, Notice, Prompt, Sound}},
      bevy::{prelude::*,
@@ -463,6 +463,48 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
           centred()
         ));
       }
+      Marker::Ruin => {
+        [(24.0, 1.3), (50.0, 0.7), (76.0, 1.0)].into_iter().for_each(|(left, tall)| {
+          glyph.spawn(part(
+            Stroke::Line,
+            Node {
+              width: VMin(0.36),
+              height: VMin(tall),
+              ..at(left, 92.0 - tall * 26.0)
+            },
+            centred()
+          ));
+        });
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(1.7), height: VMin(0.22), ..at(50.0, 92.0) },
+          centred()
+        ));
+      }
+      Marker::Shack => {
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(0.9), height: VMin(0.9), ..at(50.0, 38.0) },
+          UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
+        ));
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(1.0), height: VMin(0.7), ..at(50.0, 74.0) },
+          centred()
+        ));
+      }
+      Marker::Shrine => {
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(0.3), height: VMin(1.6), ..at(50.0, 50.0) },
+          centred()
+        ));
+        glyph.spawn(part(
+          Stroke::Line,
+          Node { width: VMin(1.1), height: VMin(0.3), ..at(50.0, 34.0) },
+          centred()
+        ));
+      }
       Marker::Camp => {
         [(28.0, 30.0), (72.0, -30.0)].into_iter().for_each(|(left, lean)| {
           glyph.spawn(part(
@@ -548,7 +590,7 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
               }
             );
           });
-          Place::ALL.into_iter().for_each(|place| {
+          place::all().for_each(|place| {
             bar
               .spawn(heading(Heading::Toward(place), 50.0))
               .with_children(|mark| icon(mark, place));
@@ -872,8 +914,7 @@ fn discover(
   mut sound: MessageWriter<Sound>
 ) {
   let here = player.translation.xz();
-  let fresh: Vec<Place> = Place::ALL
-    .into_iter()
+  let fresh: Vec<Place> = place::all()
     .filter(|place| {
       !charted.0.contains(place) && place.spot().distance(here) < place.flat() * REACH
     })

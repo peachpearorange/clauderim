@@ -1,6 +1,6 @@
 use {crate::{model::{self, Piece, ball, block, lathe, lump, rod},
              noise::Roll,
-             place::{Marker, Place},
+             place::{self, Marker, Place},
              player::{Player, View},
              signal::{Cue, Notice, Prompt, Prompting, Sound},
              stuff::{Stuff, Stuffs},
@@ -454,7 +454,7 @@ fn raise_landmarks(
 ) {
   let mut roll = Roll::new(4242);
   let floor = |place: Place| ground.surface(place.spot()) - Vec3::Y * 0.15;
-  Place::ALL.into_iter().enumerate().for_each(|(index, place)| {
+  place::named().enumerate().for_each(|(index, place)| {
     let turn = 0.3 + index as f32 * 1.7;
     match place.marker() {
       Marker::Tower => spawn_static(
@@ -463,7 +463,7 @@ fn raise_landmarks(
         &stuffs,
         place.name(),
         floor(place),
-        (place == Place::Greymoor).then_some(0.9).unwrap_or(turn),
+        (place == Place::GREYMOOR).then_some(0.9).unwrap_or(turn),
         watchtower(&mut roll),
         true
       ),
@@ -475,7 +475,7 @@ fn raise_landmarks(
           &stuffs,
           place.name(),
           camp_at,
-          (place == Place::Rotfen).then_some(0.3).unwrap_or(turn),
+          (place == Place::ROTFEN).then_some(0.3).unwrap_or(turn),
           camp(&mut roll),
           true
         );
@@ -499,7 +499,7 @@ fn raise_landmarks(
       _ => {}
     }
   });
-  let stone_at = floor(Place::WarriorStone);
+  let stone_at = floor(Place::WARRIOR_STONE);
   spawn_static(
     &mut commands,
     &mut meshes,
