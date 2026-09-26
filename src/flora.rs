@@ -1,4 +1,4 @@
-use {crate::{model::{self, Piece},
+use {crate::{model::{self, Blade, Piece},
              noise::{self, Roll},
              place::{self, START, START_FACING},
              player::{MainCamera, Player},
@@ -73,7 +73,8 @@ const PATCH: f32 = 32.0;
 const NEAR_TREE: f32 = 170.0;
 const FADE: f32 = 40.0;
 const ROCK_REACH: f32 = 50.0;
-const CLIFF_REACH: f32 = 300.0;
+const CLIFF_REACH: f32 = 80.0;
+const CRAG_BLOCK: f32 = 256.0;
 const ROCK_DETAIL: [u32; 3] = [15, 6, 3];
 const TIER: f32 = 4.0;
 const CELL: f32 = 64.0;
@@ -807,30 +808,33 @@ fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
 fn rock_shape(
   seed: u32,
   snowy: bool,
+  stuff: Stuff,
   reach: Reach,
-  carve: impl Fn(u32) -> Vec<Mesh>
+  lods: Vec<Vec<Mesh>>
 ) -> Shape {
-  let [near, far @ ..] = ROCK_DETAIL.map(|detail| {
-    Piece::new(model::merge(carve(detail).into_iter().map(Piece)), Srgba::WHITE)
-      .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
-      .0
-  });
-  let hull = |mesh: Mesh| {
+  let hull = |mesh: &Mesh| {
     mesh
       .attribute(Mesh::ATTRIBUTE_POSITION)
       .and_then(|values| values.as_float3())
       .and_then(|points| {
         Collider::convex_hull(points.iter().copied().map(Vec3::from).collect())
       })
+      .map(|collider| (Vec3::ZERO, Quat::IDENTITY, collider))
   };
-  let hulls: Vec<(Vec3, Quat, Collider)> = carve(ROCK_DETAIL[1])
-    .into_iter()
-    .filter_map(hull)
-    .map(|collider| (Vec3::ZERO, Quat::IDENTITY, collider))
-    .collect();
+  let hulls: Vec<(Vec3, Quat, Collider)> =
+    lods.last().into_iter().flatten().filter_map(hull).collect();
+  let mut coats = lods.into_iter().map(|meshes| {
+    let mut mesh = Piece::new(model::merge(meshes.into_iter().map(Piece)), Srgba::WHITE)
+      .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
+      .0;
+    if stuff == Stuff::Cliff {
+      mesh.generate_tangents().expect("rock tangents");
+    }
+    (Coat::Plain(stuff), mesh)
+  });
   Shape {
-    parts: vec![(Coat::Plain(Stuff::Stone), near)],
-    far: far.into_iter().map(|mesh| (Coat::Plain(Stuff::Stone), mesh)).collect(),
+    parts: coats.next().into_iter().collect(),
+    far: coats.collect(),
     collider: Some(if hulls.is_empty() {
       Collider::sphere(1.0)
     } else {
@@ -1006,26 +1010,39 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       rock_shape(
         seed,
         growth == Growth::SnowyBoulder,
+        Stuff::Stone,
         Reach::PerSize(ROCK_REACH),
-        |detail| vec![model::hewn(seed, 13, 0.07, detail)]
+        ROCK_DETAIL.map(|detail| vec![model::hewn(seed, 13, 0.07, detail)]).into()
       )
     }
     Growth::Crag | Growth::SnowyCrag => {
       let seed = variant as u32 + 500;
+      let blades = model::crag(seed, 2 + variant as u32 % 2);
       rock_shape(
         seed,
         growth == Growth::SnowyCrag,
+        Stuff::Cliff,
         Reach::PerSize(ROCK_REACH),
-        |detail| model::crag(seed, 2 + variant as u32 % 2, detail.min(10))
+        vec![
+          blades.iter().map(|blade| blade.carved(9)).collect(),
+          blades.iter().map(|blade| blade.carved(4)).collect(),
+          blades.iter().map(Blade::hull).collect(),
+        ]
       )
     }
     Growth::Cliff | Growth::SnowyCliff => {
       let seed = variant as u32 + 700;
+      let blades = model::crag(seed, 4 + variant as u32 % 3);
       rock_shape(
         seed,
         growth == Growth::SnowyCliff,
+        Stuff::Cliff,
         Reach::Fixed(CLIFF_REACH),
-        |detail| model::crag(seed, 4 + variant as u32 % 3, detail.min(10))
+        vec![
+          blades.iter().map(|blade| blade.carved(10)).collect(),
+          blades.iter().map(|blade| blade.carved(6)).collect(),
+          blades.iter().map(Blade::hull).collect(),
+        ]
       )
     }
     Growth::Juniper => Shape {
@@ -1104,6 +1121,78 @@ fn rock(roll: &mut Roll, site: &Site, size: f32) -> Plant {
       scale
     )
   }
+}
+
+struct Rise {
+  spot: Vec3,
+  normal: Vec3,
+  snow: f32
+}
+
+fn rise(at: Vec2) -> Rise {
+  let height = terrain::height_at(at);
+  let slope =
+    |offset: Vec2| terrain::height_at(at + offset) - terrain::height_at(at - offset);
+  let line = snow_line(at);
+  Rise {
+    spot: at.extend(height).xzy(),
+    normal: Vec3::new(
+      -slope(Vec2::X * terrain::SPACING),
+      2.0 * terrain::SPACING,
+      -slope(Vec2::Y * terrain::SPACING)
+    )
+    .normalize(),
+    snow: smooth(line - 4.0, line + 4.0, height)
+  }
+}
+
+fn bluffs(patch: IVec2) -> Vec<Plant> {
+  let mut roll = Roll::new(
+    (patch.x as u32).wrapping_mul(83_492_791) ^ (patch.y as u32).wrapping_mul(29_765_723)
+  );
+  let at = (patch.as_vec2() + Vec2::new(roll.next(), roll.next())) * PATCH;
+  let site = rise(at);
+  let steep = smooth(0.8, 0.6, site.normal.y);
+  let size = roll.range(35.0, 70.0);
+  let (pick, crowd) = (roll.next(), 2 + roll.below(3));
+  let across = |normal: Vec3, toward: Vec2| {
+    let contour = normal.xz().normalize_or(Vec2::X).perp();
+    if contour.dot(toward) < 0.0 { -contour } else { contour }
+  };
+  (site.spot.x.abs() < BOUND
+    && site.spot.z.abs() < BOUND
+    && place::route_distance(at) > size
+    && pick < 0.5 * steep * smooth(40.0, 140.0, site.spot.y))
+  .then(|| {
+    let start = across(site.normal, Vec2::X);
+    (0..crowd)
+      .scan((at, start), |(point, heading), _| {
+        let site = rise(*point);
+        let contour = across(site.normal, *heading);
+        let downhill = site.normal.xz().normalize_or(Vec2::Y);
+        let width = size * roll.range(0.8, 1.2);
+        let scale = Vec3::new(width, size * roll.range(0.7, 1.1), size * 0.8);
+        let snowy = site.snow > 0.5;
+        let plant = Plant {
+          growth: if snowy { Growth::SnowyCliff } else { Growth::Cliff },
+          variant: roll.below(6),
+          place: Transform::from_translation(
+            site.spot
+              - Vec3::Y * scale.y * 0.15
+              - (downhill * size * 0.2).extend(0.0).xzy()
+          )
+          .with_rotation(Quat::from_rotation_y(
+            downhill.x.atan2(downhill.y) + roll.spread(0.1)
+          ))
+          .with_scale(scale)
+        };
+        *point += contour * width * roll.range(1.3, 1.7);
+        *heading = contour;
+        Some(plant)
+      })
+      .collect::<Vec<_>>()
+  })
+  .unwrap_or_default()
 }
 
 fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
@@ -1245,53 +1334,6 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         .unwrap_or_default()
     })
     .collect();
-  let bluffs: Vec<Plant> = (0..1)
-    .flat_map(|_| {
-      let at = anywhere(&mut roll);
-      let site = survey(ground, at);
-      let steep = smooth(0.8, 0.6, site.normal.y);
-      let size = roll.range(35.0, 70.0);
-      let (pick, crowd) = (roll.next(), 2 + roll.below(3));
-      let across = |normal: Vec3, toward: Vec2| {
-        let contour = normal.xz().normalize_or(Vec2::X).perp();
-        if contour.dot(toward) < 0.0 { -contour } else { contour }
-      };
-      (site.spot.x.abs() < BOUND
-        && site.spot.z.abs() < BOUND
-        && place::route_distance(at) > size
-        && pick < 0.5 * steep * smooth(40.0, 140.0, site.spot.y))
-      .then(|| {
-        let start = across(site.normal, Vec2::X);
-        (0..crowd)
-          .scan((at, start), |(point, heading), _| {
-            let site = survey(ground, *point);
-            let contour = across(site.normal, *heading);
-            let downhill = site.normal.xz().normalize_or(Vec2::Y);
-            let width = size * roll.range(0.8, 1.2);
-            let scale = Vec3::new(width, size * roll.range(0.7, 1.1), size * 0.8);
-            let snowy = site.snow > 0.5;
-            let plant = Plant {
-              growth: if snowy { Growth::SnowyCliff } else { Growth::Cliff },
-              variant: roll.below(6),
-              place: Transform::from_translation(
-                site.spot
-                  - Vec3::Y * scale.y * 0.15
-                  - (downhill * size * 0.2).extend(0.0).xzy()
-              )
-              .with_rotation(Quat::from_rotation_y(
-                downhill.x.atan2(downhill.y) + roll.spread(0.1)
-              ))
-              .with_scale(scale)
-            };
-            *point += contour * width * roll.range(1.3, 1.7);
-            *heading = contour;
-            Some(plant)
-          })
-          .collect::<Vec<_>>()
-      })
-      .unwrap_or_default()
-    })
-    .collect();
   let shrubs: Vec<Plant> = (0..8)
     .filter_map(|_| {
       let at = anywhere(&mut roll);
@@ -1340,10 +1382,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       })
     })
     .collect();
-  [trees, deadwood, boulders, outcrops, bluffs, shrubs, gnarls]
-    .into_iter()
-    .flatten()
-    .collect()
+  [trees, deadwood, boulders, outcrops, shrubs, gnarls].into_iter().flatten().collect()
 }
 
 fn foreground(ground: &Ground) -> Vec<Plant> {
@@ -1470,9 +1509,17 @@ fn bake(looks: &[&Look], origin: Vec3, meshes: &HashMap<AssetId<Mesh>, Mesh>) ->
     Some(VertexAttributeValues::Float32x3(values)) => values.clone(),
     _ => Vec::new()
   };
-  let (positions, normals, uvs, colors, indices) = looks.iter().fold(
-    (Vec::<[f32; 3]>::new(), Vec::<[f32; 3]>::new(), Vec::new(), Vec::new(), Vec::new()),
-    |(mut positions, mut normals, mut uvs, mut colors, mut indices), look| {
+  let (positions, normals, uvs, colors, tangents, indices) = looks.iter().fold(
+    (
+      Vec::<[f32; 3]>::new(),
+      Vec::<[f32; 3]>::new(),
+      Vec::new(),
+      Vec::new(),
+      Vec::<[f32; 4]>::new(),
+      Vec::new()
+    ),
+    |(mut positions, mut normals, mut uvs, mut colors, mut tangents, mut indices),
+     look| {
       let mesh = &meshes[&look.mesh.id()];
       let first = positions.len() as u32;
       let count = mesh.count_vertices();
@@ -1494,19 +1541,35 @@ fn bake(looks: &[&Look], origin: Vec3, meshes: &HashMap<AssetId<Mesh>, Mesh>) ->
         Some(VertexAttributeValues::Float32x4(values)) => colors.extend(values),
         _ => colors.extend(vec![[1.0f32; 4]; count])
       }
+      if let Some(VertexAttributeValues::Float32x4(values)) =
+        mesh.attribute(Mesh::ATTRIBUTE_TANGENT)
+      {
+        tangents.extend(values.iter().map(|&[x, y, z, w]| {
+          (look.place.rotation * (Vec3::new(x, y, z) * look.place.scale))
+            .normalize_or_zero()
+            .extend(w)
+            .to_array()
+        }))
+      }
       match mesh.indices() {
         Some(list) => indices.extend(list.iter().map(|index| first + index as u32)),
         None => indices.extend(first..first + count as u32)
       }
-      (positions, normals, uvs, colors, indices)
+      (positions, normals, uvs, colors, tangents, indices)
     }
   );
-  Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+  let whole = tangents.len() == positions.len();
+  let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
     .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
-    .with_inserted_indices(Indices::U32(indices))
+    .with_inserted_indices(Indices::U32(indices));
+  if whole {
+    mesh.with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents)
+  } else {
+    mesh
+  }
 }
 
 struct Stand {
@@ -1817,6 +1880,70 @@ fn tend_woods(
       }
     }
   }
+}
+
+#[derive(Resource, Default)]
+struct Crags {
+  stands: HashMap<IVec2, Stand>,
+  growing: HashMap<IVec2, Job<Grown>>,
+  sown: bool,
+  eye: Option<Vec3>
+}
+
+fn raising(block: IVec2, forms: Forms) -> Work<Grown> {
+  let per = (CRAG_BLOCK / PATCH) as i32;
+  work::rows((per * per) as usize, move |index| {
+    bluffs(block * per + IVec2::new(index as i32 % per, index as i32 / per))
+  })
+  .map(move |patches| grow(&forms, patches.into_iter().flatten().collect()))
+}
+
+fn tend_crags(
+  mut commands: Commands,
+  mut crags: ResMut<Crags>,
+  mut meshes: ResMut<Assets<Mesh>>,
+  forms: Option<Res<Forms>>,
+  camera: Single<&Transform, With<MainCamera>>
+) {
+  if let Some(forms) = forms {
+    let eye = camera.translation;
+    let Crags { stands, growing, sown, eye: last } = &mut *crags;
+    if !*sown {
+      let span = (BOUND / CRAG_BLOCK).ceil() as i32;
+      let mut blocks: Vec<IVec2> = (-span..span)
+        .flat_map(|z| (-span..span).map(move |x| IVec2::new(x, z)))
+        .collect();
+      blocks.sort_by(|a, b| {
+        let gap =
+          |block: &IVec2| ((block.as_vec2() + 0.5) * CRAG_BLOCK).distance(eye.xz());
+        gap(a).total_cmp(&gap(b))
+      });
+      for block in blocks {
+        growing.insert(block, work::spawn(raising(block, forms.clone())));
+      }
+      *sown = true;
+    }
+    let grown: Vec<(IVec2, Grown)> = growing
+      .iter_mut()
+      .filter_map(|(&block, task)| task.done().map(|grown| (block, grown)))
+      .collect();
+    for (block, grown) in grown {
+      growing.remove(&block);
+      let mut made = stand(&mut meshes, grown);
+      made.tend(&mut commands, eye);
+      stands.insert(block, made);
+    }
+    if last.is_none_or(|last| last.distance(eye) > RESTREAM_STEP) {
+      *last = Some(eye);
+      for stand in stands.values_mut() {
+        stand.tend(&mut commands, eye)
+      }
+    }
+  }
+}
+
+fn report_crags(crags: Res<Crags>, mut pending: ResMut<Pending>) {
+  pending.0.insert("crags", crags.growing.len() + !crags.sown as usize);
 }
 
 fn report_woods(
@@ -2241,8 +2368,18 @@ pub fn plugin(app: &mut App) {
     .add_plugins(MaterialPlugin::<SwayMaterial>::default())
     .init_resource::<Meadow>()
     .init_resource::<Woods>()
+    .init_resource::<Crags>()
     .add_systems(Startup, (spawn_flora, prepare_sward))
-    .add_systems(Update, (tend_meadow, tend_woods, report_woods.after(tend_woods)));
+    .add_systems(
+      Update,
+      (
+        tend_meadow,
+        tend_woods,
+        report_woods.after(tend_woods),
+        tend_crags,
+        report_crags.after(tend_crags)
+      )
+    );
 }
 
 #[cfg(test)]
@@ -2263,7 +2400,8 @@ mod tests {
           let cell = IVec2::new(column, row);
           (0..per * per)
             .flat_map(|index| {
-              scatter(&ground, cell * per + IVec2::new(index % per, index / per))
+              let patch = cell * per + IVec2::new(index % per, index / per);
+              scatter(&ground, patch).into_iter().chain(bluffs(patch))
             })
             .map(|plant| (plant.place.translation.xz(), plant.growth))
             .collect::<Vec<_>>()

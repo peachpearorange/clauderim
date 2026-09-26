@@ -99,6 +99,44 @@ pub fn rock() -> Image { shade(512, |u, v| 0.64 + 0.5 * (rock_grain(u, v) - 0.5)
 
 pub fn rock_bumps() -> Image { bumps(512, 0.02, rock_grain) }
 
+fn stretched_fbm(
+  u: f32,
+  v: f32,
+  across: i32,
+  along: i32,
+  octaves: u32,
+  seed: u32
+) -> f32 {
+  (0..octaves)
+    .map(|octave| {
+      stretched_noise(u, v, across << octave, along << octave, seed + octave)
+        * 0.5f32.powi(octave as i32)
+    })
+    .sum::<f32>()
+    / (0..octaves).map(|octave| 0.5f32.powi(octave as i32)).sum::<f32>()
+}
+
+fn cliff_grain(u: f32, v: f32) -> (f32, f32) {
+  let streak = stretched_fbm(u, v, 20, 2, 4, 61);
+  let crack = |u: f32, seed: u32| {
+    let wander = 0.06 * (stretched_fbm(u, v, 4, 4, 2, seed + 1) - 0.5);
+    let ridge = 1.0 - (2.0 * stretched_fbm(u + wander, v, 5, 1, 3, seed) - 1.0).abs();
+    ridge.powf(16.0)
+  };
+  let cracks = (crack(u, 62) + 0.6 * crack(u + v, 66)).min(1.0);
+  let patches = tile_fbm(u, v, 3, 3, 63);
+  let fine = tile_fbm(u, v, 48, 3, 65);
+  (
+    0.45 * streak + 0.3 * patches + 0.25 * fine - 0.35 * cracks,
+    0.82 + 0.16 * (patches - 0.5) - 0.28 * smooth(0.5, 0.75, streak) + 0.1 * (fine - 0.5)
+      - 0.4 * cracks
+  )
+}
+
+pub fn cliff() -> Image { shade(512, |u, v| cliff_grain(u, v).1) }
+
+pub fn cliff_bumps() -> Image { bumps(512, 0.02, |u, v| cliff_grain(u, v).0) }
+
 pub fn cracks() -> Image {
   shade(256, |u, v| {
     let ridge = 1.0 - (2.0 * tile_fbm(u, v, 5, 4, 91) - 1.0).abs();

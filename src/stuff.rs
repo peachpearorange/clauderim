@@ -37,6 +37,8 @@ pub enum Stuff {
   Needles,
   #[assoc(roughness = 0.88, grain = Grain::Rock, tiling = 1.0)]
   Stone,
+  #[assoc(roughness = 0.9, grain = Grain::Cliff, tiling = 1.2)]
+  Cliff,
   #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(1.4, 4.8, 10.4))]
   Frost,
   #[assoc(roughness = 0.6, grain = Grain::Plain, glow = LinearRgba::rgb(18.0, 6.4, 1.2))]
@@ -60,7 +62,7 @@ pub enum Stuff {
 }
 
 impl Stuff {
-  pub const ALL: [Stuff; 22] = [
+  pub const ALL: [Stuff; 23] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -73,6 +75,7 @@ impl Stuff {
     Stuff::Bark,
     Stuff::Needles,
     Stuff::Stone,
+    Stuff::Cliff,
     Stuff::Frost,
     Stuff::Ember,
     Stuff::Gloss,
@@ -96,6 +99,7 @@ pub enum Grain {
   Bark,
   Needles,
   Rock,
+  Cliff,
   Cracks,
   Scales,
   Thatch,
@@ -131,6 +135,7 @@ fn prepare(
     (Grain::Bark, texture::bark()),
     (Grain::Needles, texture::needles()),
     (Grain::Rock, texture::rock()),
+    (Grain::Cliff, texture::cliff()),
     (Grain::Cracks, texture::cracks()),
     (Grain::Scales, texture::scales()),
     (Grain::Thatch, texture::thatch()),
@@ -142,6 +147,7 @@ fn prepare(
   let scale_bumps = images.add(texture::scale_bumps());
   let masonry_bumps = images.add(texture::masonry_bumps());
   let shingle_bumps = images.add(texture::shingle_bumps());
+  let cliff_bumps = images.add(texture::cliff_bumps());
   let made = Stuff::ALL
     .into_iter()
     .map(|stuff| {
@@ -162,6 +168,7 @@ fn prepare(
             Grain::Scales => Some(scale_bumps.clone()),
             Grain::Masonry => Some(masonry_bumps.clone()),
             Grain::Shingles => Some(shingle_bumps.clone()),
+            Grain::Cliff => Some(cliff_bumps.clone()),
             _ => None
           },
           diffuse_transmission: stuff.translucency(),

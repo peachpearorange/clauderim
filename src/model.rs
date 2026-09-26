@@ -354,7 +354,124 @@ pub fn hewn(seed: u32, cuts: u32, ledges: f32, detail: u32) -> Mesh {
   mesh
 }
 
-pub fn crag(seed: u32, blades: u32, detail: u32) -> Vec<Mesh> {
+pub struct Blade {
+  planes: Vec<(Vec3, f32)>,
+  size: Vec3,
+  center: Vec3,
+  turn: Quat,
+  seed: u32
+}
+
+impl Blade {
+  const GROOVE: f32 = 0.05;
+
+  fn placed(&self, point: Vec3) -> Vec3 { self.center + self.turn * (point * self.size) }
+
+  pub fn carved(&self, detail: u32) -> Mesh {
+    let carve = |direction: Vec3| {
+      let groove = noise::perlin(
+        Vec2::new((direction.x + direction.z) * 4.0, direction.y * 0.8),
+        self.seed
+      );
+      let fracture = Self::GROOVE * (1.0 - groove.abs())
+        + 0.012 * noise::fbm3(direction * 3.0, 2, self.seed);
+      let reach = self
+        .planes
+        .iter()
+        .filter(|&&(normal, _)| normal.dot(direction) > 0.05)
+        .map(|&(normal, offset)| (offset - fracture) / normal.dot(direction))
+        .fold(1.4, f32::min);
+      self.placed(direction * reach)
+    };
+    let ball = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
+    let points: Vec<Vec3> = points(&ball, Mesh::ATTRIBUTE_POSITION)
+      .into_iter()
+      .map(|point| carve(point.normalize()))
+      .collect();
+    let corners = ball.indices().expect("ico indices").iter().map(|index| points[index]);
+    faceted(corners.collect())
+  }
+
+  pub fn hull(&self) -> Mesh {
+    let bounds: Vec<(Vec3, f32)> = self
+      .planes
+      .iter()
+      .map(|&(normal, offset)| (normal, offset - Self::GROOVE * 0.6))
+      .chain(
+        [Vec3::X, Vec3::NEG_X, Vec3::Y, Vec3::Z, Vec3::NEG_Z].map(|axis| (axis, 1.4))
+      )
+      .chain([(Vec3::NEG_Y, 1.0)])
+      .collect();
+    let inside = |point: Vec3| {
+      bounds.iter().all(|&(normal, offset)| normal.dot(point) <= offset + 1e-4)
+    };
+    let count = bounds.len();
+    let corners: Vec<Vec3> = (0..count)
+      .flat_map(|a| {
+        (a + 1..count).flat_map(move |b| (b + 1..count).map(move |c| [a, b, c]))
+      })
+      .filter_map(|[a, b, c]| {
+        let [(na, oa), (nb, ob), (nc, oc)] = [bounds[a], bounds[b], bounds[c]];
+        let rows = Mat3::from_cols(na, nb, nc).transpose();
+        (rows.determinant().abs() > 1e-4).then(|| rows.inverse() * Vec3::new(oa, ob, oc))
+      })
+      .filter(|&point| inside(point))
+      .map(|point| self.placed(point))
+      .collect();
+    let (vertices, triangles) = avian3d::parry::transformation::convex_hull(&corners);
+    faceted(
+      triangles
+        .into_iter()
+        .flat_map(|triangle| triangle.map(|index| vertices[index as usize]))
+        .collect()
+    )
+  }
+}
+
+fn faceted(corners: Vec<Vec3>) -> Mesh {
+  let faces: Vec<Vec3> = corners
+    .chunks_exact(3)
+    .map(|triangle| (triangle[1] - triangle[0]).cross(triangle[2] - triangle[0]))
+    .collect();
+  let key = |point: Vec3| (point * 1.0e4).round().as_ivec3();
+  let around = corners.iter().enumerate().fold(
+    std::collections::HashMap::<IVec3, Vec<Vec3>>::new(),
+    |mut around, (index, &point)| {
+      around.entry(key(point)).or_default().push(faces[index / 3]);
+      around
+    }
+  );
+  let normals: Vec<Vec3> = corners
+    .iter()
+    .enumerate()
+    .map(|(index, &point)| {
+      let own = faces[index / 3].normalize_or(Vec3::Y);
+      around[&key(point)]
+        .iter()
+        .filter(|face| face.normalize_or(Vec3::Y).dot(own) > 0.8)
+        .sum::<Vec3>()
+        .normalize_or(own)
+    })
+    .collect();
+  let uvs = corners
+    .iter()
+    .enumerate()
+    .map(|(index, &point)| {
+      let facing = faces[index / 3].abs();
+      if facing.y > facing.x.max(facing.z) {
+        point.xz()
+      } else if facing.x > facing.z {
+        Vec2::new(point.z, -point.y)
+      } else {
+        Vec2::new(point.x, -point.y)
+      }
+    })
+    .collect();
+  let indices = (0..corners.len() as u32).collect();
+  assemble(corners, normals, uvs, indices)
+}
+
+pub fn crag(seed: u32, blades: u32) -> Vec<Blade> {
   let mut roll = noise::Roll::new(seed);
   let (lean, recline, crown) =
     (roll.spread(0.3), roll.range(0.12, 0.3), roll.spread(0.4));
@@ -368,7 +485,7 @@ pub fn crag(seed: u32, blades: u32, detail: u32) -> Vec<Mesh> {
       let turn = Quat::from_rotation_z(lean + roll.spread(0.12))
         * Quat::from_rotation_x(-recline + roll.spread(0.08));
       let ridge = roll.spread(0.25);
-      let planes: Vec<(Vec3, f32)> = [
+      let planes = [
         (Vec3::new(roll.spread(0.2), 0.0, 1.0), roll.range(0.45, 0.6)),
         (Vec3::new(roll.spread(0.2), 0.0, -1.0), 0.6),
         (Vec3::new(1.0, 0.0, roll.spread(0.3)), roll.range(0.45, 0.65)),
@@ -381,29 +498,7 @@ pub fn crag(seed: u32, blades: u32, detail: u32) -> Vec<Mesh> {
       ]
       .map(|(normal, offset)| (normal.normalize(), offset))
       .into();
-      let carve = |direction: Vec3| {
-        let groove = noise::perlin(
-          Vec2::new((direction.x + direction.z) * 4.0, direction.y * 0.8),
-          seed + blade
-        );
-        let fracture =
-          0.05 * (1.0 - groove.abs()) + 0.012 * noise::fbm3(direction * 3.0, 2, seed);
-        let reach = planes
-          .iter()
-          .filter(|&&(normal, _)| normal.dot(direction) > 0.05)
-          .map(|&(normal, offset)| (offset - fracture) / normal.dot(direction))
-          .fold(1.4, f32::min);
-        center + turn * (direction * reach * size)
-      };
-      let mut mesh = Sphere::new(1.0).mesh().ico(detail).expect("ico sphere");
-      let positions: Vec<Vec3> = points(&mesh, Mesh::ATTRIBUTE_POSITION)
-        .into_iter()
-        .map(|point| carve(point.normalize()))
-        .collect();
-      mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
-      mesh.duplicate_vertices();
-      mesh.compute_flat_normals();
-      mesh
+      Blade { planes, size, center, turn, seed: seed + blade }
     })
     .collect()
 }
