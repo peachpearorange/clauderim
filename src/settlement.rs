@@ -1654,7 +1654,7 @@ const GRANITE: Srgba = Srgba::new(0.5, 0.5, 0.48, 1.0);
 fn mound(radius: f32, ground: Ground, roll: &mut Roll) -> Works {
   let mut works = Works::default();
   let (low, high) = spread(ground, Vec2::splat(radius));
-  let rise = radius * 0.45;
+  let rise = radius * 0.62;
   let profile: Vec<Vec2> = [Vec2::new(0.0, low - 1.0), Vec2::new(radius, low - 1.0)]
     .into_iter()
     .chain((0..=10).map(|step| {
