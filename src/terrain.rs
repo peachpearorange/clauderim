@@ -3,14 +3,14 @@ use {crate::{noise,
              player::{MainCamera, Player},
              river, settlement,
              signal::Pending,
-             texture},
+             texture,
+             work::{self, Job, Work}},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             color::Mix,
             mesh::{Indices, PrimitiveTopology},
             platform::collections::{HashMap, HashSet},
-            prelude::*,
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+            prelude::*},
      std::sync::{Arc, RwLock}};
 
 pub const WORLD: f32 = 3072.0;
@@ -230,17 +230,6 @@ pub struct Ground(Arc<RwLock<Chunks>>);
 
 fn chunk_of(at: Vec2) -> IVec2 { (at / CHUNK_SIZE).floor().as_ivec2() }
 
-fn chunk_heights(chunk: IVec2) -> Arc<[f32]> {
-  let first = chunk * CHUNK;
-  (0..=CHUNK)
-    .flat_map(|row| {
-      (0..=CHUNK).map(move |column| {
-        height_at((first + IVec2::new(column, row)).as_vec2() * SPACING)
-      })
-    })
-    .collect()
-}
-
 impl Ground {
   fn sample(chunks: &Chunks, point: IVec2) -> f32 {
     let chunk = point.div_euclid(IVec2::splat(CHUNK));
@@ -270,16 +259,32 @@ impl Ground {
 
   pub fn surface(&self, at: Vec2) -> Vec3 { at.extend(self.height(at)).xzy() }
 
-  pub fn chunk(&self, chunk: IVec2) -> Arc<[f32]> {
+  pub fn filling(&self, chunk: IVec2) -> Work<Arc<[f32]>> {
     let known = self.0.read().expect("ground chunks").get(&chunk).cloned();
-    known.unwrap_or_else(|| {
-      let made = chunk_heights(chunk);
-      self.0.write().expect("ground chunks").insert(chunk, made.clone());
-      made
-    })
+    let ground = self.clone();
+    let first = chunk * CHUNK;
+    known.map_or_else(
+      || {
+        work::rows(CHUNK as usize + 1, move |row| {
+          (0..=CHUNK)
+            .map(|column| {
+              height_at((first + IVec2::new(column, row as i32)).as_vec2() * SPACING)
+            })
+            .collect::<Vec<f32>>()
+        })
+        .map(move |rows| {
+          let made: Arc<[f32]> = rows.into_iter().flatten().collect();
+          ground.0.write().expect("ground chunks").insert(chunk, made.clone());
+          made
+        })
+      },
+      |known| work::once(move || known)
+    )
   }
 
-  pub fn chunk_at(&self, at: Vec2) -> Arc<[f32]> { self.chunk(chunk_of(at)) }
+  pub fn filling_at(&self, at: Vec2) -> Work<Arc<[f32]>> { self.filling(chunk_of(at)) }
+
+  pub fn chunk(&self, chunk: IVec2) -> Arc<[f32]> { work::run(self.filling(chunk)) }
 }
 
 pub fn in_parallel<Item: Sync, Made: Send>(
@@ -299,27 +304,12 @@ pub fn in_parallel<Item: Sync, Made: Send>(
   })
 }
 
-fn surface_mesh(
-  corners: usize,
-  spot: impl Fn(usize, usize) -> Vec2,
-  lift: impl Fn(usize, usize) -> f32,
-  shape: impl Fn(usize, usize) -> (Vec3, f32)
-) -> Mesh {
-  let cells = (0..corners).flat_map(|row| (0..corners).map(move |column| (column, row)));
-  let positions: Vec<Vec3> = cells
-    .clone()
-    .map(|(column, row)| spot(column, row).extend(lift(column, row)).xzy())
-    .collect();
-  let shapes: Vec<(Vec3, f32)> =
-    cells.clone().map(|(column, row)| shape(column, row)).collect();
-  let colors: Vec<[f32; 4]> = positions
-    .iter()
-    .zip(&shapes)
-    .map(|(&position, &(normal, hollow))| {
-      paint(position.xz(), position.y, normal, hollow).to_f32_array()
-    })
-    .collect();
-  let normals: Vec<Vec3> = shapes.into_iter().map(|(normal, _)| normal).collect();
+fn surface(corners: usize, rows: Vec<Vec<(Vec3, Vec3, [f32; 4])>>) -> Mesh {
+  let (positions, (normals, colors)): (Vec<Vec3>, (Vec<Vec3>, Vec<[f32; 4]>)) = rows
+    .into_iter()
+    .flatten()
+    .map(|(position, normal, color)| (position, (normal, color)))
+    .unzip();
   let span = corners as u32;
   let indices = (0..span - 1)
     .flat_map(|row| {
@@ -414,59 +404,64 @@ fn leaves(anchor: Vec2) -> Vec<Leaf> {
     .collect()
 }
 
-fn tile_mesh(leaf: Leaf) -> Mesh {
+fn tiling(leaf: Leaf) -> Work<Mesh> {
   let Leaf { corner, size, seams } = leaf;
   let spacing = size as f32 / LEAF_CELLS as f32;
   let cells = LEAF_CELLS;
   let pad = ((6.0 / spacing).ceil() as usize).max(1);
   let span = cells + 1 + 2 * pad;
   let origin = corner.as_vec2();
-  let spot =
-    |column: usize, row: usize| origin + Vec2::new(column as f32, row as f32) * spacing;
-  let heights: Vec<f32> = (0..span * span)
-    .map(|index| {
-      let step = Vec2::new((index % span) as f32, (index / span) as f32) - pad as f32;
-      height_at(origin + step * spacing)
+  work::rows(span, move |row| {
+    (0..span)
+      .map(|column| {
+        let step = Vec2::new(column as f32, row as f32) - pad as f32;
+        height_at(origin + step * spacing)
+      })
+      .collect::<Vec<f32>>()
+  })
+  .then(move |rows| {
+    let heights: Vec<f32> = rows.into_iter().flatten().collect();
+    work::rows(cells + 3, move |row| {
+      let raw = |x: usize, z: usize| heights[z * span + x];
+      let height = |column: usize, row: usize| raw(column + pad, row + pad);
+      let [west, east, south, north] =
+        seams.map(|neighbour| (neighbour / size).max(1) as usize);
+      let stitch = |along: usize, step: usize, sample: &dyn Fn(usize) -> f32| {
+        let offset = along % step;
+        let start = along - offset;
+        sample(start).lerp(sample((start + step).min(cells)), offset as f32 / step as f32)
+      };
+      let rim = |index: usize| index.clamp(1, cells + 1) - 1;
+      let seam = |column: usize, row: usize| match (column, row) {
+        (0, _) => stitch(row, west, &|row| height(0, row)),
+        (_, _) if column == cells => stitch(row, east, &|row| height(cells, row)),
+        (_, 0) => stitch(column, south, &|column| height(column, 0)),
+        (_, _) if row == cells => stitch(column, north, &|column| height(column, cells)),
+        _ => height(column, row)
+      };
+      (0..cells + 3)
+        .map(|column| {
+          let skirt = rim(column) + 1 != column || rim(row) + 1 != row;
+          let spot = origin + Vec2::new(rim(column) as f32, rim(row) as f32) * spacing;
+          let lift =
+            seam(rim(column), rim(row)) - skirt.then_some(2.0 * spacing).unwrap_or(0.0);
+          let (x, z) = (rim(column) + pad, rim(row) + pad);
+          let around =
+            raw(x - pad, z) + raw(x + pad, z) + raw(x, z - pad) + raw(x, z + pad);
+          let normal = Vec3::new(
+            raw(x - 1, z) - raw(x + 1, z),
+            2.0 * spacing,
+            raw(x, z - 1) - raw(x, z + 1)
+          )
+          .normalize();
+          let hollow = hollowness(around, raw(x, z), pad as f32 * spacing);
+          let position = spot.extend(lift).xzy();
+          (position, normal, paint(spot, lift, normal, hollow).to_f32_array())
+        })
+        .collect::<Vec<_>>()
     })
-    .collect();
-  let raw = |x: usize, z: usize| heights[z * span + x];
-  let height = |column: usize, row: usize| raw(column + pad, row + pad);
-  let [west, east, south, north] =
-    seams.map(|neighbour| (neighbour / size).max(1) as usize);
-  let stitch = |along: usize, step: usize, sample: &dyn Fn(usize) -> f32| {
-    let offset = along % step;
-    let start = along - offset;
-    sample(start).lerp(sample((start + step).min(cells)), offset as f32 / step as f32)
-  };
-  let rim = |index: usize| index.clamp(1, cells + 1) - 1;
-  let seam = |column: usize, row: usize| match (column, row) {
-    (0, _) => stitch(row, west, &|row| height(0, row)),
-    (_, _) if column == cells => stitch(row, east, &|row| height(cells, row)),
-    (_, 0) => stitch(column, south, &|column| height(column, 0)),
-    (_, _) if row == cells => stitch(column, north, &|column| height(column, cells)),
-    _ => height(column, row)
-  };
-  surface_mesh(
-    cells + 3,
-    |column, row| spot(rim(column), rim(row)),
-    |column, row| {
-      let skirt = rim(column) + 1 != column || rim(row) + 1 != row;
-      seam(rim(column), rim(row)) - skirt.then_some(2.0 * spacing).unwrap_or(0.0)
-    },
-    |column, row| {
-      let (x, z) = (rim(column) + pad, rim(row) + pad);
-      let around = raw(x - pad, z) + raw(x + pad, z) + raw(x, z - pad) + raw(x, z + pad);
-      (
-        Vec3::new(
-          raw(x - 1, z) - raw(x + 1, z),
-          2.0 * spacing,
-          raw(x, z - 1) - raw(x, z + 1)
-        )
-        .normalize(),
-        hollowness(around, raw(x, z), pad as f32 * spacing)
-      )
-    }
-  )
+  })
+  .map(move |rows| surface(cells + 3, rows))
 }
 
 #[derive(Resource)]
@@ -481,7 +476,7 @@ struct Lands {
   wanted: Vec<Leaf>,
   shown: HashMap<Leaf, Entity>,
   ready: HashMap<Leaf, Handle<Mesh>>,
-  making: HashMap<Leaf, Task<Mesh>>
+  making: HashMap<Leaf, Job<Mesh>>
 }
 
 fn anchor_of(at: Vec2) -> IVec2 { (at / ANCHOR_STEP).round().as_ivec2() }
@@ -511,21 +506,19 @@ fn tend_lands(
     making.retain(|leaf, _| wanting.contains(leaf));
     ready.retain(|leaf, _| wanting.contains(leaf));
     match shown.is_empty() {
-      true => in_parallel(&fresh, |&leaf| (leaf, tile_mesh(leaf))).into_iter().for_each(
-        |(leaf, mesh)| {
+      true => in_parallel(&fresh, |&leaf| (leaf, work::run(tiling(leaf))))
+        .into_iter()
+        .for_each(|(leaf, mesh)| {
           ready.insert(leaf, meshes.add(mesh));
-        }
-      ),
+        }),
       false => fresh.into_iter().for_each(|leaf| {
-        making.insert(
-          leaf,
-          AsyncComputeTaskPool::get().spawn(async move { tile_mesh(leaf) })
-        );
+        making.insert(leaf, work::spawn(tiling(leaf)));
       })
     }
   }
   making.retain(|&leaf, task| {
-    check_ready(task)
+    task
+      .done()
       .map(|mesh| {
         ready.insert(leaf, meshes.add(mesh));
       })
@@ -557,7 +550,7 @@ fn tend_lands(
 #[derive(Resource, Default)]
 pub struct Footing {
   solid: HashMap<IVec2, (Entity, bool)>,
-  making: HashMap<IVec2, Task<Collider>>
+  making: HashMap<IVec2, Job<Collider>>
 }
 
 impl Footing {
@@ -620,13 +613,12 @@ fn tend_footing(
       let ground = ground.clone();
       making.insert(
         chunk,
-        AsyncComputeTaskPool::get()
-          .spawn(async move { chunk_collider(&ground.chunk(chunk)) })
+        work::spawn(ground.filling(chunk).map(|heights| chunk_collider(&heights)))
       );
     });
     let done: Vec<(IVec2, Collider)> = making
       .iter_mut()
-      .filter_map(|(&chunk, task)| check_ready(task).map(|collider| (chunk, collider)))
+      .filter_map(|(&chunk, task)| task.done().map(|collider| (chunk, collider)))
       .collect();
     done.into_iter().for_each(|(chunk, collider)| {
       making.remove(&chunk);

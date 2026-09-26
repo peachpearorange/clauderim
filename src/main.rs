@@ -31,6 +31,7 @@ mod terrain;
 mod texture;
 mod walker;
 mod wolf;
+mod work;
 
 use {avian3d::prelude::*,
      bevy::{prelude::*,
@@ -161,7 +162,7 @@ fn main() {
       river::plugin,
       npc::plugin
     ))
-    .add_plugins(audio::plugin)
+    .add_plugins((audio::plugin, work::plugin))
     .add_systems(Update, snapshot)
     .add_systems(
       PreUpdate,

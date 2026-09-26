@@ -10,8 +10,7 @@ use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
              walker::{Walker, Walking},
              wolf},
      avian3d::prelude::*,
-     bevy::{prelude::*,
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+     bevy::prelude::*,
      std::sync::LazyLock};
 
 struct Breed {
@@ -195,13 +194,13 @@ fn raise(
         ChildOf(entity)
       ))
       .id();
-    let (bones, tailoring): (Vec<Entity>, Task<Vec<(usize, Stuff, Mesh)>>) =
+    let (bones, tailoring): (Vec<Entity>, crate::work::Job<Vec<(usize, Stuff, Mesh)>>) =
       match spawn.kind {
         FoeKind::Wolf => {
           let beast = wolf::skeleton(&mut commands, body);
           let bones = beast.bones.to_vec();
           commands.entity(entity).insert(beast);
-          (bones, AsyncComputeTaskPool::get().spawn(async move { wolf::hide(seed) }))
+          (bones, crate::work::task(move || wolf::hide(seed)))
         }
         kind => {
           let (grip, hunch) = match kind {
@@ -214,7 +213,7 @@ fn raise(
           commands.entity(entity).insert(Rig { bones, frame: MAN, grip, hunch });
           (
             bones.to_vec(),
-            AsyncComputeTaskPool::get().spawn(async move {
+            crate::work::task(move || {
               humanoid::tailor(match kind {
                 FoeKind::Draugr => humanoid::draugr(seed),
                 FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
@@ -232,7 +231,7 @@ fn raise(
 #[derive(Component)]
 pub struct Dressing {
   pub bones: Vec<Entity>,
-  pub tailoring: Task<Vec<(usize, Stuff, Mesh)>>
+  pub tailoring: crate::work::Job<Vec<(usize, Stuff, Mesh)>>
 }
 
 pub fn dress(
@@ -244,7 +243,7 @@ pub fn dress(
 ) {
   pending.0.insert("dressing", dressing.iter().count());
   dressing.iter_mut().for_each(|(entity, mut dressing)| {
-    if let Some(parts) = check_ready(&mut dressing.tailoring) {
+    if let Some(parts) = dressing.tailoring.done() {
       humanoid::dress(&mut commands, &mut meshes, &stuffs, &dressing.bones, parts);
       commands.entity(entity).remove::<Dressing>();
     }

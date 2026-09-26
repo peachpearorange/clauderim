@@ -5,7 +5,8 @@ use {crate::{model::{self, Piece},
              signal::Pending,
              sky,
              stuff::{Stuff, Stuffs},
-             terrain::{self, BOUND, Ground, srgb}},
+             terrain::{self, BOUND, Ground, srgb},
+             work::{self, Job, Work}},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             camera::{primitives::{Aabb, MeshAabb},
@@ -18,8 +19,7 @@ use {crate::{model::{self, Piece},
             prelude::*,
             render::render_resource::{AsBindGroup, Extent3d, TextureDimension,
                                       TextureFormat},
-            shader::ShaderRef,
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+            shader::ShaderRef},
      enum_assoc::Assoc,
      std::{f32::consts::{FRAC_PI_2, PI, TAU},
            sync::Arc}};
@@ -83,7 +83,6 @@ const MERGE_VERTICES: usize = 1200;
 const WOODS_REACH: f32 = 1300.0;
 const WOODS_SLACK: f32 = 160.0;
 const WOODS_NOW: f32 = 260.0;
-const STANDS_PER_FRAME: usize = 6;
 const SOLID_REACH: f32 = 160.0;
 const SHADOWLESS: f32 = sky::SHADOW_DISTANCE + 120.0;
 const FOREVER: f32 = 1.0e6;
@@ -1339,14 +1338,22 @@ fn foreground(ground: &Ground) -> Vec<Plant> {
   .collect()
 }
 
-fn sow(ground: &Ground, cell: IVec2, near: &[Plant]) -> Vec<Plant> {
-  ground.chunk_at((cell.as_vec2() + 0.5) * CELL);
+fn sowing(ground: Ground, cell: IVec2, near: Arc<Vec<Plant>>) -> Work<Vec<Plant>> {
   let per = (CELL / PATCH) as i32;
-  (0..per)
-    .flat_map(|row| (0..per).map(move |column| cell * per + IVec2::new(column, row)))
-    .flat_map(|patch| scatter(ground, patch))
-    .chain(near.iter().filter(|plant| cell_of(plant.place.translation) == cell).cloned())
-    .collect()
+  ground.filling_at((cell.as_vec2() + 0.5) * CELL).then(move |_| {
+    work::rows((per * per) as usize, move |index| {
+      scatter(&ground, cell * per + IVec2::new(index as i32 % per, index as i32 / per))
+    })
+    .map(move |patches| {
+      patches
+        .into_iter()
+        .flatten()
+        .chain(
+          near.iter().filter(|plant| cell_of(plant.place.translation) == cell).cloned()
+        )
+        .collect()
+    })
+  })
 }
 
 fn cell_of(at: Vec3) -> IVec2 { (at.xz() / CELL).floor().as_ivec2() }
@@ -1554,7 +1561,7 @@ struct Shelf {
 #[derive(Resource, Default)]
 struct Woods {
   stands: HashMap<IVec2, Stand>,
-  growing: HashMap<IVec2, Task<Grown>>,
+  growing: HashMap<IVec2, Job<Grown>>,
   near: Arc<Vec<Plant>>,
   eye: Option<Vec3>
 }
@@ -1720,25 +1727,25 @@ fn tend_woods(
     let (urgent, later): (Vec<IVec2>, Vec<IVec2>) = wanted
       .into_iter()
       .partition(|&cell| stands.is_empty() && cell_gap(cell, eye.xz()) < WOODS_NOW);
-    terrain::in_parallel(&urgent, |&cell| (cell, grow(&forms, sow(&ground, cell, near))))
-      .into_iter()
-      .for_each(|(cell, grown)| {
-        let mut made = stand(&mut meshes, grown);
-        made.tend(&mut commands, eye);
-        stands.insert(cell, made);
-      });
+    terrain::in_parallel(&urgent, |&cell| {
+      (cell, grow(&forms, work::run(sowing(ground.clone(), cell, near.clone()))))
+    })
+    .into_iter()
+    .for_each(|(cell, grown)| {
+      let mut made = stand(&mut meshes, grown);
+      made.tend(&mut commands, eye);
+      stands.insert(cell, made);
+    });
     later.into_iter().for_each(|cell| {
       let (ground, near, forms) = (ground.clone(), near.clone(), forms.clone());
       growing.insert(
         cell,
-        AsyncComputeTaskPool::get()
-          .spawn(async move { grow(&forms, sow(&ground, cell, &near)) })
+        work::spawn(sowing(ground, cell, near).map(move |plants| grow(&forms, plants)))
       );
     });
     let grown: Vec<(IVec2, Grown)> = growing
       .iter_mut()
-      .filter_map(|(&cell, task)| check_ready(task).map(|grown| (cell, grown)))
-      .take(crate::opts::opts().shot.map_or(STANDS_PER_FRAME, |_| usize::MAX))
+      .filter_map(|(&cell, task)| task.done().map(|grown| (cell, grown)))
       .collect();
     grown.into_iter().for_each(|(cell, grown)| {
       growing.remove(&cell);
@@ -1985,96 +1992,108 @@ fn mushrooms(roll: &mut Roll, root: Vec3) -> Vec<Mesh> {
     .collect()
 }
 
-fn sward(ground: &Ground, cell: IVec2) -> Option<(Vec3, Mesh)> {
+fn swarding(ground: Ground, cell: IVec2) -> Work<Option<(Vec3, Mesh)>> {
   let origin = cell.as_vec2() * SWARD_CELL;
   let center = ground.surface(origin + SWARD_CELL / 2.0);
-  let mut roll = Roll::new(
-    (cell.x as u32).wrapping_mul(2_654_435_761) ^ (cell.y as u32).wrapping_mul(40_503)
-  );
   let across = (SWARD_CELL / TUFT_SPACING) as i32;
-  let mut tufts = Tufts::default();
-  let extras: Vec<Mesh> = (0..across * across)
-    .flat_map(|slot| {
-      let at = origin
-        + (Vec2::new((slot % across) as f32, (slot / across) as f32)
-          + Vec2::new(roll.next(), roll.next()))
-          * TUFT_SPACING;
-      let height = ground.height(at);
-      let normal = ground.normal(at);
-      let forest = terrain::forest(at);
-      let road = place::road_distance(at);
-      let dry = tundra(at);
-      let line = snow_line(at);
-      let clump = smooth(-0.35, 0.25, noise::fbm(at / 7.0, 2, 83));
-      let lush = (1.0 - forest * 0.7)
-        * smooth(1.9, 3.4, road + noise::fbm(at / 3.0, 2, 85))
-        * smooth(0.7, 0.84, normal.y)
-        * smooth(line + 5.0, line - 30.0, height)
-        * crate::river::water_level(at)
-          .map_or(1.0, |level| smooth(level + 0.5, level + 1.8, height))
-        * (1.0 - crate::river::bank(at))
-        * (0.25 + 0.75 * clump)
-        * f32::from(u8::from(at.abs().max_element() < BOUND))
-        * f32::from(u8::from(place::around(at).iter().all(|place| {
-          place.sunk() <= 0.0 || at.distance(place.spot()) > place.flat() * 0.95
-        })));
-      let root = at.extend(height).xzy() - center;
-      let (pick, flower, fungus, pebble) =
-        (roll.next(), roll.next(), roll.next(), roll.next());
-      let blooming = smooth(0.25, 0.6, noise::fbm(at / 28.0, 2, 87)) * (1.0 - forest);
-      let ground_tone = MEADOW.mix(&TUNDRA, dry).mix(&FOREST_FLOOR, forest * 0.8);
-      if forest > 0.3 && pick < forest * 0.05 && lush > 0.05 {
-        let size = roll.range(0.45, 0.85);
-        tufts.fern(&mut roll, root, size);
-      } else if pick < lush && flower < blooming * 0.18 {
-        let petal = BLOOMS[(noise::hash((at.x / 9.0) as i32, (at.y / 9.0) as i32, 89)
-          * 5.0) as usize
-          % 5];
-        let tall = roll.range(0.2, 0.4);
-        tufts.bloom(&mut roll, root, tall, petal);
-      } else if pick < lush {
-        let tall =
-          (0.2 + 0.36 * clump * (1.0 - 0.4 * dry) - 0.08 * forest) * roll.range(0.8, 1.2);
-        let tip = dim(
-          MEADOW_TIP.mix(&TUNDRA_TIP, dry).mix(&FOREST_FLOOR, forest * 0.5),
-          roll.range(0.0, 0.25)
-        );
-        tufts.tuft(
-          &mut roll,
-          root,
-          normal.lerp(Vec3::Y, 0.6).normalize(),
-          tall,
-          dim(ground_tone, 0.45),
-          tip
-        );
-      }
-      let pebbly = 0.002 + 0.02 * smooth(2.0, 3.0, road) * smooth(5.5, 3.5, road);
-      [
-        (forest > 0.45 && fungus < 0.004).then(|| mushrooms(&mut roll, root)),
-        (lush > 0.0 && pebble < pebbly).then(|| {
-          let size = roll.range(0.06, 0.25);
-          vec![still(
-            Piece::new(model::lump(roll.below(50) as u32, 0.25, 0), Srgba::WHITE)
-              .shaded(|point, normal| {
-                stone_tone(point, normal, false, 3).mix(&DARK_STONE, 0.4)
-              })
-              .sized(Vec3::new(size, size * 0.6, size))
-              .at(root - Vec3::Y * size * 0.2)
-          )]
-        })
-      ]
+  work::rows(across as usize, move |line| {
+    let mut roll = Roll::new(
+      (cell.x as u32).wrapping_mul(2_654_435_761)
+        ^ (cell.y as u32).wrapping_mul(40_503)
+        ^ (line as u32).wrapping_mul(97_531)
+    );
+    let mut tufts = Tufts::default();
+    let extras: Vec<Mesh> = (0..across)
+      .flat_map(|slot| {
+        let at = origin
+          + (Vec2::new(slot as f32, line as f32) + Vec2::new(roll.next(), roll.next()))
+            * TUFT_SPACING;
+        let height = ground.height(at);
+        let normal = ground.normal(at);
+        let forest = terrain::forest(at);
+        let road = place::road_distance(at);
+        let dry = tundra(at);
+        let line = snow_line(at);
+        let clump = smooth(-0.35, 0.25, noise::fbm(at / 7.0, 2, 83));
+        let lush = (1.0 - forest * 0.7)
+          * smooth(1.9, 3.4, road + noise::fbm(at / 3.0, 2, 85))
+          * smooth(0.7, 0.84, normal.y)
+          * smooth(line + 5.0, line - 30.0, height)
+          * crate::river::water_level(at)
+            .map_or(1.0, |level| smooth(level + 0.5, level + 1.8, height))
+          * (1.0 - crate::river::bank(at))
+          * (0.25 + 0.75 * clump)
+          * f32::from(u8::from(at.abs().max_element() < BOUND))
+          * f32::from(u8::from(place::around(at).iter().all(|place| {
+            place.sunk() <= 0.0 || at.distance(place.spot()) > place.flat() * 0.95
+          })));
+        let root = at.extend(height).xzy() - center;
+        let (pick, flower, fungus, pebble) =
+          (roll.next(), roll.next(), roll.next(), roll.next());
+        let blooming = smooth(0.25, 0.6, noise::fbm(at / 28.0, 2, 87)) * (1.0 - forest);
+        let ground_tone = MEADOW.mix(&TUNDRA, dry).mix(&FOREST_FLOOR, forest * 0.8);
+        if forest > 0.3 && pick < forest * 0.05 && lush > 0.05 {
+          let size = roll.range(0.45, 0.85);
+          tufts.fern(&mut roll, root, size);
+        } else if pick < lush && flower < blooming * 0.18 {
+          let petal = BLOOMS[(noise::hash((at.x / 9.0) as i32, (at.y / 9.0) as i32, 89)
+            * 5.0) as usize
+            % 5];
+          let tall = roll.range(0.2, 0.4);
+          tufts.bloom(&mut roll, root, tall, petal);
+        } else if pick < lush {
+          let tall = (0.2 + 0.36 * clump * (1.0 - 0.4 * dry) - 0.08 * forest)
+            * roll.range(0.8, 1.2);
+          let tip = dim(
+            MEADOW_TIP.mix(&TUNDRA_TIP, dry).mix(&FOREST_FLOOR, forest * 0.5),
+            roll.range(0.0, 0.25)
+          );
+          tufts.tuft(
+            &mut roll,
+            root,
+            normal.lerp(Vec3::Y, 0.6).normalize(),
+            tall,
+            dim(ground_tone, 0.45),
+            tip
+          );
+        }
+        let pebbly = 0.002 + 0.02 * smooth(2.0, 3.0, road) * smooth(5.5, 3.5, road);
+        [
+          (forest > 0.45 && fungus < 0.004).then(|| mushrooms(&mut roll, root)),
+          (lush > 0.0 && pebble < pebbly).then(|| {
+            let size = roll.range(0.06, 0.25);
+            vec![still(
+              Piece::new(model::lump(roll.below(50) as u32, 0.25, 0), Srgba::WHITE)
+                .shaded(|point, normal| {
+                  stone_tone(point, normal, false, 3).mix(&DARK_STONE, 0.4)
+                })
+                .sized(Vec3::new(size, size * 0.6, size))
+                .at(root - Vec3::Y * size * 0.2)
+            )]
+          })
+        ]
+        .into_iter()
+        .flatten()
+        .flatten()
+        .collect::<Vec<_>>()
+      })
+      .collect();
+    (!tufts.positions.is_empty()).then(|| {
+      extras.into_iter().fold(tufts.mesh(), |mut all, piece| {
+        all.merge(&piece).expect("sward pieces share attributes");
+        all
+      })
+    })
+  })
+  .map(move |lines| {
+    lines
       .into_iter()
       .flatten()
-      .flatten()
-      .collect::<Vec<_>>()
-    })
-    .collect();
-  (!tufts.positions.is_empty()).then(|| {
-    let mesh = extras.into_iter().fold(tufts.mesh(), |mut all, piece| {
-      all.merge(&piece).expect("sward pieces share attributes");
-      all
-    });
-    (center, mesh)
+      .reduce(|mut all, line| {
+        all.merge(&line).expect("sward lines share attributes");
+        all
+      })
+      .map(|mesh| (center, mesh))
   })
 }
 
@@ -2093,7 +2112,7 @@ struct Sward(Handle<SwayMaterial>);
 #[derive(Resource, Default)]
 struct Meadow {
   grown: HashMap<IVec2, Option<Entity>>,
-  growing: HashMap<IVec2, Task<Option<(Vec3, Mesh)>>>
+  growing: HashMap<IVec2, Job<Option<(Vec3, Mesh)>>>
 }
 
 fn prepare_sward(mut commands: Commands, mut materials: ResMut<Assets<SwayMaterial>>) {
@@ -2132,13 +2151,11 @@ fn tend_meadow(
       .collect();
     wanted.into_iter().for_each(|cell| {
       let ground = ground.clone();
-      growing.insert(
-        cell,
-        AsyncComputeTaskPool::get().spawn(async move { sward(&ground, cell) })
-      );
+      growing.insert(cell, work::spawn(swarding(ground, cell)));
     });
     growing.retain(|&cell, task| {
-      check_ready(task)
+      task
+        .done()
         .map(|made| {
           let entity = made.map(|(center, mesh)| {
             commands

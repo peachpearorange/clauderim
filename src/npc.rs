@@ -8,7 +8,7 @@ use {crate::{creature::Dressing,
              terrain::Ground,
              walker::{Walker, Walking}},
      avian3d::prelude::*,
-     bevy::{platform::collections::HashMap, prelude::*, tasks::AsyncComputeTaskPool},
+     bevy::{platform::collections::HashMap, prelude::*},
      std::sync::LazyLock};
 
 const GATHER: f32 = 320.0;
@@ -99,8 +99,9 @@ fn spawn_villager(
     Rig { bones, frame, grip: Grip::Bare, hunch: 0.0 },
     Dressing {
       bones: bones.to_vec(),
-      tailoring: AsyncComputeTaskPool::get()
-        .spawn(async move { humanoid::tailor(humanoid::villager(calling, seed)) })
+      tailoring: crate::work::task(move || {
+        humanoid::tailor(humanoid::villager(calling, seed))
+      })
     }
   ));
   entity

@@ -7,10 +7,7 @@ use {crate::{landmark::{self, Flicker},
              stuff::{Stuff, Stuffs},
              terrain::{height_at, smooth, srgb}},
      avian3d::prelude::*,
-     bevy::{light::NotShadowCaster,
-            platform::collections::HashMap,
-            prelude::*,
-            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
+     bevy::{light::NotShadowCaster, platform::collections::HashMap, prelude::*},
      std::{f32::consts::{FRAC_PI_2, TAU},
            sync::LazyLock}};
 
@@ -2170,7 +2167,7 @@ fn anchor(work: &Work) -> (Vec2, f32) {
 struct Raised {
   origin: Vec3,
   parts: Vec<(Stuff, Mesh)>,
-  solid: Collider,
+  solid: Option<Collider>,
   spinners: Vec<(Transform, Vec<(Stuff, Mesh)>)>,
   hearths: Vec<Vec3>
 }
@@ -2199,40 +2196,51 @@ fn merged(parts: Vec<(Stuff, Piece)>) -> Vec<(Stuff, Mesh)> {
     .collect()
 }
 
-fn raise(index: usize) -> Raised {
+const SHARE: usize = 4;
+
+fn shares(index: usize) -> usize { layout(index).works.len().div_ceil(SHARE).max(1) }
+
+fn raise(index: usize, share: usize) -> Raised {
   let layout = layout(index);
   let spot = layout.place.spot();
   let origin = spot.extend(height_at(spot)).xzy();
-  let mut roll = Roll::new(index as u32 * 7919 + 17);
-  let all = layout.works.iter().fold(Works::default(), |mut all, work| {
-    let (at, facing) = anchor(work);
-    let placed = matches!(work, Work::Fence { .. } | Work::Rampart { .. });
-    let offset = placed.then_some(Vec2::ZERO).unwrap_or(at - spot);
-    let frame = Transform::from_translation(offset.extend(0.0).xzy())
-      .with_rotation(Quat::from_rotation_y(facing));
-    let site = Site { origin, frame };
-    let local_work = match work {
-      Work::Fence { path } => {
-        Work::Fence { path: path.iter().map(|point| *point - spot).collect() }
-      }
-      Work::Rampart { from, to, tall } => {
-        Work::Rampart { from: *from - spot, to: *to - spot, tall: *tall }
-      }
-      other => other.clone()
-    };
-    all.absorb(built(&local_work, &site, &mut roll).placed(frame));
-    all
-  });
+  let first = (share * SHARE).min(layout.works.len());
+  let last = (first + SHARE).min(layout.works.len());
+  let all = layout.works[first..last].iter().enumerate().fold(
+    Works::default(),
+    |mut all, (offset, work)| {
+      let mut roll = Roll::new(index as u32 * 7919 + 17 + (first + offset) as u32 * 131);
+      let (at, facing) = anchor(work);
+      let placed = matches!(work, Work::Fence { .. } | Work::Rampart { .. });
+      let offset = placed.then_some(Vec2::ZERO).unwrap_or(at - spot);
+      let frame = Transform::from_translation(offset.extend(0.0).xzy())
+        .with_rotation(Quat::from_rotation_y(facing));
+      let site = Site { origin, frame };
+      let local_work = match work {
+        Work::Fence { path } => {
+          Work::Fence { path: path.iter().map(|point| *point - spot).collect() }
+        }
+        Work::Rampart { from, to, tall } => {
+          Work::Rampart { from: *from - spot, to: *to - spot, tall: *tall }
+        }
+        other => other.clone()
+      };
+      all.absorb(built(&local_work, &site, &mut roll).placed(frame));
+      all
+    }
+  );
   Raised {
     origin,
     parts: merged(all.parts),
-    solid: Collider::compound(
-      all
-        .solids
-        .into_iter()
-        .map(|(at, turn, collider)| (Position(at), turn, collider))
-        .collect()
-    ),
+    solid: (!all.solids.is_empty()).then(|| {
+      Collider::compound(
+        all
+          .solids
+          .into_iter()
+          .map(|(at, turn, collider)| (Position(at), turn, collider))
+          .collect()
+      )
+    }),
     spinners: all.spinners.into_iter().map(|(at, parts)| (at, merged(parts))).collect(),
     hearths: all.fires
   }
@@ -2246,8 +2254,8 @@ struct Spin(f32);
 
 #[derive(Resource, Default)]
 struct Raising {
-  raised: HashMap<usize, Entity>,
-  building: HashMap<usize, Task<Raised>>
+  raised: HashMap<usize, Vec<Entity>>,
+  building: HashMap<(usize, usize), crate::work::Job<Raised>>
 }
 
 fn erect(
@@ -2263,11 +2271,12 @@ fn erect(
     .spawn((
       Name::new(layout(index).place.name()),
       Transform::from_translation(origin),
-      Visibility::Inherited,
-      RigidBody::Static,
-      solid
+      Visibility::Inherited
     ))
     .id();
+  solid.into_iter().for_each(|solid| {
+    commands.entity(root).insert((RigidBody::Static, solid));
+  });
   let look = |(stuff, mesh): (Stuff, Mesh), meshes: &mut Assets<Mesh>| {
     (Mesh3d(meshes.add(mesh)), MeshMaterial3d(stuffs.of(stuff)))
   };
@@ -2320,30 +2329,37 @@ fn tend_settlements(
     .filter(|index| {
       layout(*index).place.spot().distance(eye) < RAISE_REACH
         && !raised.contains_key(index)
-        && !building.contains_key(index)
     })
     .collect();
   let (urgent, later): (Vec<usize>, Vec<usize>) = wanted
     .into_iter()
     .partition(|&index| first && layout(index).place.spot().distance(eye) < RAISE_NOW);
-  crate::terrain::in_parallel(&urgent, |&index| (index, raise(index)))
-    .into_iter()
-    .for_each(|(index, made)| {
-      let root = erect(&mut commands, &mut meshes, &stuffs, &effects, index, made);
-      raised.insert(index, root);
-    });
-  later.into_iter().for_each(|index| {
-    building
-      .insert(index, AsyncComputeTaskPool::get().spawn(async move { raise(index) }));
-  });
-  let done: Vec<(usize, Raised)> = building
-    .iter_mut()
-    .filter_map(|(&index, task)| check_ready(task).map(|made| (index, made)))
+  let urgent_shares: Vec<(usize, usize)> = urgent
+    .iter()
+    .flat_map(|&index| (0..shares(index)).map(move |share| (index, share)))
     .collect();
-  done.into_iter().for_each(|(index, made)| {
-    building.remove(&index);
+  crate::terrain::in_parallel(&urgent_shares, |&(index, share)| {
+    (index, raise(index, share))
+  })
+  .into_iter()
+  .for_each(|(index, made)| {
     let root = erect(&mut commands, &mut meshes, &stuffs, &effects, index, made);
-    raised.insert(index, root);
+    raised.entry(index).or_default().push(root);
+  });
+  later.into_iter().for_each(|index| {
+    raised.insert(index, Vec::new());
+    (0..shares(index)).for_each(|share| {
+      building.insert((index, share), crate::work::task(move || raise(index, share)));
+    });
+  });
+  let done: Vec<(usize, usize, Raised)> = building
+    .iter_mut()
+    .filter_map(|(&(index, share), task)| task.done().map(|made| (index, share, made)))
+    .collect();
+  done.into_iter().for_each(|(index, share, made)| {
+    building.remove(&(index, share));
+    let root = erect(&mut commands, &mut meshes, &stuffs, &effects, index, made);
+    raised.entry(index).or_default().push(root);
   });
 }
 
