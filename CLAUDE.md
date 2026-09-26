@@ -40,12 +40,13 @@ Code structure should mirror the thinking behind it: translate the user's concep
 - Order within a file: if A refers to B, A comes after B. Keep related code together.
 - Semicolons are a verbosity signal: prefer expressions over statements.
 - No `return`, `continue`, `let … else`, or early exits.
-- Prefer let chains over nested `if let`/`if` or `.and_then()`:
+- Prefer let chains over nested `if let`/`if` or `.and_then()`. Chains can mix fallible and plain (irrefutable) lets:
   ```rust
   if let Some(weapon) = equipped
     && weapon.is_ranged()
+    && let reach = weapon.range() * skill
     && let &Transform { translation, .. } = weapon.transform()
-    && let Some(target) = find_target(translation)
+    && let Some(target) = find_target(translation, reach)
   {
     attack(target)
   } else if let Some(weapon) = equipped {
