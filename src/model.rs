@@ -314,7 +314,7 @@ pub fn lump(seed: u32, roughness: f32, detail: u32) -> Mesh {
   mesh
 }
 
-pub fn hewn(seed: u32, cuts: u32, ledges: f32, detail: u32) -> Mesh {
+pub fn hewn(seed: u32, cuts: u32, ledges: f32, layers: Option<f32>, detail: u32) -> Mesh {
   let mut roll = noise::Roll::new(seed);
   let planes: Vec<(Vec3, f32)> = (0..cuts)
     .map(|cut| {
@@ -329,8 +329,10 @@ pub fn hewn(seed: u32, cuts: u32, ledges: f32, detail: u32) -> Mesh {
       ((even + jitter).normalize_or(even), roll.range(0.6, 1.0))
     })
     .collect();
-  let (layers, tilt) =
-    (roll.range(1.6, 2.4), Vec2::new(roll.spread(0.2), roll.spread(0.2)));
+  let (layers, tilt) = layers.map_or_else(
+    || (roll.range(1.6, 2.4), Vec2::new(roll.spread(0.2), roll.spread(0.2))),
+    |layers| (layers, Vec2::ZERO)
+  );
   let carve = |direction: Vec3| {
     let reach = planes
       .iter()

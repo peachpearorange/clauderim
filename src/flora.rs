@@ -74,6 +74,7 @@ const NEAR_TREE: f32 = 170.0;
 const FADE: f32 = 40.0;
 const ROCK_REACH: f32 = 50.0;
 const ROCK_DETAIL: [u32; 3] = [15, 6, 3];
+const CRAG_LAYERS: f32 = 2.0;
 const TIER: f32 = 4.0;
 const CELL: f32 = 64.0;
 const RESTREAM_STEP: f32 = 8.0;
@@ -797,9 +798,15 @@ fn stone_tone(point: Vec3, normal: Vec3, snowy: bool, seed: u32) -> LinearRgba {
   rock.mix(&if snowy { SNOW } else { MOSS }, top * if snowy { 0.95 } else { 0.35 })
 }
 
-fn rock_shape(seed: u32, cuts: u32, ledges: f32, snowy: bool) -> Shape {
+fn rock_shape(
+  seed: u32,
+  cuts: u32,
+  ledges: f32,
+  layers: Option<f32>,
+  snowy: bool
+) -> Shape {
   let [near, far @ ..] = ROCK_DETAIL.map(|detail| {
-    Piece::new(model::hewn(seed, cuts, ledges, detail), Srgba::WHITE)
+    Piece::new(model::hewn(seed, cuts, ledges, layers, detail), Srgba::WHITE)
       .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
       .0
   });
@@ -974,11 +981,15 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       }
     }
     Growth::Boulder | Growth::SnowyBoulder => {
-      rock_shape(variant as u32 + 300, 13, 0.07, growth == Growth::SnowyBoulder)
+      rock_shape(variant as u32 + 300, 13, 0.07, None, growth == Growth::SnowyBoulder)
     }
-    Growth::Crag | Growth::SnowyCrag => {
-      rock_shape(variant as u32 + 500, 9, 0.14, growth == Growth::SnowyCrag)
-    }
+    Growth::Crag | Growth::SnowyCrag => rock_shape(
+      variant as u32 + 500,
+      9,
+      0.14,
+      Some(CRAG_LAYERS),
+      growth == Growth::SnowyCrag
+    ),
     Growth::Juniper => Shape {
       parts: vec![(Coat::Plain(Stuff::Needles), juniper(seed))],
       far: vec![],
@@ -1020,7 +1031,7 @@ fn survey(ground: &Ground, at: Vec2) -> Site {
     normal: ground.normal(at),
     forest: terrain::forest(at),
     road: place::road_distance(at),
-    snow: smooth(line - 45.0, line, height),
+    snow: smooth(line - 4.0, line + 4.0, height),
     treeline: smooth(line + 130.0, line + 60.0, height),
     open: at.abs().max_element() < BOUND
       && crate::river::water_level(at).is_none_or(|level| height > level + 0.8)
@@ -1161,6 +1172,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       let site = survey(ground, at);
       let steep = smooth(0.84, 0.62, site.normal.y);
       let size = roll.range(3.0, 8.0);
+      let contour = site.normal.xz().normalize_or(Vec2::X).perp();
       let (pick, crowd) = (roll.next(), 1 + roll.below(3));
       (site.spot.x.abs() < BOUND
         && site.spot.z.abs() < BOUND
@@ -1174,7 +1186,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
               let big = size * roll.range(0.5, 1.0);
               let scale =
                 Vec3::new(big * roll.range(1.2, 1.8), big * roll.range(0.45, 0.7), big);
-              let snowy = roll.next() < site.snow;
+              let snowy = site.snow > 0.5;
               Plant {
                 growth: if snowy { Growth::SnowyCrag } else { Growth::Crag },
                 variant: roll.below(6),
@@ -1185,7 +1197,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
                   Quat::from_rotation_arc(
                     Vec3::Y,
                     site.normal.lerp(Vec3::Y, 0.25).normalize()
-                  ) * Quat::from_rotation_y(roll.range(0.0, TAU))
+                  ) * Quat::from_rotation_y(-contour.to_angle() + roll.spread(0.3))
                 )
                 .with_scale(scale)
               }
@@ -1195,46 +1207,45 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         .unwrap_or_default()
     })
     .collect();
-  let bluffs: Vec<Plant> = (0..5)
+  let bluffs: Vec<Plant> = (0..2)
     .flat_map(|_| {
       let at = anywhere(&mut roll);
       let site = survey(ground, at);
-      let steep = smooth(0.82, 0.55, site.normal.y);
-      let size = roll.range(8.0, 24.0);
-      let (pick, crowd) = (roll.next(), 2 + roll.below(3));
-      let downhill = (site.normal.xz()).normalize_or(Vec2::X);
-      let contour = downhill.perp();
+      let steep = smooth(0.76, 0.55, site.normal.y);
+      let size = roll.range(12.0, 28.0);
+      let (pick, crowd) = (roll.next(), 3 + roll.below(4));
+      let tall = size * roll.range(0.75, 1.1);
+      let bed = tall / CRAG_LAYERS;
+      let across = |normal: Vec3, toward: Vec2| {
+        let contour = normal.xz().normalize_or(Vec2::X).perp();
+        if contour.dot(toward) < 0.0 { -contour } else { contour }
+      };
       (site.spot.x.abs() < BOUND
         && site.spot.z.abs() < BOUND
         && site.road > size
         && pick < 0.32 * steep * smooth(40.0, 140.0, site.spot.y))
       .then(|| {
+        let start = across(site.normal, Vec2::X);
         (0..crowd)
-          .map(|index| {
-            let along = (index as f32 - crowd as f32 / 2.0) * size * 0.7;
-            let site = survey(
-              ground,
-              at + contour * (along + roll.spread(size * 0.2))
-                + downhill * roll.spread(size * 0.3)
-            );
-            let big = size * roll.range(0.55, 1.0);
-            let scale =
-              Vec3::new(big * roll.range(1.1, 1.6), big * roll.range(0.5, 0.85), big);
-            let snowy = roll.next() < site.snow;
-            Plant {
+          .scan((at, start), |(point, heading), _| {
+            let site = survey(ground, *point);
+            let contour = across(site.normal, *heading);
+            let width = size * roll.range(0.8, 1.1);
+            let scale = Vec3::new(width, tall, size * 0.9);
+            let snowy = site.snow > 0.5;
+            let base = ((site.spot.y - tall * 0.45) / bed).floor() * bed;
+            let plant = Plant {
               growth: if snowy { Growth::SnowyCrag } else { Growth::Crag },
               variant: roll.below(6),
-              place: Transform::from_translation(
-                site.spot - site.normal * scale.y * 0.45
-              )
-              .with_rotation(
-                Quat::from_rotation_arc(
-                  Vec3::Y,
-                  site.normal.lerp(Vec3::Y, 0.45).normalize()
-                ) * Quat::from_rotation_y(roll.range(0.0, TAU))
-              )
-              .with_scale(scale)
-            }
+              place: Transform::from_translation(site.spot.with_y(base))
+                .with_rotation(Quat::from_rotation_y(
+                  -contour.to_angle() + roll.spread(0.12)
+                ))
+                .with_scale(scale)
+            };
+            *point += contour * width * roll.range(1.1, 1.4);
+            *heading = contour;
+            Some(plant)
           })
           .collect::<Vec<_>>()
       })
