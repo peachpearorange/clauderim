@@ -1,16 +1,17 @@
 use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
-             humanoid::{self, Grip, MAN, Motion},
+             humanoid::{self, Grip, MAN, Motion, Rig},
              inventory::{Inventory, Item, Loot},
              noise::Roll,
              place::Place,
              player::{Player, View},
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
-             stuff::Stuffs,
+             stuff::{Stuff, Stuffs},
              terrain::Ground,
              walker::{Walker, Walking},
              wolf},
      avian3d::prelude::*,
-     bevy::prelude::*,
+     bevy::{prelude::*,
+            tasks::{AsyncComputeTaskPool, Task, futures::check_ready}},
      std::sync::LazyLock};
 
 struct Breed {
@@ -149,8 +150,6 @@ fn loot(kind: FoeKind, roll: &mut Roll) -> Vec<Loot> {
 
 fn raise(
   mut commands: Commands,
-  mut meshes: ResMut<Assets<Mesh>>,
-  stuffs: Res<Stuffs>,
   spawns: Query<(Entity, &FoeSpawn, &Transform), Added<FoeSpawn>>
 ) {
   spawns.iter().for_each(|(entity, spawn, transform)| {
@@ -196,30 +195,58 @@ fn raise(
         ChildOf(entity)
       ))
       .id();
-    match spawn.kind {
-      FoeKind::Wolf => {
-        let beast = wolf::spawn_wolf(&mut commands, &mut meshes, &stuffs, body, seed);
-        commands.entity(entity).insert(beast);
-      }
-      kind => {
-        let (kit, grip, hunch) = match kind {
-          FoeKind::Draugr => (humanoid::draugr(seed), Grip::Axe, 0.22),
-          FoeKind::DraugrOverlord => (humanoid::draugr(seed * 2), Grip::Axe, 0.12),
-          FoeKind::BanditChief => (humanoid::bandit(seed * 2 + 1), Grip::Axe, 0.0),
-          _ => (humanoid::bandit(seed), Grip::Blade, 0.0)
-        };
-        let rig = humanoid::spawn_body(
-          &mut commands,
-          &mut meshes,
-          &stuffs,
-          body,
-          MAN,
-          grip,
-          hunch,
-          kit
-        );
-        commands.entity(entity).insert(rig);
-      }
+    let (bones, tailoring): (Vec<Entity>, Task<Vec<(usize, Stuff, Mesh)>>) =
+      match spawn.kind {
+        FoeKind::Wolf => {
+          let beast = wolf::skeleton(&mut commands, body);
+          let bones = beast.bones.to_vec();
+          commands.entity(entity).insert(beast);
+          (bones, AsyncComputeTaskPool::get().spawn(async move { wolf::hide(seed) }))
+        }
+        kind => {
+          let (grip, hunch) = match kind {
+            FoeKind::Draugr => (Grip::Axe, 0.22),
+            FoeKind::DraugrOverlord => (Grip::Axe, 0.12),
+            FoeKind::BanditChief => (Grip::Axe, 0.0),
+            _ => (Grip::Blade, 0.0)
+          };
+          let bones = humanoid::skeleton(&mut commands, body, MAN);
+          commands.entity(entity).insert(Rig { bones, frame: MAN, grip, hunch });
+          (
+            bones.to_vec(),
+            AsyncComputeTaskPool::get().spawn(async move {
+              humanoid::tailor(match kind {
+                FoeKind::Draugr => humanoid::draugr(seed),
+                FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
+                FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
+                _ => humanoid::bandit(seed)
+              })
+            })
+          )
+        }
+      };
+    commands.entity(entity).insert(Dressing { bones, tailoring });
+  });
+}
+
+#[derive(Component)]
+pub struct Dressing {
+  pub bones: Vec<Entity>,
+  pub tailoring: Task<Vec<(usize, Stuff, Mesh)>>
+}
+
+pub fn dress(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  stuffs: Res<Stuffs>,
+  mut pending: ResMut<crate::signal::Pending>,
+  mut dressing: Query<(Entity, &mut Dressing)>
+) {
+  pending.0.insert("dressing", dressing.iter().count());
+  dressing.iter_mut().for_each(|(entity, mut dressing)| {
+    if let Some(parts) = check_ready(&mut dressing.tailoring) {
+      humanoid::dress(&mut commands, &mut meshes, &stuffs, &dressing.bones, parts);
+      commands.entity(entity).remove::<Dressing>();
     }
   });
 }
@@ -506,5 +533,6 @@ pub fn plugin(app: &mut App) {
     .add_systems(Update, garrison.before(Thinking))
     .add_systems(PostStartup, specimen)
     .add_systems(Update, (raise, think).chain().in_set(Thinking).before(Walking))
-    .add_systems(Update, (perish, search).after(Walking));
+    .add_systems(Update, (perish, search).after(Walking))
+    .add_systems(Update, dress);
 }

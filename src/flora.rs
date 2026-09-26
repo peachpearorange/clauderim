@@ -84,6 +84,7 @@ const WOODS_REACH: f32 = 1300.0;
 const WOODS_SLACK: f32 = 160.0;
 const WOODS_NOW: f32 = 260.0;
 const STANDS_PER_FRAME: usize = 6;
+const SOLID_REACH: f32 = 160.0;
 const SHADOWLESS: f32 = sky::SHADOW_DISTANCE + 120.0;
 const FOREVER: f32 = 1.0e6;
 const SWARD_CELL: f32 = 16.0;
@@ -1197,6 +1198,52 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         .unwrap_or_default()
     })
     .collect();
+  let bluffs: Vec<Plant> = (0..5)
+    .flat_map(|_| {
+      let at = anywhere(&mut roll);
+      let site = survey(ground, at);
+      let steep = smooth(0.82, 0.55, site.normal.y);
+      let size = roll.range(8.0, 24.0);
+      let (pick, crowd) = (roll.next(), 2 + roll.below(3));
+      let downhill = (site.normal.xz()).normalize_or(Vec2::X);
+      let contour = downhill.perp();
+      (site.spot.x.abs() < BOUND
+        && site.spot.z.abs() < BOUND
+        && site.road > size
+        && pick < 0.32 * steep * smooth(40.0, 140.0, site.spot.y))
+      .then(|| {
+        (0..crowd)
+          .map(|index| {
+            let along = (index as f32 - crowd as f32 / 2.0) * size * 0.7;
+            let site = survey(
+              ground,
+              at + contour * (along + roll.spread(size * 0.2))
+                + downhill * roll.spread(size * 0.3)
+            );
+            let big = size * roll.range(0.55, 1.0);
+            let scale =
+              Vec3::new(big * roll.range(1.1, 1.6), big * roll.range(0.5, 0.85), big);
+            let snowy = roll.next() < site.snow;
+            Plant {
+              growth: if snowy { Growth::SnowyCrag } else { Growth::Crag },
+              variant: roll.below(6),
+              place: Transform::from_translation(
+                site.spot - site.normal * scale.y * 0.45
+              )
+              .with_rotation(
+                Quat::from_rotation_arc(
+                  Vec3::Y,
+                  site.normal.lerp(Vec3::Y, 0.45).normalize()
+                ) * Quat::from_rotation_y(roll.range(0.0, TAU))
+              )
+              .with_scale(scale)
+            }
+          })
+          .collect::<Vec<_>>()
+      })
+      .unwrap_or_default()
+    })
+    .collect();
   let shrubs: Vec<Plant> = (0..8)
     .filter_map(|_| {
       let at = anywhere(&mut roll);
@@ -1245,7 +1292,10 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       })
     })
     .collect();
-  [trees, deadwood, boulders, outcrops, shrubs, gnarls].into_iter().flatten().collect()
+  [trees, deadwood, boulders, outcrops, bluffs, shrubs, gnarls]
+    .into_iter()
+    .flatten()
+    .collect()
 }
 
 fn foreground(ground: &Ground) -> Vec<Plant> {
@@ -1412,6 +1462,7 @@ struct Stand {
   batches: Vec<(Handle<StandardMaterial>, Handle<Mesh>, Aabb)>,
   merged: Vec<Entity>,
   shadowless: bool,
+  solid: Option<Collider>,
   body: Option<Entity>
 }
 
@@ -1460,6 +1511,20 @@ impl Stand {
       });
     }
     self.shadowless = shadowless;
+    match (gap < SOLID_REACH, self.body) {
+      (true, None) => {
+        self.body = self.solid.clone().map(|solid| {
+          commands
+            .spawn((RigidBody::Static, solid, Transform::from_translation(self.origin)))
+            .id()
+        })
+      }
+      (false, Some(body)) if gap > SOLID_REACH + CELL => {
+        commands.entity(body).despawn();
+        self.body = None
+      }
+      _ => {}
+    }
     self.looks.iter_mut().for_each(|look| look.stream(commands, eye, true));
     self.distant.iter_mut().for_each(|look| look.stream(commands, eye, !far));
   }
@@ -1478,8 +1543,10 @@ impl Stand {
   }
 }
 
-#[derive(Resource)]
-struct Forms {
+#[derive(Resource, Clone)]
+struct Forms(Arc<Shelf>);
+
+struct Shelf {
   kinds: HashMap<(Growth, usize), Form>,
   cpu: HashMap<AssetId<Mesh>, Mesh>
 }
@@ -1487,17 +1554,22 @@ struct Forms {
 #[derive(Resource, Default)]
 struct Woods {
   stands: HashMap<IVec2, Stand>,
-  growing: HashMap<IVec2, Task<Vec<Plant>>>,
+  growing: HashMap<IVec2, Task<Grown>>,
   near: Arc<Vec<Plant>>,
   eye: Option<Vec3>
 }
 
-fn stand(
-  commands: &mut Commands,
-  meshes: &mut Assets<Mesh>,
-  forms: &Forms,
-  plants: Vec<Plant>
-) -> Stand {
+struct Grown {
+  bounds: Rect,
+  origin: Vec3,
+  settled: f32,
+  looks: Vec<Look>,
+  distant: Vec<Look>,
+  batches: Vec<(Handle<StandardMaterial>, Mesh, Aabb)>,
+  solid: Option<Collider>
+}
+
+fn grow(Forms(forms): &Forms, plants: Vec<Plant>) -> Grown {
   let origin = plants.iter().map(|plant| plant.place.translation).sum::<Vec3>()
     / plants.len().max(1) as f32;
   let shapes: Vec<_> = plants
@@ -1531,15 +1603,7 @@ fn stand(
     })
     .flatten()
     .collect();
-  let body = (!shapes.is_empty()).then(|| {
-    commands
-      .spawn((
-        RigidBody::Static,
-        Collider::compound(shapes),
-        Transform::from_translation(origin)
-      ))
-      .id()
-  });
+  let solid = (!shapes.is_empty()).then(|| Collider::compound(shapes));
   let (distant, looks): (Vec<Look>, Vec<Look>) = plants
     .iter()
     .flat_map(|&Plant { growth, variant, place }| {
@@ -1591,10 +1655,10 @@ fn stand(
     .map(|(material, list)| {
       let mesh = bake(&list, origin, &forms.cpu);
       let aabb = mesh.compute_aabb().unwrap_or_default();
-      (material, meshes.add(mesh), aabb)
+      (material, mesh, aabb)
     })
     .collect();
-  Stand {
+  Grown {
     bounds: plants.iter().fold(Rect::EMPTY, |bounds, plant| {
       bounds.union_point(plant.place.translation.xz())
     }),
@@ -1603,9 +1667,26 @@ fn stand(
     looks,
     distant,
     batches,
+    solid
+  }
+}
+
+fn stand(meshes: &mut Assets<Mesh>, grown: Grown) -> Stand {
+  let Grown { bounds, origin, settled, looks, distant, batches, solid } = grown;
+  Stand {
+    bounds,
+    origin,
+    settled,
+    looks,
+    distant,
+    batches: batches
+      .into_iter()
+      .map(|(material, mesh, aabb)| (material, meshes.add(mesh), aabb))
+      .collect(),
     merged: Vec::new(),
     shadowless: false,
-    body
+    solid,
+    body: None
   }
 }
 
@@ -1639,28 +1720,29 @@ fn tend_woods(
     let (urgent, later): (Vec<IVec2>, Vec<IVec2>) = wanted
       .into_iter()
       .partition(|&cell| stands.is_empty() && cell_gap(cell, eye.xz()) < WOODS_NOW);
-    terrain::in_parallel(&urgent, |&cell| (cell, sow(&ground, cell, near)))
+    terrain::in_parallel(&urgent, |&cell| (cell, grow(&forms, sow(&ground, cell, near))))
       .into_iter()
-      .for_each(|(cell, plants)| {
-        let mut made = stand(&mut commands, &mut meshes, &forms, plants);
+      .for_each(|(cell, grown)| {
+        let mut made = stand(&mut meshes, grown);
         made.tend(&mut commands, eye);
         stands.insert(cell, made);
       });
     later.into_iter().for_each(|cell| {
-      let (ground, near) = (ground.clone(), near.clone());
+      let (ground, near, forms) = (ground.clone(), near.clone(), forms.clone());
       growing.insert(
         cell,
-        AsyncComputeTaskPool::get().spawn(async move { sow(&ground, cell, &near) })
+        AsyncComputeTaskPool::get()
+          .spawn(async move { grow(&forms, sow(&ground, cell, &near)) })
       );
     });
-    let grown: Vec<(IVec2, Vec<Plant>)> = growing
+    let grown: Vec<(IVec2, Grown)> = growing
       .iter_mut()
-      .filter_map(|(&cell, task)| check_ready(task).map(|plants| (cell, plants)))
+      .filter_map(|(&cell, task)| check_ready(task).map(|grown| (cell, grown)))
       .take(crate::opts::opts().shot.map_or(STANDS_PER_FRAME, |_| usize::MAX))
       .collect();
-    grown.into_iter().for_each(|(cell, plants)| {
+    grown.into_iter().for_each(|(cell, grown)| {
       growing.remove(&cell);
-      let mut made = stand(&mut commands, &mut meshes, &forms, plants);
+      let mut made = stand(&mut meshes, grown);
       made.tend(&mut commands, eye);
       stands.insert(cell, made);
     });
@@ -1728,7 +1810,7 @@ fn spawn_flora(
     })
     .collect();
   woods.near = Arc::new(foreground(&ground));
-  commands.insert_resource(Forms { kinds: forms, cpu });
+  commands.insert_resource(Forms(Arc::new(Shelf { kinds: forms, cpu })));
 }
 
 #[derive(Default)]

@@ -1,5 +1,6 @@
-use {crate::{place::{Paving, ROADS},
-             terrain::height_at,
+use {crate::{noise,
+             place::{Paving, ROADS},
+             terrain::{height_at, smooth},
              texture},
      bevy::{asset::RenderAssetUsages,
             camera::visibility::VisibilityRange,
@@ -9,9 +10,20 @@ use {crate::{place::{Paving, ROADS},
 
 const STEP: f32 = 1.2;
 const STRETCH: usize = 60;
-const ACROSS: usize = 4;
+const ACROSS: usize = 8;
 const LIFT: f32 = 0.07;
 const SHOWN: f32 = 360.0;
+
+pub fn decay(at: Vec2) -> f32 {
+  let neglect = smooth(-0.35, 0.45, noise::fbm(at / 170.0, 2, 611));
+  let patches = smooth(0.0, 0.5, noise::fbm(at / 7.0, 3, 613));
+  (patches * (0.15 + 0.6 * neglect)).clamp(0.0, 1.0)
+}
+
+fn wear(at: Vec2, across: f32) -> f32 {
+  let rim = smooth(0.75, 1.05, across.abs() + 0.25 * noise::fbm(at / 1.7, 2, 617));
+  1.0 - 0.5 * (decay(at) + rim).clamp(0.0, 1.0)
+}
 
 fn resampled(path: &[Vec2]) -> Vec<Vec2> {
   path
@@ -40,7 +52,7 @@ fn ribbon(spine: &[Vec2], start_length: f32, width: f32) -> (Vec3, Mesh) {
       Some(*length)
     })
     .collect();
-  let rows: Vec<(Vec<Vec3>, Vec<Vec2>)> = spine
+  let rows: Vec<(Vec<Vec3>, Vec<(Vec2, [f32; 4])>)> = spine
     .iter()
     .enumerate()
     .map(|(index, &point)| {
@@ -52,9 +64,15 @@ fn ribbon(spine: &[Vec2], start_length: f32, width: f32) -> (Vec3, Mesh) {
           let offset = (across - 0.5) * 2.0 * width;
           let crown = 0.05 * (1.0 - (2.0 * across - 1.0).powi(2)) - 0.04;
           let at = point + side * offset;
+          let dirt = 1.0 - 0.25 * decay(at);
           (
             at.extend(height_at(at) + LIFT + crown).xzy() - center,
-            Vec2::new(across, length / (2.0 * width))
+            (Vec2::new(across, length / (2.0 * width)), [
+              dirt,
+              dirt * 0.97,
+              dirt * 0.92,
+              wear(at, 2.0 * across - 1.0)
+            ])
           )
         })
         .unzip()
@@ -70,17 +88,12 @@ fn ribbon(spine: &[Vec2], start_length: f32, width: f32) -> (Vec3, Mesh) {
       })
     })
     .collect();
-  let (positions, uvs): (Vec<Vec3>, Vec<Vec2>) = rows.into_iter().fold(
-    (Vec::new(), Vec::new()),
-    |(mut positions, mut uvs), (row, row_uvs)| {
-      positions.extend(row);
-      uvs.extend(row_uvs);
-      (positions, uvs)
-    }
-  );
+  let (positions, (uvs, colors)): (Vec<Vec3>, (Vec<Vec2>, Vec<[f32; 4]>)) =
+    rows.into_iter().flat_map(|(row, looks)| row.into_iter().zip(looks)).unzip();
   let mesh = Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
     .with_inserted_indices(Indices::U32(indices))
     .with_computed_smooth_normals()
     .with_generated_tangents()

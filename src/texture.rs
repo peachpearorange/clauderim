@@ -1,7 +1,8 @@
-use bevy::{asset::RenderAssetUsages,
-           image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
-           prelude::*,
-           render::render_resource::{Extent3d, TextureDimension, TextureFormat}};
+use {crate::terrain::smooth,
+     bevy::{asset::RenderAssetUsages,
+            image::{ImageAddressMode, ImageSampler, ImageSamplerDescriptor},
+            prelude::*,
+            render::render_resource::{Extent3d, TextureDimension, TextureFormat}}};
 
 pub fn tile_noise(u: f32, v: f32, period: i32, seed: u32) -> f32 {
   stretched_noise(u, v, period, period, seed)
@@ -211,33 +212,38 @@ pub fn voronoi(u: f32, v: f32, period: i32, seed: u32) -> (f32, f32, IVec2) {
   (0.5 * (second - first), first, cell)
 }
 
-const COBBLES: i32 = 12;
+const COBBLES: i32 = 10;
 
-fn cobble_grain(u: f32, v: f32) -> (f32, f32, IVec2) {
-  let (edge, _, cell) = voronoi(u, v, COBBLES, 151);
-  let dome = ((edge - 0.045) / 0.2).clamp(0.0, 1.0);
-  ((1.0 - (1.0 - dome).powi(2)).sqrt(), edge, cell)
+fn cobble_grain(u: f32, v: f32) -> (f32, IVec2) {
+  let wobble = 0.05 * (tile_fbm(u, v, 20, 3, 152) - 0.5);
+  let (edge, first, cell) = voronoi(u + wobble, v - wobble, COBBLES, 151);
+  let girth = 0.42 + 0.16 * crate::noise::hash(cell.x, cell.y, 154);
+  let (border, round) = (edge - 0.035, girth - first);
+  let blend = 0.09;
+  let body = (border + round - ((border - round).powi(2) + blend * blend).sqrt()) / 2.0;
+  let dome = (body / 0.16).clamp(0.0, 1.0);
+  ((1.0 - (1.0 - dome).powi(2)).sqrt() + 0.12 * (tile_fbm(u, v, 40, 2, 156) - 0.5), cell)
 }
 
 pub fn cobbles() -> Image {
   image(512, TextureFormat::Rgba8UnormSrgb, |u, v| {
-    let (dome, edge, cell) = cobble_grain(u, v);
-    let tint = crate::noise::hash(cell.x, cell.y, 153);
-    let warm = crate::noise::hash(cell.x, cell.y, 155);
-    let ragged = (cell.x == 0 || cell.x == COBBLES - 1) && tint < 0.5
-      || crate::noise::hash(cell.x, cell.y, 159) < 0.1;
-    let mortar = 1.0 - ((edge - 0.03) / 0.05).clamp(0.0, 1.0);
+    let (dome, cell) = cobble_grain(u, v);
+    let hash = |seed: u32| crate::noise::hash(cell.x, cell.y, seed);
     let speck = tile_fbm(u, v, 48, 3, 157);
-    let stone = (0.25 + 0.14 * tint + 0.1 * (speck - 0.5)) * (0.8 + 0.2 * dome);
-    let stone = Vec3::new(stone * (1.0 + 0.1 * warm), stone, stone * (1.0 - 0.08 * warm));
-    let dirt = Vec3::new(0.22, 0.18, 0.13) * (0.8 + 0.4 * speck);
-    let tone = stone.lerp(dirt, mortar);
+    let lichen = tile_fbm(u, v, 12, 3, 158);
+    let stone = (0.3 + 0.16 * hash(153) + 0.12 * (speck - 0.5)) * (0.72 + 0.28 * dome);
+    let warm = hash(155);
+    let stone =
+      Vec3::new(stone * (1.0 + 0.12 * warm), stone, stone * (0.96 - 0.1 * warm));
+    let moss = smooth(0.55, 0.75, lichen) * smooth(0.6, 0.1, dome) * hash(159);
+    let tone = stone.lerp(Vec3::new(0.24, 0.27, 0.15), moss * 0.7);
     let byte = |value: f32| (value.clamp(0.0, 1.0) * 255.0) as u8;
-    [byte(tone.x), byte(tone.y), byte(tone.z), (!ragged) as u8 * 255]
+    let solid = (dome > 0.02) as u8 as f32 * (0.52 + 0.48 * hash(160));
+    [byte(tone.x), byte(tone.y), byte(tone.z), byte(solid)]
   })
 }
 
-pub fn cobble_bumps() -> Image { bumps(512, 0.006, |u, v| cobble_grain(u, v).0) }
+pub fn cobble_bumps() -> Image { bumps(512, 0.01, |u, v| cobble_grain(u, v).0) }
 
 pub fn thatch() -> Image {
   shade(512, |u, v| {

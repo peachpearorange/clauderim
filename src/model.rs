@@ -108,6 +108,30 @@ impl Piece {
     self
   }
 
+  pub fn creased(mut self, depth: f32, stretch: Vec3, seed: u32) -> Self {
+    let positions = points(&self.0, Mesh::ATTRIBUTE_POSITION);
+    let normals = points(&self.0, Mesh::ATTRIBUTE_NORMAL);
+    let folds: Vec<f32> =
+      positions.iter().map(|&at| noise::fbm3(at * stretch, 3, seed)).collect();
+    let moved: Vec<[f32; 3]> = positions
+      .iter()
+      .zip(&normals)
+      .zip(&folds)
+      .map(|((&at, &normal), &fold)| (at + normal * fold * depth).to_array())
+      .collect();
+    if let Some(VertexAttributeValues::Float32x4(colors)) =
+      self.0.attribute_mut(Mesh::ATTRIBUTE_COLOR)
+    {
+      colors.iter_mut().zip(&folds).for_each(|(color, &fold)| {
+        let shade = (1.0 + 0.8 * fold).clamp(0.6, 1.25);
+        *color = [color[0] * shade, color[1] * shade, color[2] * shade, color[3]]
+      });
+    }
+    self.0.insert_attribute(Mesh::ATTRIBUTE_POSITION, moved);
+    self.0.compute_smooth_normals();
+    self
+  }
+
   pub fn grained(mut self, repeats: f32) -> Self {
     if let Some(VertexAttributeValues::Float32x2(uvs)) =
       self.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)

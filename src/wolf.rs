@@ -1,7 +1,7 @@
 use {crate::{humanoid::Motion,
              model::{self, Piece, ball, sculpt},
              noise,
-             stuff::{Stuff, Stuffs}},
+             stuff::Stuff},
      bevy::prelude::*};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -77,7 +77,7 @@ const LOWER: f32 = 0.36;
 
 #[derive(Component)]
 pub struct Beast {
-  bones: [Entity; BONES]
+  pub bones: [Entity; BONES]
 }
 
 fn fur(red: f32, green: f32, blue: f32) -> Srgba { Srgba::new(red, green, blue, 1.0) }
@@ -94,16 +94,7 @@ fn shaded_fur(piece: Piece, coat: Srgba, belly: Srgba) -> Piece {
   })
 }
 
-pub fn spawn_wolf(
-  commands: &mut Commands,
-  meshes: &mut Assets<Mesh>,
-  stuffs: &Stuffs,
-  owner: Entity,
-  seed: u32
-) -> Beast {
-  let coat =
-    [fur(0.44, 0.42, 0.4), fur(0.36, 0.33, 0.3), fur(0.52, 0.5, 0.48)][seed as usize % 3];
-  let belly = fur(0.72, 0.68, 0.62);
+pub fn skeleton(commands: &mut Commands, owner: Entity) -> Beast {
   let mut bones = [Entity::PLACEHOLDER; BONES];
   Bone::ALL.into_iter().for_each(|bone| {
     let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
@@ -115,6 +106,13 @@ pub fn spawn_wolf(
       ))
       .id();
   });
+  Beast { bones }
+}
+
+pub fn hide(seed: u32) -> Vec<(usize, Stuff, Mesh)> {
+  let coat =
+    [fur(0.44, 0.42, 0.4), fur(0.36, 0.33, 0.3), fur(0.52, 0.5, 0.48)][seed as usize % 3];
+  let belly = fur(0.72, 0.68, 0.62);
   let pelt = |keys: &[(Vec3, Vec3)], shag: f32, seed: u32| {
     let mesh =
       model::ruffled(sculpt(keys, 6, 18), shag, Vec3::new(38.0, 22.0, 9.0), seed);
@@ -326,12 +324,9 @@ pub fn spawn_wolf(
     .collect::<Vec<_>>()
   };
 
+  let mut parts = Vec::new();
   let mut spawn = |bone: Bone, stuff: Stuff, pieces: Vec<Piece>| {
-    commands.spawn((
-      Mesh3d(meshes.add(model::merge(pieces))),
-      MeshMaterial3d(stuffs.of(stuff)),
-      ChildOf(bones[bone as usize])
-    ));
+    parts.push((bone as usize, stuff, model::merge(pieces)))
   };
   spawn(Bone::Body, Stuff::Fur, body.into());
   spawn(Bone::Head, Stuff::Fur, head.into_iter().chain(ears).collect());
@@ -362,7 +357,7 @@ pub fn spawn_wolf(
       [pelt(&lower(front), 0.004, 9)].into_iter().chain(paw(front)).collect()
     )
   });
-  Beast { bones }
+  parts
 }
 
 #[derive(Clone, Copy, Default)]

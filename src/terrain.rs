@@ -87,14 +87,14 @@ fn settled(place: Place) -> bool {
 
 fn highland(at: Vec2, bent: Vec2, far: f32) -> f32 {
   let reach = at.length();
-  let ring = smooth(0.5, 1.05, (bent / Vec2::new(780.0, 690.0)).length())
+  let ring = smooth(0.45, 1.15, (bent / Vec2::new(780.0, 690.0)).length())
     * smooth(1700.0, 1100.0, reach);
   let ranges =
     smooth(-0.02, 0.32, noise::fbm(bent / 1500.0, 3, 91)) * smooth(900.0, 1500.0, reach);
-  let pass = smooth(45.0, 230.0, place::route_distance(at));
+  let pass = smooth(55.0, 320.0, place::route_distance(at));
   let open =
     place::named().filter(|&place| settled(place)).fold(1.0_f32, |open, place| {
-      open.min(smooth(place.flat() * 2.0, place.flat() * 4.5, at.distance(place.spot())))
+      open.min(smooth(place.flat() * 2.0, place.flat() * 6.0, at.distance(place.spot())))
     });
   let massif = smooth(2700.0, 1700.0, at.distance(THROAT));
   (ring.max(ranges).max(massif) * pass.min(open)).max(far)
@@ -116,7 +116,7 @@ pub fn wild_height(at: Vec2) -> f32 {
     1.0 - 0.8 * smooth(1.1 * THROAT_REACH, 0.4 * THROAT_REACH, at.distance(THROAT));
   let border = (far > 0.0).then(|| far * throat_calm * spires(at)).unwrap_or(0.0);
   let massif =
-    highland(at, bent, far) * (40.0 + crags * (400.0 + 120.0 * range)) + border;
+    highland(at, bent, far) * (40.0 + crags * (350.0 + 120.0 * range)) + border;
   24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
 }
 
@@ -177,7 +177,10 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   let edge = road.edge() + noise::fbm(at / 6.0, 2, 43) * 1.2;
   let (surface, paved) = match road.paving {
     place::Paving::Dirt => (DIRT, smooth(0.8, -0.8, edge)),
-    place::Paving::Stone => (COBBLE, smooth(0.6, -0.6, edge))
+    place::Paving::Stone => (
+      COBBLE.mix(&TRODDEN, 0.35 + 0.5 * crate::paving::decay(at)),
+      smooth(0.6, -0.6, edge)
+    )
   };
   let verge = smooth(2.5, 0.0, edge) * 0.5;
   let (worn, soil) = (settlement::worn(at), settlement::tilled(at));

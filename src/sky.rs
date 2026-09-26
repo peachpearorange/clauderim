@@ -31,8 +31,8 @@ const SUNRISE: f32 = 5.0;
 const SUNSET: f32 = 20.0;
 const DAYLIGHT_DEPTH: Vec3 = Vec3::new(0.014, 0.038, 0.1);
 const SKY_FILL: f32 = 1.9;
-const HAZE_VISIBILITY: f32 = 1100.0;
-const DAY_HAZE: Vec3 = Vec3::new(0.70, 0.74, 0.81);
+const HAZE_VISIBILITY: f32 = 2000.0;
+const DAY_HAZE: Vec3 = Vec3::new(0.60, 0.68, 0.80);
 const DUSK_HAZE: Vec3 = Vec3::new(0.80, 0.66, 0.64);
 const NIGHT_HAZE: Vec3 = Vec3::new(0.09, 0.14, 0.19);
 const COOL: f32 = -0.025;
@@ -97,8 +97,8 @@ pub fn lens() -> impl Bundle {
       directional_light_exponent: 12.0,
       falloff: FogFalloff::from_visibility_colors(
         HAZE_VISIBILITY * crate::opts::opts().haze,
-        Color::srgb(0.46, 0.50, 0.58),
-        Color::srgb(0.80, 0.84, 0.90)
+        Color::srgb(0.38, 0.45, 0.56),
+        Color::srgb(0.68, 0.74, 0.84)
       )
     },
     Msaa::Off,

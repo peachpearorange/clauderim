@@ -259,8 +259,30 @@ pub fn smoothed(path: &[Vec2]) -> Vec<Vec2> {
     .collect()
 }
 
+fn wandered(path: Vec<Vec2>) -> Vec<Vec2> {
+  path
+    .into_iter()
+    .map(|at| {
+      let settled = named()
+        .map(|place| {
+          crate::terrain::smooth(
+            place.flat() * 1.3,
+            place.flat() * 1.3 + 160.0,
+            at.distance(place.spot())
+          )
+        })
+        .fold(1.0, f32::min);
+      let sway = |seed: u32| {
+        crate::noise::fbm(at / 420.0, 2, seed) * 60.0
+          + crate::noise::fbm(at / 110.0, 2, seed + 7) * 12.0
+      };
+      at + Vec2::new(sway(701), sway(703)) * settled
+    })
+    .collect()
+}
+
 pub static ROADS: LazyLock<Vec<Road>> = LazyLock::new(|| {
-  let road = |paving, path: &[Vec2]| Road { paving, path: smoothed(path) };
+  let road = |paving, path: &[Vec2]| Road { paving, path: wandered(smoothed(path)) };
   [
     road(Paving::Dirt, &ROAD),
     road(Paving::Dirt, &TRAIL),

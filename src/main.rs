@@ -6,12 +6,14 @@ mod creature;
 mod dragon;
 mod flora;
 mod fx;
+mod horse;
 mod hud;
 mod humanoid;
 mod inventory;
 mod landmark;
 mod model;
 mod noise;
+mod npc;
 mod opts;
 mod par;
 mod paving;
@@ -152,7 +154,13 @@ fn main() {
       hud::plugin,
       inventory::plugin
     ))
-    .add_plugins((cave::plugin, paving::plugin, settlement::plugin, river::plugin))
+    .add_plugins((
+      cave::plugin,
+      paving::plugin,
+      settlement::plugin,
+      river::plugin,
+      npc::plugin
+    ))
     .add_plugins(audio::plugin)
     .add_systems(Update, snapshot)
     .add_systems(

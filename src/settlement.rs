@@ -77,7 +77,9 @@ pub enum Work {
   Shrine { at: Vec2, facing: f32 },
   Menhirs { at: Vec2 },
   Pillar { at: Vec2, tall: f32 },
-  Rubble { at: Vec2 }
+  Rubble { at: Vec2 },
+  Stable { at: Vec2, facing: f32 },
+  Horse { at: Vec2, facing: f32 }
 }
 
 pub struct Layout {
@@ -319,6 +321,22 @@ fn city(place: Place, seed: u32, entry: Vec2) -> Layout {
         kind: Clutter::Stall
       });
     }
+  });
+  let road_side = plan.roll.chance(0.5).then_some(1.0).unwrap_or(-1.0);
+  let outward = (gate - center).normalize();
+  let beside = outward.perp() * road_side;
+  let stable_at = gate + outward * 16.0 + beside * 17.0;
+  plan.works.push(Work::Stable { at: stable_at, facing: facing_toward(-beside) });
+  plan.worn.push((stable_at - beside * 6.0, 9.0));
+  let paddock = gate + outward * 34.0 + beside * 16.0;
+  let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0)]
+    .map(|(a, b)| paddock + outward * a * 8.0 + beside * b * 6.0);
+  plan.works.push(Work::Fence { path: corners.to_vec() });
+  (0..2).for_each(|horse| {
+    let at =
+      paddock + outward * (horse as f32 * 6.0 - 3.0) + beside * plan.roll.spread(2.5);
+    let facing = plan.roll.range(0.0, TAU);
+    plan.works.push(Work::Horse { at, facing });
   });
   plan.finish(place, Paving::Stone, Vec::new(), Vec::new())
 }
@@ -1878,6 +1896,131 @@ fn rubble(ground: Ground, roll: &mut Roll) -> Works {
   works
 }
 
+fn stable(ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (length, depth) = (13.0, 5.4);
+  let (low, high) = spread(ground, Vec2::new(length, depth) / 2.0);
+  let (back, front) = (high + 3.4, high + 2.6);
+  let floor = high + 0.05;
+  works.add(
+    Stuff::Planks,
+    slab(length + 0.6, floor - low + 0.4, depth + 0.6, tinted(TIMBER, roll, 0.05), 2.0)
+      .at_xyz(0.0, (low + floor) / 2.0 - 0.2, 0.0)
+  );
+  works.add(
+    Stuff::Planks,
+    slab(length, back - floor, 0.14, tinted(TIMBER, roll, 0.08), 2.0).at_xyz(
+      0.0,
+      (floor + back) / 2.0,
+      -depth / 2.0
+    )
+  );
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    works.add(
+      Stuff::Planks,
+      slab(depth, front - floor, 0.14, tinted(TIMBER, roll, 0.08), 2.0)
+        .yawed(FRAC_PI_2)
+        .at_xyz(side * length / 2.0, (floor + front) / 2.0, 0.0)
+    );
+  });
+  (0..=4).for_each(|post| {
+    let x = (post as f32 / 4.0 - 0.5) * length;
+    works.add(
+      Stuff::Wood,
+      beam(
+        Vec3::new(x, low - 0.3, depth / 2.0),
+        Vec3::new(x, front + 0.1, depth / 2.0),
+        0.24,
+        BEAM
+      )
+    );
+  });
+  works.add(
+    Stuff::Wood,
+    beam(
+      Vec3::new(-length / 2.0 - 0.4, front, depth / 2.0),
+      Vec3::new(length / 2.0 + 0.4, front, depth / 2.0),
+      0.26,
+      BEAM
+    )
+  );
+  let pitch = f32::atan2(back - front, depth);
+  works.add(
+    Stuff::Thatch,
+    slab(length + 1.4, 0.3, depth / pitch.cos() + 1.6, tinted(STRAW, roll, 0.1), 2.2)
+      .pitched(pitch)
+      .at_xyz(0.0, (back + front) / 2.0 + 0.25, 0.0)
+  );
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    works.add(
+      Stuff::Planks,
+      slab(0.08, 1.4, depth - 1.6, tinted(TIMBER, roll, 0.1), 2.0).at_xyz(
+        side * length / 6.0,
+        floor + 0.7,
+        -0.8
+      )
+    );
+  });
+  (0..3).for_each(|stall| {
+    let x = (stall as f32 - 1.0) * length / 3.0;
+    works.add(
+      Stuff::Planks,
+      slab(1.6, 0.4, 0.5, tinted(TIMBER, roll, 0.1), 1.0).at_xyz(
+        x + roll.spread(0.6),
+        floor + 0.5,
+        -depth / 2.0 + 0.4
+      )
+    );
+    works.add(
+      Stuff::Thatch,
+      Piece::new(
+        crate::model::lump(roll.below(1000) as u32, 0.3, 2),
+        tinted(STRAW, roll, 0.1)
+      )
+      .sized(Vec3::new(0.7, 0.35, 0.5))
+      .at_xyz(x + roll.spread(1.0), floor + 0.1, -depth / 2.0 + 1.0)
+    );
+    let saddled = roll.chance(0.4);
+    (roll.next() < 0.8).then(|| {
+      crate::horse::horse(roll, saddled).into_iter().for_each(|(stuff, piece)| {
+        works.add(
+          stuff,
+          piece.yawed(roll.spread(0.1)).at_xyz(x + roll.spread(0.4), floor, -0.4)
+        )
+      })
+    });
+  });
+  (0..5).for_each(|bale| {
+    let at = Vec3::new(
+      length / 2.0 + 1.2 + (bale % 2) as f32 * 0.9,
+      low + 0.28 + (bale / 3) as f32 * 0.55,
+      -depth / 2.0 + 0.6 + (bale % 3) as f32 * 1.3
+    );
+    works.add(
+      Stuff::Thatch,
+      slab(0.9, 0.55, 1.2, tinted(STRAW, roll, 0.12), 1.0).yawed(roll.spread(0.1)).at(at)
+    );
+  });
+  works.solid(
+    Vec3::new(0.0, (floor + back) / 2.0, -depth / 2.0),
+    Quat::IDENTITY,
+    Collider::cuboid(length, back - floor, 0.3)
+  );
+  [-1.0, 1.0].into_iter().for_each(|side| {
+    works.solid(
+      Vec3::new(side * length / 2.0, (floor + front) / 2.0, 0.0),
+      Quat::IDENTITY,
+      Collider::cuboid(0.3, front - floor, depth)
+    );
+  });
+  works.solid(
+    Vec3::new(0.0, floor + 1.0, -0.4),
+    Quat::IDENTITY,
+    Collider::cuboid(length - 1.0, 2.0, 2.2)
+  );
+  works
+}
+
 fn wheel(radius: f32, roll: &mut Roll) -> Vec<(Stuff, Piece)> {
   let timber = tinted(TIMBER * 0.8, roll, 0.08);
   let rims = [-0.5, 0.5].map(|side| {
@@ -1972,6 +2115,21 @@ fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
     Work::Menhirs { .. } => menhirs(ground, roll),
     Work::Pillar { tall, .. } => pillar(*tall, ground, roll),
     Work::Rubble { .. } => rubble(ground, roll),
+    Work::Stable { .. } => stable(ground, roll),
+    Work::Horse { .. } => {
+      let mut works = Works::default();
+      let y = ground(Vec2::ZERO);
+      let saddled = roll.chance(0.5);
+      crate::horse::horse(roll, saddled)
+        .into_iter()
+        .for_each(|(stuff, piece)| works.add(stuff, piece.at_xyz(0.0, y, 0.0)));
+      works.solid(
+        Vec3::new(0.0, y + 1.1, -0.1),
+        Quat::IDENTITY,
+        Collider::cuboid(0.6, 1.2, 2.1)
+      );
+      works
+    }
     Work::Fire { .. } => {
       let mut works = Works::default();
       let y = ground(Vec2::ZERO);
@@ -1996,7 +2154,9 @@ fn anchor(work: &Work) -> (Vec2, f32) {
     | Work::Mill { at, facing }
     | Work::Mound { at, facing, .. }
     | Work::Den { at, facing }
-    | Work::Shrine { at, facing } => (*at, *facing),
+    | Work::Shrine { at, facing }
+    | Work::Stable { at, facing }
+    | Work::Horse { at, facing } => (*at, *facing),
     Work::Well { at }
     | Work::Tower { at, .. }
     | Work::Fire { at }
@@ -2010,7 +2170,7 @@ fn anchor(work: &Work) -> (Vec2, f32) {
 struct Raised {
   origin: Vec3,
   parts: Vec<(Stuff, Mesh)>,
-  solids: Vec<(Vec3, Quat, Collider)>,
+  solid: Collider,
   spinners: Vec<(Transform, Vec<(Stuff, Mesh)>)>,
   hearths: Vec<Vec3>
 }
@@ -2066,7 +2226,13 @@ fn raise(index: usize) -> Raised {
   Raised {
     origin,
     parts: merged(all.parts),
-    solids: all.solids,
+    solid: Collider::compound(
+      all
+        .solids
+        .into_iter()
+        .map(|(at, turn, collider)| (Position(at), turn, collider))
+        .collect()
+    ),
     spinners: all.spinners.into_iter().map(|(at, parts)| (at, merged(parts))).collect(),
     hearths: all.fires
   }
@@ -2092,19 +2258,14 @@ fn erect(
   index: usize,
   raised: Raised
 ) -> Entity {
-  let Raised { origin, parts, solids, spinners, hearths } = raised;
+  let Raised { origin, parts, solid, spinners, hearths } = raised;
   let root = commands
     .spawn((
       Name::new(layout(index).place.name()),
       Transform::from_translation(origin),
       Visibility::Inherited,
       RigidBody::Static,
-      Collider::compound(
-        solids
-          .into_iter()
-          .map(|(at, turn, collider)| (Position(at), turn, collider))
-          .collect()
-      )
+      solid
     ))
     .id();
   let look = |(stuff, mesh): (Stuff, Mesh), meshes: &mut Assets<Mesh>| {
