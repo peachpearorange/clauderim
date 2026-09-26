@@ -26,8 +26,41 @@ Lighting is physical: sun is `lux::RAW_SUNLIGHT`, exposure ev100 ≈ 13 outdoors
 # Opts
 Env var `SKYRIM` holds JSON5 `opts::Opts`: `hour` (start hour, 9.5), `day` (secs per day), `shot: <secs>` (screenshot to `screenshots/shot-$SHOT_NAME.png` then exit), `at: '<place name fragment>'` (spawn near that place), `yaw`, `pitch`, `turn` (camera yaw offset, deg), `zoom` (camera distance), `pose: 'swing'|'guard'|'dead'|'run'`, `intro`, `first` (first person), `inside: [x,y,z]` (spawn at a spot), `foe: 'wolf'|'draugr'|'overlord'|'bandit'|'chief'` (inert specimen in front of the player), `foe: 'dragon'|'dragonaloft'|'dragonslain'` (dragon posed in front), `dragon: <secs>` (dragon arrival time, default 75), `press: [[secs, 'Z'|'E'|'F'|'W'|'A'|'S'|'D'|'I'|'Tab'|'Enter'|'Escape'|'Up'|'Down'|'Space'|'Shift'|'LMB'|'RMB'], …]` (inject input).
 e.g. `SKYRIM='{shot: 5, at: "hollow"}' SHOT_NAME=barrow cargo run`. Screenshots are the way to check visuals — always look at them.
-Build and run with `--features dev` (Bevy dynamic linking; incremental rebuild ~13 s vs ~21 s). `tools/shot <name> '<opts>'` does this.
-Cloud sessions have no GPU: wrap runs in `xvfb-run -a -s "-screen 0 1920x1080x24"`, which renders on lavapipe (software Vulkan). Frames are slow and the game clock is capped per frame, so it runs far behind real time: `shot: 3` takes ~1.5 min. Keep `shot` small and pair it with `intro: false`.
+
+# Build
+Priority is fast incremental builds over runtime speed. Debug builds only; release only when asked.
+- `cargo check` to verify compilation; `cargo run --features dev` to test (`dev` = Bevy dynamic linking, incremental rebuild ~13 s vs ~21 s). `tools/shot <name> '<opts>'` builds and screenshots.
+- On a panic or startup failure (including Bevy system param conflicts), rerun with `RUST_BACKTRACE=1`.
+- Cloud sessions have no GPU: wrap runs in `xvfb-run -a -s "-screen 0 1920x1080x24"` (lavapipe, software Vulkan). Frames are slow and the game clock is capped per frame, so it runs far behind real time: `shot: 3` takes ~1.5 min. Keep `shot` small and pair it with `intro: false`.
+- Docs: https://docs.rs/bevy/0.19.1/bevy/
 
 # Style
-Format with `cargo +nightly fmt` (repo `rustfmt.toml` uses nightly-only options; stable rustfmt ignores them and reflows everything). Avoid comments; name things well.
+Code structure should mirror the thinking behind it: translate the user's conceptual framework fairly directly into code. Functional-ish.
+- Format with `cargo +nightly fmt` (repo `rustfmt.toml` uses nightly-only options; stable rustfmt ignores them and reflows everything). Avoid comments; name things well.
+- Order within a file: if A refers to B, A comes after B. Keep related code together.
+- Semicolons are a verbosity signal: prefer expressions over statements.
+- No `return`, `continue`, `let … else`, or early exits.
+- Prefer let chains over nested `if let`/`if` or `.and_then()`:
+  ```rust
+  if let Some(weapon) = equipped
+    && weapon.is_ranged()
+    && let &Transform { translation, .. } = weapon.transform()
+    && let Some(target) = find_target(translation)
+  {
+    attack(target)
+  } else if let Some(weapon) = equipped {
+    melee(weapon)
+  } else {
+    flee()
+  }
+  ```
+- Prefer `Option` methods over matching on `Option` (not so for most other enums).
+- Prefer `find` (match a predicate), `find_map` (match and transform), `any`, `fold` over loops with break.
+- Eagerly destructure: `let &Thing { field } = thing()` binds `field` by value, no `*field` later.
+- Domain model with named instances, newtypes and associated consts.
+- No more function-calls-function indirection than needed: inline, or use blocks or small local closures, when a helper would wrap a single call site.
+- ECS: merge components that always co-occur. Name components by behaviour (`WalkAroundRandomly`), not entity (`SheepWalk`).
+
+# Collaboration
+- Don't implement features that weren't asked for. Ask when unclear.
+- If a requested approach can't be done, say so; never change direction without asking.
