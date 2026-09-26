@@ -96,7 +96,7 @@ pub fn lens() -> impl Bundle {
       directional_light_color: Color::srgba(1.0, 0.92, 0.78, 0.4),
       directional_light_exponent: 12.0,
       falloff: FogFalloff::from_visibility_colors(
-        HAZE_VISIBILITY,
+        HAZE_VISIBILITY * crate::opts::opts().haze,
         Color::srgb(0.46, 0.50, 0.58),
         Color::srgb(0.80, 0.84, 0.90)
       )

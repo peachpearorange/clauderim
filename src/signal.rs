@@ -1,4 +1,5 @@
-use {crate::place::Place, bevy::prelude::*};
+use {crate::place::Place,
+     bevy::{platform::collections::HashMap, prelude::*}};
 
 #[derive(Message, Clone)]
 pub struct Notice(pub String);
@@ -14,6 +15,13 @@ pub struct Prompting {
 
 #[derive(Resource, Default)]
 pub struct Prompt(pub Option<Prompting>);
+
+#[derive(Resource, Default)]
+pub struct Pending(pub HashMap<&'static str, usize>);
+
+impl Pending {
+  pub fn idle(&self) -> bool { self.0.values().all(|&count| count == 0) }
+}
 
 #[derive(Resource, Default)]
 pub struct Engaged(pub Option<Entity>);
@@ -91,5 +99,6 @@ pub fn plugin(app: &mut App) {
     .add_message::<Sound>()
     .init_resource::<Prompt>()
     .init_resource::<Engaged>()
+    .init_resource::<Pending>()
     .init_resource::<Shouts>();
 }

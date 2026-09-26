@@ -2,6 +2,7 @@ use {crate::{model::{self, Piece},
              noise::{self, Roll},
              place::{self, LAKE_LEVEL, Place, START, START_FACING},
              player::{MainCamera, Player},
+             signal::Pending,
              sky,
              stuff::{Stuff, Stuffs},
              terrain::{self, BOUND, Ground, srgb}},
@@ -1668,6 +1669,14 @@ fn tend_woods(
   }
 }
 
+fn report_woods(
+  woods: Res<Woods>,
+  forms: Option<Res<Forms>>,
+  mut pending: ResMut<Pending>
+) {
+  pending.0.insert("woods", woods.growing.len() + forms.is_none() as usize);
+}
+
 fn spawn_flora(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
@@ -2072,5 +2081,5 @@ pub fn plugin(app: &mut App) {
     .init_resource::<Meadow>()
     .init_resource::<Woods>()
     .add_systems(Startup, (spawn_flora, prepare_sward))
-    .add_systems(Update, (tend_meadow, tend_woods));
+    .add_systems(Update, (tend_meadow, tend_woods, report_woods.after(tend_woods)));
 }

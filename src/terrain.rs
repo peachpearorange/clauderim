@@ -1,7 +1,9 @@
 use {crate::{noise,
              place::{self, LAKE, LAKE_LEVEL, LAKE_RADIUS, Marker, Place},
              player::{MainCamera, Player},
-             river, settlement, texture},
+             river, settlement,
+             signal::Pending,
+             texture},
      avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             color::Mix,
@@ -626,6 +628,18 @@ fn tend_footing(
   }
 }
 
+fn report_streaming(
+  lands: Res<Lands>,
+  footing: Res<Footing>,
+  mut pending: ResMut<Pending>
+) {
+  pending.0.insert(
+    "lands",
+    lands.making.len() + lands.ready.len() + lands.anchor.is_none() as usize
+  );
+  pending.0.insert("footing", footing.making.len());
+}
+
 fn settle_footing(mut footing: ResMut<Footing>) {
   footing.solid.values_mut().for_each(|(_, ready)| *ready = true);
 }
@@ -712,7 +726,7 @@ pub fn plugin(app: &mut App) {
     .add_systems(PreStartup, (prepare_terrain, spawn_lake))
     .add_systems(PreUpdate, tend_footing)
     .add_systems(FixedPostUpdate, settle_footing.after(PhysicsSystems::Last))
-    .add_systems(Update, (tend_lands, ripple));
+    .add_systems(Update, (tend_lands, report_streaming.after(tend_lands), ripple));
 }
 
 #[cfg(test)]

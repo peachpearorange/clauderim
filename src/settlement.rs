@@ -3,7 +3,7 @@ use {crate::{landmark::{self, Flicker},
              noise::Roll,
              place::{Paving, Place, Road},
              player::MainCamera,
-             signal::FoeKind,
+             signal::{FoeKind, Pending},
              stuff::{Stuff, Stuffs},
              terrain::{height_at, smooth, srgb}},
      avian3d::prelude::*,
@@ -1697,6 +1697,10 @@ fn tend_settlements(
   });
 }
 
+fn report_raising(raising: Res<Raising>, mut pending: ResMut<Pending>) {
+  pending.0.insert("settlements", raising.building.len());
+}
+
 fn spin(time: Res<Time>, mut hubs: Query<(&Spin, &mut Transform)>) {
   hubs.iter_mut().for_each(|(&Spin(rate), mut transform)| {
     transform.rotate_local_z(rate * time.delta_secs());
@@ -1704,5 +1708,8 @@ fn spin(time: Res<Time>, mut hubs: Query<(&Spin, &mut Transform)>) {
 }
 
 pub fn plugin(app: &mut App) {
-  app.init_resource::<Raising>().add_systems(Update, (tend_settlements, spin));
+  app.init_resource::<Raising>().add_systems(
+    Update,
+    (tend_settlements, report_raising.after(tend_settlements), spin)
+  );
 }

@@ -37,12 +37,14 @@ use {avian3d::prelude::*,
 
 fn snapshot(
   time: Res<Time>,
+  pending: Res<signal::Pending>,
   mut taken: Local<Option<f32>>,
   mut commands: Commands,
   mut exit: MessageWriter<AppExit>
 ) {
   if let Some(at) = opts::opts().shot
     && time.elapsed_secs() > at
+    && (pending.idle() || taken.is_some())
   {
     match *taken {
       None => {
