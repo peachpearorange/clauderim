@@ -1656,7 +1656,7 @@ fn tend_woods(
     let grown: Vec<(IVec2, Vec<Plant>)> = growing
       .iter_mut()
       .filter_map(|(&cell, task)| check_ready(task).map(|plants| (cell, plants)))
-      .take(STANDS_PER_FRAME)
+      .take(crate::opts::opts().shot.map_or(STANDS_PER_FRAME, |_| usize::MAX))
       .collect();
     grown.into_iter().for_each(|(cell, plants)| {
       growing.remove(&cell);
