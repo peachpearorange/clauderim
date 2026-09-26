@@ -83,8 +83,22 @@ pub enum Work {
   Horse { at: Vec2, facing: f32 }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Depths {
+  Tomb,
+  Cave
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Entrance {
+  pub at: Vec2,
+  pub outward: Vec2,
+  pub depths: Depths
+}
+
 pub struct Layout {
   pub place: Place,
+  pub entrance: Option<Entrance>,
   pub works: Vec<Work>,
   pub streets: Vec<Road>,
   pub worn: Vec<(Vec2, f32)>,
@@ -195,6 +209,7 @@ impl Plan {
   ) -> Layout {
     Layout {
       place,
+      entrance: None,
       works: self.works,
       streets: self
         .streets
@@ -610,7 +625,7 @@ fn barrow(place: Place, seed: u32) -> Layout {
   let front = Vec2::from_angle(-facing).rotate(Vec2::Y);
   let sunken = place.sunk() > 0.0;
   let mounded = !sunken && plan.roll.chance(0.6);
-  let (door, guard) = match (sunken, mounded) {
+  let (door, guard, entry) = match (sunken, mounded) {
     (true, _) => {
       let (inner, outer) = (place.flat() * 0.6, place.flat() * 0.98);
       plan.works.push(Work::Pit { at: center, facing, inner, outer });
@@ -625,19 +640,23 @@ fn barrow(place: Place, seed: u32) -> Layout {
         })
       });
       plan.worn.push((center + front * outer, 4.0));
-      (center, center + front * inner * 0.5)
+      (center, center + front * inner * 0.5, center - front * inner * 0.55)
     }
     (false, true) => {
       let radius = place.flat() * 0.55;
       plan.works.push(Work::Mound { at: center, facing, radius });
       plan.works.push(Work::Portal { at: center + front * radius * 0.9, facing });
       plan.worn.push((center + front * (radius + 5.0), 5.0));
-      (center + front * (radius + 4.0), center + front * (radius + 6.5))
+      (
+        center + front * (radius + 4.0),
+        center + front * (radius + 6.5),
+        center + front * (radius * 0.9 + 1.6)
+      )
     }
     (false, false) => {
       plan.works.push(Work::Terrace { at: center, facing });
       plan.worn.push((center + front * 9.0, 5.0));
-      (center, center + front * 9.5)
+      (center, center + front * 9.5, center + front * 1.5)
     }
   };
   let side = front.perp();
@@ -659,7 +678,10 @@ fn barrow(place: Place, seed: u32) -> Layout {
   let foes = (0..1 + plan.roll.below(2))
     .map(|index| (guard + side * (index as f32 * 2.5 - 1.0), FoeKind::Draugr))
     .collect();
-  plan.finish(place, Paving::Dirt, Vec::new(), foes)
+  Layout {
+    entrance: Some(Entrance { at: entry, outward: front, depths: Depths::Tomb }),
+    ..plan.finish(place, Paving::Dirt, Vec::new(), foes)
+  }
 }
 
 fn lair(place: Place, seed: u32) -> Layout {
@@ -684,7 +706,14 @@ fn lair(place: Place, seed: u32) -> Layout {
       )
     })
     .collect();
-  plan.finish(place, Paving::Dirt, Vec::new(), foes)
+  Layout {
+    entrance: Some(Entrance {
+      at: center + front * 2.2,
+      outward: front,
+      depths: Depths::Cave
+    }),
+    ..plan.finish(place, Paving::Dirt, Vec::new(), foes)
+  }
 }
 
 fn wayshrine(place: Place, seed: u32) -> Layout {
@@ -713,6 +742,18 @@ pub static LAYOUTS: LazyLock<Vec<Layout>> = LazyLock::new(|| {
     farm(Place::HALLGRIM, 43, Vec2::new(-1.0, -0.25), false),
     fort(Place::GREYHELM, 53, Vec2::new(0.0, 1.0), [11.0, 11.0, 12.0, 12.0], 17.0),
     fort(Place::SKARN, 59, Vec2::new(-0.05, 1.0), [13.0, 10.0, 19.0, 11.0], 22.0),
+    city(Place::RAVENSHOLT, 61, Vec2::new(0.05, -1.0)),
+    city(Place::HVITMARK, 67, Vec2::new(-0.1, -1.0)),
+    town(Place::ULFSTAD, 71, Vec2::new(-0.4, 1.0), Roof::Shingle, Walls::Logs),
+    town(Place::TJARNBY, 73, Vec2::new(-0.3, -1.0), Roof::Thatch, Walls::Timber),
+    town(Place::KALDVIK, 79, Vec2::new(1.0, 0.8), Roof::Thatch, Walls::Stone),
+    town(Place::MOSSGARD, 83, Vec2::new(1.0, -0.8), Roof::Shingle, Walls::Timber),
+    farm(Place::ELDMARK, 89, Vec2::new(0.05, -1.0), true),
+    farm(Place::SUNHILL, 97, Vec2::new(0.0, -1.0), false),
+    farm(Place::BIRCHMOOR, 101, Vec2::new(-1.0, -0.3), true),
+    farm(Place::LAKESIDE, 103, Vec2::new(0.5, 0.8), false),
+    farm(Place::STONEBROOK, 107, Vec2::new(0.0, -1.0), false),
+    farm(Place::GREYFELL, 109, Vec2::new(-0.5, -1.0), true),
   ]
 });
 
@@ -2504,7 +2545,7 @@ fn mill(site: &Site, roll: &mut Roll) -> Works {
   let mut works = house(&plan, ground, roll);
   let side = Vec2::new(-(plan.length / 2.0 + 1.2), -1.0);
   let world = site.origin + site.frame.transform_point(side.extend(0.0).xzy());
-  let level = crate::river::reach(world.xz())
+  let level = crate::river::reach_at(world.xz())
     .map_or(ground(side), |reach| reach.level - site.origin.y);
   let radius = 2.8;
   works.spinners.push((

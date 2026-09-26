@@ -62,13 +62,8 @@ fn spawn_clouds(
   ));
 }
 
-fn light_clouds(
-  time: Res<Time>,
-  clock: Res<Clock>,
-  canopy: Res<Canopy>,
-  mut clouds: ResMut<Assets<Cloud>>
-) {
-  let sun = sky::toward_sun(clock.hour);
+pub fn lighting(hour: f32) -> (Vec3, Vec3, Vec3) {
+  let sun = sky::toward_sun(hour);
   let moon = sky::toward_moon(sun);
   let sunset = sun.y.clamp(-0.1, 0.0) / 0.1 + 1.0;
   let day = (sun.y / 0.35).clamp(0.0, 1.0);
@@ -81,10 +76,21 @@ fn light_clouds(
       moon,
       Vec3::new(0.62, 0.72, 1.0) * sky::MOONLIGHT * 0.3 * (moon.y / 0.15).clamp(0.0, 1.0)
     ));
-  let dark = (-(sun.y + 0.04) / 0.16).clamp(0.0, 1.0);
   let ambient = Vec3::new(0.55, 0.64, 0.82) * 9000.0 * day.powf(1.3)
     + Vec3::new(0.62, 0.5, 0.55) * 900.0 * twilight * twilight * (1.0 - day)
     + Vec3::new(0.5, 0.6, 0.9) * sky::MOONLIGHT * 0.035;
+  (toward_light, light, ambient)
+}
+
+fn light_clouds(
+  time: Res<Time>,
+  clock: Res<Clock>,
+  canopy: Res<Canopy>,
+  mut clouds: ResMut<Assets<Cloud>>
+) {
+  let sun = sky::toward_sun(clock.hour);
+  let (toward_light, light, ambient) = lighting(clock.hour);
+  let dark = (-(sun.y + 0.04) / 0.16).clamp(0.0, 1.0);
   if let Some(mut cloud) = clouds.get_mut(&canopy.0) {
     *cloud = Cloud {
       toward_light: toward_light.extend(0.0),

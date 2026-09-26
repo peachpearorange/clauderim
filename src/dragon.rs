@@ -777,6 +777,9 @@ fn spawn_dragon(
   });
 }
 
+const LATERAL_PULL: f32 = 9.0;
+const GRAVITY: f32 = 9.8;
+
 fn steer_toward(
   velocity: Vec3,
   goal: Vec3,
@@ -785,8 +788,16 @@ fn steer_toward(
   agility: f32,
   delta: f32
 ) -> Vec3 {
-  let wanted = (goal - at).normalize_or_zero() * speed;
-  velocity.lerp(wanted, 1.0 - (-agility * delta).exp())
+  let wanted = (goal - at).normalize_or_zero();
+  let current = velocity.normalize_or(wanted);
+  let pace = velocity.length().lerp(speed, 1.0 - (-agility * 0.8 * delta).exp());
+  let most = (agility * LATERAL_PULL / pace.max(4.0)).min(3.0) * delta;
+  let angle = current.angle_between(wanted);
+  let axis = current.cross(wanted).try_normalize().unwrap_or(Vec3::Y);
+  let turned = (angle > 1e-4)
+    .then(|| Quat::from_axis_angle(axis, angle.min(most)) * current)
+    .unwrap_or(current);
+  turned * pace
 }
 
 fn fly(
@@ -834,6 +845,7 @@ fn fly(
       staggered
     )| {
       let at = transform.translation;
+      let before = dragon.velocity;
       let floor = |spot: Vec3| ground.height(spot.xz());
       let flat_gap = (target - at).with_y(0.0);
       let distance = flat_gap.length();
@@ -993,7 +1005,10 @@ fn fly(
           }
         }
         Flight::Rising(lifted) => {
-          dragon.velocity = Vec3::Y * 9.0 + transform.forward().as_vec3() * lifted * 6.0;
+          dragon.velocity = Vec3::Y * 9.0
+            + transform.forward().as_vec3().with_y(0.0).normalize_or_zero()
+              * lifted
+              * 6.0;
           (lifted > 2.5)
             .then_some(Flight::Circling(0.0))
             .unwrap_or(Flight::Rising(lifted + delta))
@@ -1032,25 +1047,31 @@ fn fly(
       } else {
         clamped.with_y(clamped.y.max(floor(clamped) + 2.0))
       };
-      let heading = if grounded || matches!(next, Flight::Landing(_) | Flight::Rising(_))
-      {
-        flat_gap.normalize_or(transform.forward().as_vec3())
-      } else {
-        dragon.velocity.normalize_or(transform.forward().as_vec3())
+      let forward = transform.forward().as_vec3();
+      let hovering = match next {
+        Flight::Landing(spot) => (spot - at).with_y(0.0).length() < 12.0,
+        _ => false
       };
-      let turn = transform
-        .forward()
-        .as_vec3()
-        .with_y(0.0)
-        .normalize_or_zero()
-        .cross(heading.with_y(0.0).normalize_or_zero())
-        .y;
-      let bank = (!grounded).then_some(-turn * 2.5).unwrap_or(0.0).clamp(-0.8, 0.8);
+      let heading = if grounded || hovering {
+        flat_gap.normalize_or(forward)
+      } else if matches!(next, Flight::Rising(_)) {
+        forward.with_y(0.0).normalize_or(Vec3::X).with_y(0.35).normalize()
+      } else {
+        dragon.velocity.normalize_or(forward)
+      };
+      let (was, now) = (before.with_y(0.0), dragon.velocity.with_y(0.0));
+      let yaw_rate = (was.length() > 1.0 && now.length() > 1.0)
+        .then(|| was.normalize().cross(now.normalize()).y.asin() / delta.max(1e-3))
+        .unwrap_or(0.0);
+      let bank = (!grounded && !hovering)
+        .then(|| (yaw_rate * now.length() / GRAVITY).atan())
+        .unwrap_or(0.0)
+        .clamp(-0.9, 0.9);
       let pitch = (!grounded).then_some(heading.y.asin() * 0.8).unwrap_or(0.0);
       let yaw = f32::atan2(-heading.x, -heading.z);
       let aim = Quat::from_euler(EulerRot::YXZ, yaw, pitch, bank);
       if !matches!(next, Flight::Slain(_) | Flight::Waiting | Flight::Posing { .. }) {
-        let agility = grounded.then_some(1.6).unwrap_or(3.0);
+        let agility = grounded.then_some(1.6).unwrap_or(2.2);
         transform.rotation =
           transform.rotation.slerp(aim, 1.0 - (-agility * delta).exp());
       }

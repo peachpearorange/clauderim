@@ -78,7 +78,7 @@ fn density(at: vec2<f32>, detail: i32) -> f32 {
 
 fn scatter(cosine: f32, g: f32) -> f32 {
   let g2 = g * g;
-  return (1.0 - g2) / (4.0 * PI * pow(1.0 + g2 - 2.0 * g * cosine, 1.5));
+  return (1.0 - g2) / (4.0 * PI * pow(max(1.0 + g2 - 2.0 * g * cosine, 1e-4), 1.5));
 }
 
 fn hash3(cell: vec3<i32>) -> vec3<f32> {
@@ -97,7 +97,7 @@ fn stars(ray: vec3<f32>) -> vec3<f32> {
   let galaxy = exp(-band * band * 60.0);
   let chance = 0.022 + 0.1 * galaxy;
   let lit = f32(pick.x < chance);
-  let magnitude = pow(pick.y, 9.0) * 12.0 + 0.2 + 0.3 * pick.y;
+  let magnitude = pick.y * pick.y * pick.y * pick.y * pick.y * pick.y * pick.y * pick.y * pick.y * 12.0 + 0.2 + 0.3 * pick.y;
   let twinkle = 0.75 + 0.25 * sin(night.z * (2.0 + pick.z * 5.0) + pick.x * 90.0);
   let tint = mix(vec3(1.0, 0.82, 0.66), vec3(0.72, 0.84, 1.0), pick.z);
   let point = exp(-gap * gap * 9.0) * lit * magnitude * twinkle;
@@ -117,7 +117,7 @@ fn aurora(eye: vec3<f32>, ray: vec3<f32>) -> vec3<f32> {
     let sway = fbm(vec2(along, 1.7), 3) * 3600.0 + sin(along * 1.7 + night.z * 0.03) * 1400.0;
     let line = abs(at.y - (eye.z - 7500.0 + sway)) / 380.0;
     let fold = 0.55 + 0.45 * sin(at.x / 170.0 + fbm(vec2(along * 6.0, night.z * 0.02), 2) * 9.0);
-    let curtain = exp(-line * line) * fold * pow(1.0 - lift, 1.6);
+    let curtain = exp(-line * line) * fold * exp2(1.6 * log2(max(1.0 - lift, 1e-4)));
     let colour = mix(vec3(0.15, 1.0, 0.45), vec3(0.55, 0.2, 0.9), smoothstep(0.35, 0.95, lift));
     glow += colour * curtain;
   }
@@ -152,5 +152,5 @@ fn fragment(in: VertexOutput) -> @location(0) vec4<f32> {
     let horizon = smoothstep(0.04, 0.3, ray.y);
     above = (stars(ray) * night.x + aurora(eye, ray) * night.y) * horizon;
   }
-  return vec4((radiance * alpha + above * (1.0 - alpha)) * view.exposure, alpha);
+  return vec4(clamp((radiance * alpha + above * (1.0 - alpha)) * view.exposure, vec3(0.0), vec3(64.0)), alpha);
 }

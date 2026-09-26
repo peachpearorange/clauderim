@@ -3,6 +3,7 @@ mod cave;
 mod cloud;
 mod combat;
 mod creature;
+mod depths;
 mod dragon;
 mod flora;
 mod fx;
@@ -11,6 +12,7 @@ mod hud;
 mod humanoid;
 mod inventory;
 mod landmark;
+mod mist;
 mod model;
 mod noise;
 mod npc;
@@ -141,6 +143,7 @@ fn main() {
       flora::plugin,
       sky::plugin,
       cloud::plugin,
+      mist::plugin,
       stuff::plugin,
       humanoid::plugin,
       walker::plugin,
@@ -159,6 +162,7 @@ fn main() {
     ))
     .add_plugins((
       cave::plugin,
+      depths::plugin,
       paving::plugin,
       settlement::plugin,
       river::plugin,

@@ -14,17 +14,17 @@ use {crate::{inventory::{Inventory, Item, Loot},
      fidget::context::Tree,
      std::f32::consts::{FRAC_PI_2, PI, TAU}};
 
-const CARVED: Srgba = Srgba::rgb(0.66, 0.64, 0.60);
-const WORN: Srgba = Srgba::rgb(0.56, 0.55, 0.52);
+pub(crate) const CARVED: Srgba = Srgba::rgb(0.66, 0.64, 0.60);
+pub(crate) const WORN: Srgba = Srgba::rgb(0.56, 0.55, 0.52);
 const RUNE: Srgba = Srgba::rgb(0.13, 0.12, 0.11);
-const IRON: Srgba = Srgba::rgb(0.24, 0.23, 0.22);
-const COAL: Srgba = Srgba::rgb(0.08, 0.07, 0.06);
-const OLD_WOOD: Srgba = Srgba::rgb(0.34, 0.23, 0.14);
-const BONE: Srgba = Srgba::rgb(0.78, 0.72, 0.58);
+pub(crate) const IRON: Srgba = Srgba::rgb(0.24, 0.23, 0.22);
+pub(crate) const COAL: Srgba = Srgba::rgb(0.08, 0.07, 0.06);
+pub(crate) const OLD_WOOD: Srgba = Srgba::rgb(0.34, 0.23, 0.14);
+pub(crate) const BONE: Srgba = Srgba::rgb(0.78, 0.72, 0.58);
 const CLAY: Srgba = Srgba::rgb(0.46, 0.41, 0.34);
 const WEB: Srgba = Srgba::rgb(0.82, 0.82, 0.80);
-const STRAW: Srgba = Srgba::rgb(0.62, 0.52, 0.30);
-const PELT: Srgba = Srgba::rgb(0.42, 0.37, 0.31);
+pub(crate) const STRAW: Srgba = Srgba::rgb(0.62, 0.52, 0.30);
+pub(crate) const PELT: Srgba = Srgba::rgb(0.42, 0.37, 0.31);
 
 const FIRE_BOOST: f32 = 1.6;
 const LAMP_BOOST: f32 = 2.2;
@@ -33,21 +33,21 @@ const ROCK_DARK: LinearRgba = terrain::srgb(0.30, 0.30, 0.30);
 const MOSS: LinearRgba = terrain::srgb(0.30, 0.34, 0.16);
 const SNOW: LinearRgba = terrain::srgb(0.92, 0.94, 0.98);
 
-struct Lining {
-  wall: LinearRgba,
-  floor: LinearRgba,
-  roughen: f32,
-  crease: f32
+pub(crate) struct Lining {
+  pub(crate) wall: LinearRgba,
+  pub(crate) floor: LinearRgba,
+  pub(crate) roughen: f32,
+  pub(crate) crease: f32
 }
 
-const MASONRY: Lining = Lining {
+pub(crate) const MASONRY: Lining = Lining {
   wall: terrain::srgb(0.46, 0.43, 0.39),
   floor: terrain::srgb(0.36, 0.33, 0.29),
   roughen: 0.0,
   crease: 0.8
 };
 
-const BURROW: Lining = Lining {
+pub(crate) const BURROW: Lining = Lining {
   wall: terrain::srgb(0.40, 0.36, 0.31),
   floor: terrain::srgb(0.33, 0.27, 0.20),
   roughen: 0.45,
@@ -83,9 +83,9 @@ fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   t * t * (3.0 - 2.0 * t)
 }
 
-type Parts = Vec<(Stuff, Piece)>;
+pub(crate) type Parts = Vec<(Stuff, Piece)>;
 
-fn moved(parts: Parts, at: Transform) -> Parts {
+pub(crate) fn moved(parts: Parts, at: Transform) -> Parts {
   parts.into_iter().map(|(stuff, piece)| (stuff, piece.moved(at))).collect()
 }
 
@@ -93,7 +93,7 @@ fn stone(mesh: impl Into<Mesh>, color: Srgba) -> (Stuff, Piece) {
   (Stuff::Stone, Piece::new(mesh, color))
 }
 
-fn jitter(roll: &mut Roll, color: Srgba) -> Srgba {
+pub(crate) fn jitter(roll: &mut Roll, color: Srgba) -> Srgba {
   let tone = roll.range(0.84, 1.1);
   Srgba::rgb(color.red * tone, color.green * tone, color.blue * tone)
 }
@@ -105,46 +105,48 @@ struct Fire {
   shadows: bool
 }
 
-struct Hoard {
-  at: Transform,
-  size: f32,
-  noun: &'static str,
-  loot: &'static [Loot]
+pub(crate) struct Hoard {
+  pub(crate) at: Transform,
+  pub(crate) size: f32,
+  pub(crate) noun: &'static str,
+  pub(crate) loot: &'static [Loot]
 }
 
 #[derive(Default)]
-struct Works {
-  parts: Parts,
+pub(crate) struct Works {
+  pub(crate) parts: Parts,
   wall: Parts,
   wall_at: Vec3,
   solids: Vec<(Transform, Collider)>,
   fires: Vec<Fire>,
-  lamps: Vec<(Vec3, Color, f32, f32)>,
+  pub(crate) lamps: Vec<(Vec3, Color, f32, f32)>,
   beams: Vec<(Vec3, f32)>,
   foes: Vec<(Transform, FoeKind, bool)>,
-  hoards: Vec<Hoard>,
-  rooms: Vec<(Vec3, Vec3)>
+  pub(crate) hoards: Vec<Hoard>,
+  pub(crate) rooms: Vec<(Vec3, Vec3)>
 }
 
 impl Works {
-  fn put(&mut self, parts: Parts, at: Transform) { self.parts.extend(moved(parts, at)); }
+  pub(crate) fn put(&mut self, parts: Parts, at: Transform) {
+    self.parts.extend(moved(parts, at));
+  }
 
-  fn solid(&mut self, at: Transform, size: Vec3) {
+  pub(crate) fn solid(&mut self, at: Transform, size: Vec3) {
     self.solids.push((at, Collider::cuboid(size.x, size.y, size.z)));
   }
 
-  fn slab(&mut self, color: Srgba, size: Vec3, at: Transform) {
+  pub(crate) fn slab(&mut self, color: Srgba, size: Vec3, at: Transform) {
     self
       .parts
       .push(stone(model::block(size.x, size.y, size.z).transformed_by(at), color));
     self.solid(at, size);
   }
 
-  fn fire(&mut self, at: Vec3, size: f32, lumens: f32, shadows: bool) {
+  pub(crate) fn fire(&mut self, at: Vec3, size: f32, lumens: f32, shadows: bool) {
     self.fires.push(Fire { at, size, lumens, shadows });
   }
 
-  fn foe(&mut self, feet: Vec3, facing: Vec3, kind: FoeKind, dormant: bool) {
+  pub(crate) fn foe(&mut self, feet: Vec3, facing: Vec3, kind: FoeKind, dormant: bool) {
     self.foes.push((
       Transform::from_translation(feet)
         .looking_to(facing.with_y(0.0).normalize(), Vec3::Y),
@@ -173,7 +175,7 @@ fn gable(half: f32, spring: f32, apex: f32, thick: f32, depth: f32) -> Parts {
     .collect()
 }
 
-fn rib(half: f32, height: f32, apex: f32, thick: f32, depth: f32) -> Parts {
+pub(crate) fn rib(half: f32, height: f32, apex: f32, thick: f32, depth: f32) -> Parts {
   [-1.0, 1.0]
     .into_iter()
     .flat_map(|side| {
@@ -200,7 +202,7 @@ fn rib(half: f32, height: f32, apex: f32, thick: f32, depth: f32) -> Parts {
     .collect()
 }
 
-fn pillar(height: f32, width: f32) -> Parts {
+pub(crate) fn pillar(height: f32, width: f32) -> Parts {
   let tier = |scale: f32, thick: f32, base: f32, color: Srgba| {
     Piece::new(model::block(width * scale, thick, width * scale), color).at_xyz(
       0.0,
@@ -337,7 +339,7 @@ fn flame() -> Mesh {
   ])
 }
 
-fn brazier() -> Parts {
+pub(crate) fn brazier() -> Parts {
   let legs = (0..3).map(|index| {
     let angle = index as f32 / 3.0 * TAU;
     let (sin, cos) = angle.sin_cos();
@@ -386,7 +388,7 @@ fn brazier() -> Parts {
   .collect()
 }
 
-fn sconce() -> Parts {
+pub(crate) fn sconce() -> Parts {
   vec![
     (Stuff::Iron, Piece::new(model::block(0.14, 0.3, 0.05), IRON).at_xyz(0.0, 0.0, 0.02)),
     (
@@ -410,7 +412,7 @@ fn sconce() -> Parts {
   ]
 }
 
-fn urn(seed: u32) -> Parts {
+pub(crate) fn urn(seed: u32) -> Parts {
   let mut roll = Roll::new(seed);
   let girth = roll.range(0.16, 0.24);
   let tall = roll.range(0.4, 0.62);
@@ -438,7 +440,7 @@ fn urn(seed: u32) -> Parts {
   ]
 }
 
-fn bones(seed: u32) -> Parts {
+pub(crate) fn bones(seed: u32) -> Parts {
   let mut roll = Roll::new(seed);
   let skull = [
     (
@@ -497,7 +499,7 @@ fn bones(seed: u32) -> Parts {
   )
 }
 
-fn sarcophagus() -> Parts {
+pub(crate) fn sarcophagus() -> Parts {
   let knot_top = moved(medallion(0.28), Transform::from_xyz(0.0, 2.25, 0.4));
   [
     Piece::new(model::block(1.1, 2.5, 0.16), CARVED).at_xyz(0.0, 1.25, -0.36),
@@ -513,7 +515,7 @@ fn sarcophagus() -> Parts {
   .collect()
 }
 
-fn tomb() -> Parts {
+pub(crate) fn tomb() -> Parts {
   let knot = moved(
     medallion(0.3),
     Transform::from_xyz(0.0, 1.07, 0.0).with_rotation(Quat::from_rotation_x(-FRAC_PI_2))
@@ -530,7 +532,7 @@ fn tomb() -> Parts {
   .collect()
 }
 
-fn cobweb(size: f32) -> Parts {
+pub(crate) fn cobweb(size: f32) -> Parts {
   let spokes = 7;
   let spoke = |index: usize| {
     let angle = index as f32 / (spokes - 1) as f32 * FRAC_PI_2;
@@ -553,7 +555,7 @@ fn cobweb(size: f32) -> Parts {
   radials.chain(threads).collect()
 }
 
-fn rubble(seed: u32, count: usize, spread: f32, scale: f32) -> Parts {
+pub(crate) fn rubble(seed: u32, count: usize, spread: f32, scale: f32) -> Parts {
   let mut roll = Roll::new(seed);
   (0..count)
     .map(|index| {
@@ -576,7 +578,7 @@ fn rubble(seed: u32, count: usize, spread: f32, scale: f32) -> Parts {
     .collect()
 }
 
-fn flagstones(
+pub(crate) fn flagstones(
   seed: u32,
   low: Vec2,
   high: Vec2,
@@ -631,7 +633,7 @@ fn stairs(works: &mut Works, top: Vec3, bottom: Vec3, width: f32, count: usize) 
   ));
 }
 
-fn chest(size: f32) -> (Parts, Parts) {
+pub(crate) fn chest(size: f32) -> (Parts, Parts) {
   let (width, height, depth) = (0.9, 0.48, 0.56);
   let band = |x: f32| {
     (
@@ -696,7 +698,7 @@ fn chest(size: f32) -> (Parts, Parts) {
   )
 }
 
-fn nest(seed: u32) -> Parts {
+pub(crate) fn nest(seed: u32) -> Parts {
   let mut roll = Roll::new(seed);
   let straw = (0..140)
     .map(|_| {
@@ -947,7 +949,7 @@ fn den_solid() -> Tree {
   .max(-(y + 12.0))
 }
 
-fn field(at: Vec3, scale: f32, seed: u32) -> Vec3 {
+pub(crate) fn field(at: Vec3, scale: f32, seed: u32) -> Vec3 {
   let at = at / scale;
   Vec3::new(
     noise::fbm3(at, 3, seed),
@@ -1589,8 +1591,8 @@ fn den_works(frame: Transform) -> Works {
 }
 
 #[derive(Component)]
-struct Hollow {
-  rooms: Vec<(Vec3, Vec3)>
+pub(crate) struct Hollow {
+  pub(crate) rooms: Vec<(Vec3, Vec3)>
 }
 
 #[derive(Component)]
@@ -1633,12 +1635,12 @@ fn grouped(parts: Parts) -> Vec<(Stuff, Mesh)> {
     .collect()
 }
 
-struct Kit<'a, 'w, 's> {
-  commands: &'a mut Commands<'w, 's>,
-  meshes: &'a mut Assets<Mesh>,
-  materials: &'a mut Assets<StandardMaterial>,
-  stuffs: &'a Stuffs,
-  surfaces: &'a Surfaces
+pub(crate) struct Kit<'a, 'w, 's> {
+  pub(crate) commands: &'a mut Commands<'w, 's>,
+  pub(crate) meshes: &'a mut Assets<Mesh>,
+  pub(crate) materials: &'a mut Assets<StandardMaterial>,
+  pub(crate) stuffs: &'a Stuffs,
+  pub(crate) surfaces: &'a Surfaces
 }
 
 impl Kit<'_, '_, '_> {
@@ -1653,13 +1655,13 @@ impl Kit<'_, '_, '_> {
     });
   }
 
-  fn raise(
+  pub(crate) fn raise(
     &mut self,
     name: &'static str,
     frame: Transform,
     (rock, collider): (Mesh, Collider),
     works: Works
-  ) {
+  ) -> (Entity, Vec<Entity>) {
     let Works { parts, wall, wall_at, solids, fires, lamps, beams, foes, hoards, rooms } =
       works;
     let root = self
@@ -1770,9 +1772,12 @@ impl Kit<'_, '_, '_> {
         ChildOf(root)
       ));
     });
-    foes.into_iter().for_each(|(at, kind, dormant)| {
-      self.commands.spawn((FoeSpawn { kind, dormant }, frame.mul_transform(at)));
-    });
+    let spawned = foes
+      .into_iter()
+      .map(|(at, kind, dormant)| {
+        self.commands.spawn((FoeSpawn { kind, dormant }, frame.mul_transform(at))).id()
+      })
+      .collect();
     hoards.into_iter().for_each(|Hoard { at, size, noun, loot }| {
       let (body, lid) = chest(size);
       let entity = self
@@ -1782,8 +1787,9 @@ impl Kit<'_, '_, '_> {
           Chest { noun, loot, opened: false },
           RigidBody::Static,
           Collider::cuboid(0.9 * size, 0.5 * size, 0.56 * size),
-          frame.mul_transform(at),
-          Visibility::default()
+          at,
+          Visibility::default(),
+          ChildOf(root)
         ))
         .id();
       let shell = self
@@ -1806,6 +1812,7 @@ impl Kit<'_, '_, '_> {
         .id();
       self.dress(hinge, lid);
     });
+    (root, spawned)
   }
 }
 
@@ -1864,8 +1871,9 @@ fn shelter(
       .iter()
       .any(|&(low, high)| local.cmpge(low).all() && local.cmple(high).all())
   });
-  daylight.shelter =
-    daylight.shelter.lerp(inside as u8 as f32, 1.0 - (-1.3 * time.delta_secs()).exp());
+  let pace =
+    (daylight.snap > 0).then_some(1.0).unwrap_or(1.0 - (-1.3 * time.delta_secs()).exp());
+  daylight.shelter = daylight.shelter.lerp(inside as u8 as f32, pace);
 }
 
 fn flicker(

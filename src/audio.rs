@@ -332,7 +332,7 @@ fn blend_beds(
   mut beds: Query<&mut Bed>
 ) {
   if let Some(mut output) = output {
-    let &Daylight { level, shelter } = daylight.into_inner();
+    let &Daylight { level, shelter, .. } = daylight.into_inner();
     let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
     let fight = engaged.0.is_some() as u8 as f32;
     let delta = time.delta_secs();
@@ -389,7 +389,7 @@ fn critters(
   mut rng: Local<Rng>
 ) {
   if let Some(mut output) = output {
-    let &Daylight { level, shelter } = daylight.into_inner();
+    let &Daylight { level, shelter, .. } = daylight.into_inner();
     let outdoors = 1.0 - synth::smooth((shelter - 0.3) / 0.4);
     let delta = time.delta_secs();
     [

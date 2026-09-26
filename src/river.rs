@@ -1,6 +1,6 @@
 use {crate::{model::{Piece, block},
              noise,
-             place::{self, ROADS},
+             place::{self, Marker, ROADS},
              stuff::{Stuff, Stuffs},
              terrain::{self, smooth},
              texture},
@@ -10,7 +10,8 @@ use {crate::{model::{Piece, block},
             mesh::{Indices, PrimitiveTopology},
             platform::collections::HashMap,
             prelude::*},
-     std::{f32::consts::{PI, TAU},
+     std::{collections::{BinaryHeap, VecDeque},
+           f32::consts::{PI, TAU},
            sync::LazyLock}};
 
 #[derive(Clone, Copy)]
@@ -83,210 +84,21 @@ pub fn lake_near(at: Vec2, reach: f32) -> Option<Lake> {
 
 #[derive(Clone, Copy)]
 enum End {
-  Spring,
   Lake(usize),
   River(usize)
 }
 
 struct Course {
-  points: &'static [Vec2],
-  source: End,
-  mouth: End,
-  widths: [f32; 2],
-  swing: f32
+  path: Vec<Vec2>,
+  widths: Vec<f32>,
+  mouth: End
 }
 
-const COURSES: [Course; 13] = [
-  Course {
-    points: &[
-      Vec2::new(-120.0, 1440.0),
-      Vec2::new(-20.0, 1420.0),
-      Vec2::new(90.0, 1400.0),
-      Vec2::new(190.0, 1372.0),
-      Vec2::new(244.0, 1320.0),
-      Vec2::new(258.0, 1245.0),
-      Vec2::new(252.0, 1160.0),
-      Vec2::new(238.0, 1070.0),
-      Vec2::new(222.0, 980.0),
-      Vec2::new(204.0, 880.0),
-      Vec2::new(190.0, 780.0),
-      Vec2::new(186.0, 680.0),
-      Vec2::new(182.0, 580.0),
-      Vec2::new(168.0, 480.0),
-      Vec2::new(128.0, 410.0),
-      Vec2::new(60.0, 378.0),
-      Vec2::new(-30.0, 345.0),
-      Vec2::new(-100.0, 305.0),
-      Vec2::new(-150.0, 250.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(0),
-    widths: [3.0, 7.0],
-    swing: 0.0
-  },
-  Course {
-    points: &[
-      Vec2::new(-2330.0, -1780.0),
-      Vec2::new(-2420.0, -1600.0),
-      Vec2::new(-2500.0, -1450.0),
-      Vec2::new(-2550.0, -1350.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(6),
-    widths: [2.5, 4.5],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(-2450.0, 150.0),
-      Vec2::new(-2410.0, -40.0),
-      Vec2::new(-2290.0, -360.0),
-      Vec2::new(-2260.0, -660.0),
-      Vec2::new(-2440.0, -900.0),
-      Vec2::new(-2480.0, -1150.0),
-      Vec2::new(-2520.0, -1350.0)
-    ],
-    source: End::Lake(1),
-    mouth: End::Lake(6),
-    widths: [5.0, 6.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(-2440.0, 300.0),
-      Vec2::new(-2410.0, 520.0),
-      Vec2::new(-2350.0, 820.0),
-      Vec2::new(-2260.0, 1150.0),
-      Vec2::new(-2190.0, 1440.0),
-      Vec2::new(-2160.0, 1560.0)
-    ],
-    source: End::Lake(1),
-    mouth: End::Lake(2),
-    widths: [7.0, 8.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(2760.0, 560.0),
-      Vec2::new(2690.0, 760.0),
-      Vec2::new(2620.0, 900.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(5),
-    widths: [2.5, 4.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(2590.0, 960.0),
-      Vec2::new(2540.0, 1180.0),
-      Vec2::new(2560.0, 1420.0),
-      Vec2::new(2510.0, 1620.0)
-    ],
-    source: End::Lake(5),
-    mouth: End::Lake(7),
-    widths: [4.0, 5.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(2490.0, 1660.0),
-      Vec2::new(2300.0, 1830.0),
-      Vec2::new(2060.0, 1930.0),
-      Vec2::new(1800.0, 2040.0),
-      Vec2::new(1500.0, 2140.0)
-    ],
-    source: End::Lake(7),
-    mouth: End::Lake(3),
-    widths: [5.0, 7.5],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(1830.0, 880.0),
-      Vec2::new(1740.0, 1120.0),
-      Vec2::new(1680.0, 1420.0),
-      Vec2::new(1560.0, 1720.0),
-      Vec2::new(1470.0, 2000.0),
-      Vec2::new(1450.0, 2120.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(3),
-    widths: [2.5, 6.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(270.0, 2350.0),
-      Vec2::new(480.0, 2360.0),
-      Vec2::new(700.0, 2320.0),
-      Vec2::new(960.0, 2300.0),
-      Vec2::new(1210.0, 2260.0),
-      Vec2::new(1400.0, 2160.0)
-    ],
-    source: End::Lake(4),
-    mouth: End::Lake(3),
-    widths: [5.0, 8.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(820.0, 1420.0),
-      Vec2::new(870.0, 1660.0),
-      Vec2::new(830.0, 1900.0),
-      Vec2::new(760.0, 2120.0),
-      Vec2::new(700.0, 2320.0)
-    ],
-    source: End::Spring,
-    mouth: End::River(8),
-    widths: [2.5, 5.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(1290.0, 240.0),
-      Vec2::new(1330.0, 520.0),
-      Vec2::new(1260.0, 800.0),
-      Vec2::new(1150.0, 1030.0),
-      Vec2::new(1120.0, 1180.0),
-      Vec2::new(1030.0, 1480.0),
-      Vec2::new(930.0, 1760.0),
-      Vec2::new(850.0, 1880.0)
-    ],
-    source: End::Spring,
-    mouth: End::River(9),
-    widths: [2.0, 4.0],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(-1640.0, -1150.0),
-      Vec2::new(-1950.0, -1210.0),
-      Vec2::new(-2250.0, -1300.0),
-      Vec2::new(-2480.0, -1340.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(6),
-    widths: [2.0, 4.5],
-    swing: 70.0
-  },
-  Course {
-    points: &[
-      Vec2::new(-1250.0, -660.0),
-      Vec2::new(-1500.0, -480.0),
-      Vec2::new(-1800.0, -250.0),
-      Vec2::new(-2100.0, -50.0),
-      Vec2::new(-2300.0, 150.0),
-      Vec2::new(-2400.0, 230.0)
-    ],
-    source: End::Spring,
-    mouth: End::Lake(1),
-    widths: [2.0, 5.5],
-    swing: 70.0
-  }
-];
-
-pub const RIVERS: usize = COURSES.len();
+const CELL: f32 = 24.0;
+const CELLS: usize = (2.0 * terrain::WORLD / CELL) as usize;
+const SPRING_AREA: f32 = 0.55e6;
+const SHORTEST: usize = 8;
+const SWING: f32 = 14.0;
 const STEP: f32 = 4.0;
 const BIN: f32 = 64.0;
 const DEPTH: f32 = 1.7;
@@ -294,6 +106,109 @@ const SIDES: f32 = 0.4;
 const VALLEY: f32 = 200.0;
 const DROP: f32 = 0.012;
 const GRADE: f32 = 0.04;
+
+fn cell_center(index: usize) -> Vec2 {
+  (Vec2::new((index % CELLS) as f32, (index / CELLS) as f32) + 0.5) * CELL
+    - terrain::WORLD
+}
+
+fn neighbours(index: usize) -> impl Iterator<Item = usize> {
+  let (x, y) = ((index % CELLS) as i32, (index / CELLS) as i32);
+  [(-1, -1), (0, -1), (1, -1), (-1, 0), (1, 0), (-1, 1), (0, 1), (1, 1)]
+    .into_iter()
+    .map(move |(dx, dy)| (x + dx, y + dy))
+    .filter(|&(x, y)| (0..CELLS as i32).contains(&x) && (0..CELLS as i32).contains(&y))
+    .map(|(x, y)| y as usize * CELLS + x as usize)
+}
+
+fn routing_height(at: Vec2) -> f32 {
+  let settled = place::named()
+    .filter(|place| {
+      matches!(place.marker(), Marker::Town | Marker::City | Marker::Farm | Marker::Fort)
+    })
+    .fold(0.0_f32, |bump, place| {
+      bump.max(smooth(place.flat() * 1.8, place.flat() * 1.1, at.distance(place.spot())))
+    });
+  terrain::land(at, 1.0) + 14.0 * settled + 4.0 * noise::fbm(at / 170.0, 3, 331)
+}
+
+struct Drainage {
+  down: Vec<Option<usize>>,
+  area: Vec<f32>,
+  lake: Vec<Option<usize>>
+}
+
+#[derive(PartialEq)]
+struct Lowest(f32, usize);
+
+impl Eq for Lowest {}
+
+impl Ord for Lowest {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    other.0.total_cmp(&self.0).then(other.1.cmp(&self.1))
+  }
+}
+
+impl PartialOrd for Lowest {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
+}
+
+static DRAINAGE: LazyLock<Drainage> = LazyLock::new(|| {
+  let count = CELLS * CELLS;
+  let heights = terrain::in_parallel(&(0..count).collect::<Vec<_>>(), |&index| {
+    routing_height(cell_center(index))
+  });
+  let mut down = vec![None; count];
+  let mut lake: Vec<Option<usize>> = (0..count)
+    .map(|index| {
+      BASINS.iter().position(|basin| {
+        cell_center(index).distance(basin.center) < basin.radius * 0.7 + CELL * 0.75
+      })
+    })
+    .collect();
+  let mut seen: Vec<bool> = lake.iter().map(Option::is_some).collect();
+  let mut rising: BinaryHeap<Lowest> = (0..count)
+    .filter(|&index| seen[index])
+    .map(|index| Lowest(heights[index], index))
+    .collect();
+  let mut order = Vec::with_capacity(count);
+  while let Some(Lowest(level, index)) = rising.pop() {
+    order.push(index);
+    neighbours(index).for_each(|next| {
+      if !seen[next] {
+        seen[next] = true;
+        down[next] = Some(index);
+        lake[next] = lake[index];
+        rising.push(Lowest(heights[next].max(level + 0.01), next));
+      }
+    });
+  }
+  let area = order.iter().rev().fold(vec![CELL * CELL; count], |mut area, &index| {
+    if let Some(below) = down[index] {
+      area[below] += area[index];
+    }
+    area
+  });
+  Drainage { down, area, lake }
+});
+
+fn chaikin(points: Vec<Vec3>) -> Vec<Vec3> {
+  points
+    .first()
+    .copied()
+    .into_iter()
+    .chain(
+      points
+        .windows(2)
+        .flat_map(|pair| [pair[0].lerp(pair[1], 0.25), pair[0].lerp(pair[1], 0.75)])
+    )
+    .chain(points.last().copied())
+    .collect()
+}
+
+fn width_for(area: f32) -> f32 { (1.2 + 1.1 * (area / 1.0e6).sqrt()).min(8.0) }
 
 fn meandered(path: Vec<Vec2>, swing: f32, seed: u32) -> Vec<Vec2> {
   let lengths: Vec<f32> = path
@@ -312,33 +227,96 @@ fn meandered(path: Vec<Vec2>, swing: f32, seed: u32) -> Vec<Vec2> {
       let side = (after - before).normalize_or(Vec2::X).perp();
       let length = lengths[index];
       let calm = smooth(0.0, 120.0, length) * smooth(total, total - 120.0, length);
-      let wander = noise::fbm(Vec2::new(length / 260.0, seed as f32 * 7.3), 3, seed);
+      let wander = noise::fbm(Vec2::new(length / 180.0, seed as f32 * 7.3), 3, seed);
       path[index] + side * wander * swing * calm
     })
     .collect()
 }
 
-pub static PATHS: LazyLock<Vec<Vec<Vec2>>> = LazyLock::new(|| {
-  COURSES
+fn course(river: usize, cells: &[usize], mouth: End) -> Course {
+  let area = &DRAINAGE.area;
+  let last = cells.len() - 1;
+  let points: Vec<Vec3> = cells
     .iter()
     .enumerate()
-    .map(|(river, course)| {
-      meandered(place::smoothed(course.points), course.swing, 300 + river as u32)
-        .windows(2)
-        .flat_map(|pair| {
-          let steps = (pair[0].distance(pair[1]) / STEP).ceil().max(1.0) as usize;
-          (0..steps).map(move |step| pair[0].lerp(pair[1], step as f32 / steps as f32))
-        })
-        .chain(course.points.last().copied())
-        .collect()
+    .rev()
+    .filter(|&(step, _)| step % 2 == 0 || step == last)
+    .map(|(_, &index)| cell_center(index).extend(width_for(area[index])))
+    .collect();
+  let smoothed = (0..4).fold(points, |points, _| chaikin(points));
+  let bent = meandered(
+    smoothed.iter().map(|point| point.xy()).collect(),
+    SWING,
+    300 + river as u32
+  );
+  let (path, widths) = bent
+    .windows(2)
+    .zip(smoothed.windows(2))
+    .flat_map(|(pair, sizes)| {
+      let steps = (pair[0].distance(pair[1]) / STEP).ceil().max(1.0) as usize;
+      let (from, to, wide, wider) = (pair[0], pair[1], sizes[0].z, sizes[1].z);
+      (0..steps).map(move |step| {
+        let t = step as f32 / steps as f32;
+        (from.lerp(to, t), wide.lerp(wider, t))
+      })
     })
-    .collect()
+    .chain(bent.last().copied().zip(smoothed.last().map(|point| point.z)))
+    .unzip();
+  Course { path, widths, mouth }
+}
+
+static COURSES: LazyLock<Vec<Course>> = LazyLock::new(|| {
+  let Drainage { down, area, lake } = &*DRAINAGE;
+  let big = |index: usize| area[index] >= SPRING_AREA;
+  let pooled = |index: usize| lake[index].is_some() && down[index].is_none();
+  let feeding = |current: usize| {
+    neighbours(current).filter(move |&next| down[next] == Some(current) && big(next))
+  };
+  let mut waiting: VecDeque<(usize, End)> = (0..CELLS * CELLS)
+    .filter(|&index| !pooled(index) && big(index) && down[index].is_some_and(pooled))
+    .filter_map(|index| lake[index].map(|lake| (index, End::Lake(lake))))
+    .collect();
+  let mut traced: Vec<(Vec<usize>, End)> = Vec::new();
+  while let Some((start, mouth)) = waiting.pop_front() {
+    let river = traced.len();
+    let mut cells: Vec<usize> = down[start].into_iter().chain([start]).collect();
+    let mut current = start;
+    while let Some(next) = feeding(current).max_by(|a, b| area[*a].total_cmp(&area[*b])) {
+      feeding(current)
+        .filter(|&other| other != next)
+        .for_each(|other| waiting.push_back((other, End::River(river))));
+      cells.push(next);
+      current = next;
+    }
+    traced.push((cells, mouth));
+  }
+  traced
+    .into_iter()
+    .enumerate()
+    .fold(
+      (Vec::new(), Vec::new()),
+      |(mut kept, mut renamed): (Vec<Course>, Vec<Option<usize>>),
+       (river, (cells, mouth))| {
+        let mouth = match mouth {
+          End::River(parent) => renamed[parent].map(End::River),
+          lake => Some(lake)
+        };
+        renamed.push(mouth.filter(|_| cells.len() >= SHORTEST).map(|mouth| {
+          kept.push(course(river, &cells, mouth));
+          kept.len() - 1
+        }));
+        (kept, renamed)
+      }
+    )
+    .0
 });
 
-fn width_at(river: usize, index: usize) -> f32 {
-  let [source, mouth] = COURSES[river].widths;
-  source.lerp(mouth, (index as f32 / PATHS[river].len() as f32).sqrt())
-}
+pub static PATHS: LazyLock<Vec<Vec<Vec2>>> =
+  LazyLock::new(|| COURSES.iter().map(|course| course.path.clone()).collect());
+
+pub fn rivers() -> usize { COURSES.len() }
+
+fn width_at(river: usize, index: usize) -> f32 { COURSES[river].widths[index] }
 
 type Bins = HashMap<IVec2, Vec<(usize, usize)>>;
 
@@ -357,17 +335,31 @@ static BINS: LazyLock<Bins> = LazyLock::new(|| {
   })
 });
 
-type Closest = [Option<(f32, usize, f32)>; RIVERS];
+const NEARBY: usize = 8;
+
+type Closest = [Option<(usize, f32, usize, f32)>; NEARBY];
 
 fn closest(at: Vec2) -> Closest {
-  BINS.get(&(at / BIN).floor().as_ivec2()).map_or([None; RIVERS], |segments| {
-    segments.iter().fold([None; RIVERS], |mut best, &(river, index)| {
+  BINS.get(&(at / BIN).floor().as_ivec2()).map_or([None; NEARBY], |segments| {
+    segments.iter().fold([None; NEARBY], |mut best, &(river, index)| {
       let (from, to) = (PATHS[river][index], PATHS[river][index + 1]);
       let along =
         ((at - from).dot(to - from) / (to - from).length_squared()).clamp(0.0, 1.0);
       let distance = at.distance(from.lerp(to, along));
-      if best[river].is_none_or(|(known, ..)| distance < known) {
-        best[river] = Some((distance, index, along));
+      let slot = best
+        .iter()
+        .position(|found| found.is_none_or(|(known, ..)| known == river))
+        .unwrap_or_else(|| {
+          (0..NEARBY)
+            .max_by(|&a, &b| {
+              let far =
+                |slot: usize| best[slot].map_or(0.0, |(_, distance, ..)| distance);
+              far(a).total_cmp(&far(b))
+            })
+            .unwrap_or(0)
+        });
+      if best[slot].is_none_or(|(_, known, ..)| distance < known) {
+        best[slot] = Some((river, distance, index, along));
       }
       best
     })
@@ -378,18 +370,13 @@ pub fn course_distance(at: Vec2) -> f32 {
   closest(at)
     .into_iter()
     .flatten()
-    .fold(f32::MAX, |nearest, (distance, ..)| nearest.min(distance))
+    .fold(f32::MAX, |nearest, (_, distance, ..)| nearest.min(distance))
 }
 
 pub fn closest_point(at: Vec2) -> Option<Vec2> {
-  closest(at)
-    .into_iter()
-    .enumerate()
-    .filter_map(|(river, found)| found.map(|found| (river, found)))
-    .min_by(|a, b| a.1.0.total_cmp(&b.1.0))
-    .map(|(river, (_, index, along))| {
-      PATHS[river][index].lerp(PATHS[river][index + 1], along)
-    })
+  closest(at).into_iter().flatten().min_by(|a, b| a.1.total_cmp(&b.1)).map(
+    |(river, _, index, along)| PATHS[river][index].lerp(PATHS[river][index + 1], along)
+  )
 }
 
 pub static LEVELS: LazyLock<Vec<Vec<f32>>> = LazyLock::new(|| {
@@ -397,7 +384,6 @@ pub static LEVELS: LazyLock<Vec<Vec<f32>>> = LazyLock::new(|| {
     Vec::new(),
     |mut done: Vec<Vec<f32>>, (course, path)| {
       let level_of = |end: End, at: Vec2| match end {
-        End::Spring => None,
         End::Lake(lake) => Some(LAKE_LEVELS[lake]),
         End::River(river) => PATHS[river]
           .iter()
@@ -405,26 +391,18 @@ pub static LEVELS: LazyLock<Vec<Vec<f32>>> = LazyLock::new(|| {
           .min_by(|a, b| a.1.distance(at).total_cmp(&b.1.distance(at)))
           .map(|(index, _)| done[river][index])
       };
-      let brim = |at: Vec2| match course.source {
-        End::Lake(lake) => (at.distance(BASINS[lake].center) < BASINS[lake].radius * 2.0)
-          .then_some(LAKE_LEVELS[lake])
-          .unwrap_or(f32::MIN),
-        _ => f32::MIN
-      };
-      let source = level_of(course.source, path[0]).unwrap_or(f32::MAX);
       let floor = level_of(course.mouth, path[path.len() - 1]).expect("river mouth");
       let levels = path
         .iter()
         .enumerate()
-        .scan(source, |level, (index, &at)| {
+        .scan(f32::MAX, |level, (index, &at)| {
           let steepest = matches!(course.mouth, End::River(_))
             .then(|| floor + (path.len() - 1 - index) as f32 * STEP * GRADE)
             .unwrap_or(f32::MAX);
           *level = (*level - DROP * STEP)
             .min(terrain::natural_height(at) - 1.3)
             .min(steepest)
-            .max(floor)
-            .max(brim(at));
+            .max(floor);
           Some(*level)
         })
         .collect();
@@ -442,16 +420,14 @@ pub struct Reach {
 }
 
 fn reaches(at: Vec2) -> impl Iterator<Item = Reach> {
-  closest(at).into_iter().enumerate().filter_map(|(river, found)| {
-    found.map(|(distance, index, along)| Reach {
-      distance,
-      level: LEVELS[river][index].lerp(LEVELS[river][index + 1], along),
-      width: width_at(river, index)
-    })
+  closest(at).into_iter().flatten().map(|(river, distance, index, along)| Reach {
+    distance,
+    level: LEVELS[river][index].lerp(LEVELS[river][index + 1], along),
+    width: width_at(river, index)
   })
 }
 
-pub fn reach(at: Vec2) -> Option<Reach> {
+pub fn reach_at(at: Vec2) -> Option<Reach> {
   reaches(at).min_by(|a, b| a.distance.total_cmp(&b.distance))
 }
 
@@ -524,85 +500,148 @@ fn water_mesh(river: usize) -> Mesh {
 #[derive(Component)]
 struct Flow;
 
-fn crossings() -> Vec<(Vec2, Vec2, f32)> {
-  ROADS
-    .iter()
-    .flat_map(|road| {
-      road.path.windows(2).map(|pair| (pair[0], pair[1])).collect::<Vec<_>>()
-    })
-    .flat_map(|(from, to)| {
-      PATHS.iter().enumerate().flat_map(move |(river, path)| {
-        path.windows(2).enumerate().filter_map(move |(index, pair)| {
-          let (a, b) = (pair[0], pair[1]);
-          let (road, stream) = (to - from, b - a);
-          let across = road.perp_dot(stream);
+pub struct Bridge {
+  at: Vec2,
+  along: Vec2,
+  reach: f32,
+  half_wide: f32,
+  deck: f32,
+  low: f32
+}
+
+const RAMP: f32 = 0.16;
+const EMBANKMENT: f32 = 9.0;
+
+impl Bridge {
+  fn local(&self, at: Vec2) -> Vec2 {
+    let offset = at - self.at;
+    Vec2::new(offset.dot(self.along), offset.perp_dot(self.along))
+  }
+
+  fn near(&self, at: Vec2) -> bool {
+    at.distance(self.at) < self.reach + (self.deck - self.low) / RAMP + 60.0
+  }
+}
+
+pub static BRIDGES: LazyLock<Vec<Bridge>> = LazyLock::new(|| {
+  let crossings = ROADS.iter().flat_map(|road| {
+    road.path.windows(2).filter_map(|pair| {
+      let (from, to) = (pair[0], pair[1]);
+      let road_line = to - from;
+      BINS.get(&(((from + to) / 2.0) / BIN).floor().as_ivec2()).and_then(|segments| {
+        segments.iter().find_map(|&(river, index)| {
+          let (a, b) = (PATHS[river][index], PATHS[river][index + 1]);
+          let stream = b - a;
+          let across = road_line.perp_dot(stream);
           let t = (a - from).perp_dot(stream) / across;
-          let u = (a - from).perp_dot(road) / across;
+          let u = (a - from).perp_dot(road_line) / across;
           (across.abs() > 1e-4 && (0.0..=1.0).contains(&t) && (0.0..=1.0).contains(&u))
-            .then(|| (from + road * t, road.normalize(), width_at(river, index)))
+            .then(|| {
+              let along = road_line.normalize();
+              let slant = along.perp_dot(stream.normalize()).abs().max(0.5);
+              (
+                from + road_line * t,
+                along,
+                (width_at(river, index) + 2.5) / slant + 3.0,
+                road.paving.half_width() + 0.6
+              )
+            })
         })
       })
     })
-    .fold(Vec::<(Vec2, Vec2, f32)>::new(), |mut found, crossing| {
-      if found.iter().all(|other| other.0.distance(crossing.0) > 20.0) {
+  });
+  crossings
+    .fold(Vec::<(Vec2, Vec2, f32, f32)>::new(), |mut found, crossing| {
+      if found.iter().all(|other| other.0.distance(crossing.0) > 30.0) {
         found.push(crossing);
       }
       found
     })
+    .into_iter()
+    .map(|(at, along, reach, half_wide)| {
+      let water = reach_at(at).map_or(0.0, |reach| reach.level);
+      let bank = |side: f32| terrain::unbridged_height(at + along * side * reach);
+      let deck = bank(1.0).max(bank(-1.0)).max(water + 2.6) + 0.1;
+      Bridge { at, along, reach, half_wide, deck, low: water - DEPTH }
+    })
+    .collect()
+});
+
+pub fn ramp(at: Vec2, height: f32) -> f32 {
+  BRIDGES.iter().filter(|bridge| bridge.near(at)).fold(height, |height, bridge| {
+    let local = bridge.local(at);
+    let beyond = local.x.abs() - (bridge.reach - 1.2);
+    let target = bridge.deck - 0.05 - beyond.max(0.0) * RAMP;
+    let beside = smooth(
+      bridge.half_wide + EMBANKMENT,
+      bridge.half_wide + 1.0,
+      local.y.abs() - (target - height).max(0.0) * 0.5
+    );
+    height.lerp(height.max(target), beside * smooth(-0.6, 0.4, beyond))
+  })
+}
+
+pub fn deck(at: Vec2) -> Option<f32> {
+  BRIDGES
+    .iter()
+    .filter(|bridge| bridge.at.distance(at) < bridge.reach + 4.0)
+    .find(|bridge| {
+      let local = bridge.local(at);
+      local.x.abs() < bridge.reach && local.y.abs() < bridge.half_wide
+    })
+    .map(|bridge| bridge.deck + 0.1)
 }
 
 fn bridge(
-  width: f32,
-  deck: f32,
-  low: f32
+  &Bridge { reach, half_wide, deck, low, .. }: &Bridge
 ) -> (Vec<(Stuff, Piece)>, Vec<(Vec3, Collider)>) {
   let stone = Srgba::new(0.55, 0.54, 0.51, 1.0);
-  let span = width * 2.0 + 10.0;
-  let arches = 7;
+  let (span, wide) = (reach * 2.0, half_wide * 2.0);
+  let arches = 9;
+  let radius = reach - 1.5;
+  let rise = (deck - 1.0 - low).clamp(1.5, radius) / radius;
   let ring: Vec<(Stuff, Piece)> = (0..arches)
     .map(|index| {
       let angle = PI * (index as f32 + 0.5) / arches as f32;
-      let radius = width + 1.6;
-      let at = Vec3::new(0.0, low + radius * angle.sin() * 0.7, -radius * angle.cos());
+      let at = Vec3::new(0.0, low + radius * angle.sin() * rise, -radius * angle.cos());
       (
         Stuff::Masonry,
-        Piece::new(block(4.6, 1.0, radius * PI / arches as f32 + 0.3), stone * 0.92)
+        Piece::new(block(wide, 1.0, radius * PI / arches as f32 + 0.4), stone * 0.92)
           .planar(1.6)
-          .pitched(angle - PI / 2.0)
+          .pitched((angle - PI / 2.0) * rise)
           .at(at)
       )
     })
     .collect();
   let deck_piece = (
     Stuff::Masonry,
-    Piece::new(block(4.6, 1.1, span), stone).planar(1.8).at_xyz(0.0, deck - 0.45, 0.0)
+    Piece::new(block(wide, 1.1, span), stone).planar(1.8).at_xyz(0.0, deck - 0.45, 0.0)
   );
-  let parapets = [-2.1, 2.1].map(|x| {
+  let parapets = [-1.0, 1.0].map(|side| {
     (
       Stuff::Masonry,
       Piece::new(block(0.5, 0.9, span), stone * 0.9).planar(1.4).at_xyz(
-        x,
+        side * (half_wide + 0.25),
         deck + 0.45,
         0.0
       )
     )
   });
-  let piers = [-1.0, 1.0].map(|side| {
-    let z = side * (width + 3.0);
-    let tall = deck - low + 2.0;
+  let abutments = [-1.0, 1.0].map(|side| {
+    let tall = deck - low + 3.0;
     (
       Stuff::Masonry,
-      Piece::new(block(5.0, tall, 3.4), stone * 0.85).planar(1.6).at_xyz(
+      Piece::new(block(wide + 1.0, tall, 3.0), stone * 0.85).planar(1.6).at_xyz(
         0.0,
-        deck - tall / 2.0,
-        z
+        deck - 0.4 - tall / 2.0,
+        side * (reach - 1.5)
       )
     )
   });
-  (ring.into_iter().chain([deck_piece]).chain(parapets).chain(piers).collect(), vec![
-    (Vec3::new(0.0, deck - 0.45, 0.0), Collider::cuboid(4.6, 1.1, span)),
-    (Vec3::new(2.1, deck + 0.45, 0.0), Collider::cuboid(0.5, 0.9, span)),
-    (Vec3::new(-2.1, deck + 0.45, 0.0), Collider::cuboid(0.5, 0.9, span)),
+  (ring.into_iter().chain([deck_piece]).chain(parapets).chain(abutments).collect(), vec![
+    (Vec3::new(0.0, deck - 0.45, 0.0), Collider::cuboid(wide, 1.1, span)),
+    (Vec3::new(half_wide + 0.25, deck + 0.45, 0.0), Collider::cuboid(0.5, 0.9, span)),
+    (Vec3::new(-half_wide - 0.25, deck + 0.45, 0.0), Collider::cuboid(0.5, 0.9, span)),
   ])
 }
 
@@ -625,7 +664,7 @@ fn spill(
     uv_transform: Affine2::from_scale(Vec2::new(2.0, 3.0)),
     ..default()
   });
-  (0..RIVERS).for_each(|river| {
+  (0..rivers()).for_each(|river| {
     commands.spawn((
       Name::new("River"),
       Flow,
@@ -634,14 +673,10 @@ fn spill(
       Transform::IDENTITY
     ));
   });
-  crossings().into_iter().for_each(|(at, along, width)| {
-    let deck = terrain::height_at(at + along * (width + 9.0))
-      .max(terrain::height_at(at - along * (width + 9.0)))
-      .max(reach(at).map_or(0.0, |reach| reach.level + 2.2))
-      + 0.1;
-    let low = reach(at).map_or(deck - 4.0, |reach| reach.level - DEPTH);
+  BRIDGES.iter().for_each(|built| {
+    let &Bridge { at, along, .. } = built;
     let origin = at.extend(0.0).xzy();
-    let (parts, solids) = bridge(width, deck, low);
+    let (parts, solids) = bridge(built);
     let root = commands
       .spawn((
         Name::new("Bridge"),
@@ -757,6 +792,24 @@ mod tests {
   #[ignore]
   fn levels() {
     println!("lakes {:?}", *LAKE_LEVELS);
+    BRIDGES.iter().for_each(|bridge| {
+      println!(
+        "bridge at {} along {} reach {:.1} deck {:.1} low {:.1}",
+        bridge.at, bridge.along, bridge.reach, bridge.deck, bridge.low
+      )
+    });
+    COURSES.iter().enumerate().for_each(|(river, course)| {
+      let mouth = match course.mouth {
+        End::Lake(lake) => format!("lake {lake}"),
+        End::River(other) => format!("river {other}")
+      };
+      println!(
+        "course {river}: {} -> {} into {mouth}, {} points",
+        course.path[0],
+        course.path[course.path.len() - 1],
+        course.path.len()
+      )
+    });
     LEVELS.iter().enumerate().for_each(|(river, levels)| {
       let floating = PATHS[river]
         .iter()
@@ -776,7 +829,7 @@ mod tests {
         terrain::height_at(at),
         terrain::natural_height(at),
         water_level(at),
-        reach(at)
+        reach_at(at)
       )
     });
   }

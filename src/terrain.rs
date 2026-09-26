@@ -85,13 +85,12 @@ fn settled(place: Place) -> bool {
   matches!(place.marker(), Marker::Town | Marker::City | Marker::Farm | Marker::Fort)
 }
 
-fn highland(at: Vec2, bent: Vec2, far: f32) -> f32 {
+fn highland(at: Vec2, bent: Vec2, far: f32, pass: f32) -> f32 {
   let reach = at.length();
   let ring = smooth(0.45, 1.15, (bent / Vec2::new(780.0, 690.0)).length())
     * smooth(1700.0, 1100.0, reach);
   let ranges =
     smooth(-0.02, 0.32, noise::fbm(bent / 1500.0, 3, 91)) * smooth(900.0, 1500.0, reach);
-  let pass = smooth(55.0, 320.0, place::route_distance(at));
   let open =
     place::named().filter(|&place| settled(place)).fold(1.0_f32, |open, place| {
       open.min(smooth(place.flat() * 2.0, place.flat() * 6.0, at.distance(place.spot())))
@@ -100,7 +99,7 @@ fn highland(at: Vec2, bent: Vec2, far: f32) -> f32 {
   (ring.max(ranges).max(massif) * pass.min(open)).max(far)
 }
 
-pub fn wild_height(at: Vec2) -> f32 {
+pub fn land(at: Vec2, pass: f32) -> f32 {
   let warp =
     Vec2::new(noise::fbm(at / 520.0, 3, 11), noise::fbm(at / 520.0 + 9.3, 3, 12)) * 110.0;
   let bent = at + warp;
@@ -110,14 +109,18 @@ pub fn wild_height(at: Vec2) -> f32 {
     + (noise::fbm(bent / 1100.0, 3, 93) * 0.5 + 0.5)
       * 70.0
       * smooth(600.0, 1300.0, at.length());
-  let crags = noise::crags(bent / 430.0, 9, 7, 1.0 - 0.5 * far);
+  let crags = noise::crags(bent / 500.0, 9, 7, 1.0 - 0.5 * far);
   let range = smooth(900.0, 3200.0, at.length());
   let throat_calm =
     1.0 - 0.8 * smooth(1.1 * THROAT_REACH, 0.4 * THROAT_REACH, at.distance(THROAT));
   let border = (far > 0.0).then(|| far * throat_calm * spires(at)).unwrap_or(0.0);
   let massif =
-    highland(at, bent, far) * (40.0 + crags * (350.0 + 120.0 * range)) + border;
+    highland(at, bent, far, pass) * (40.0 + crags * (320.0 + 110.0 * range)) + border;
   24.0 + hills + massif.lerp(ledged(massif, bent), 0.25 * far) + throat_height(at, crags)
+}
+
+pub fn wild_height(at: Vec2) -> f32 {
+  land(at, smooth(55.0, 320.0, place::route_distance(at)))
 }
 
 pub fn natural_height(at: Vec2) -> f32 {
@@ -142,7 +145,9 @@ fn graded_height(at: Vec2) -> f32 {
 
 fn place_level(place: Place) -> f32 { natural_height(place.spot()) + place.rise() }
 
-pub fn height_at(at: Vec2) -> f32 {
+pub fn height_at(at: Vec2) -> f32 { river::ramp(at, unbridged_height(at)) }
+
+pub fn unbridged_height(at: Vec2) -> f32 {
   let near = |place: &Place| at.distance(place.spot()) < place.flat() * 1.9;
   let settled = place::around(at).iter().copied().filter(near).fold(
     graded_height(at),
@@ -840,10 +845,24 @@ mod tests {
         counts
       })
     );
+    println!("{} rivers", river::rivers());
     map_image("screenshots/map.png", |at| {
-      place::all()
-        .any(|place| at.distance(place.spot()) < 14.0)
-        .then_some(LinearRgba::rgb(1.0, 0.0, 0.0))
+      place::named()
+        .filter(|&place| settled(place))
+        .any(|place| at.distance(place.spot()) < place.flat())
+        .then_some(LinearRgba::rgb(1.0, 0.85, 0.0))
+        .or_else(|| {
+          place::all()
+            .any(|place| at.distance(place.spot()) < 14.0)
+            .then_some(LinearRgba::rgb(1.0, 0.0, 0.0))
+        })
+        .or_else(|| {
+          (river::course_distance(at) < 5.0).then_some(LinearRgba::rgb(0.1, 0.5, 1.0))
+        })
+        .or_else(|| {
+          (place::nearest_road(at).edge() < 2.0)
+            .then_some(LinearRgba::rgb(0.2, 0.1, 0.05))
+        })
     });
   }
 }

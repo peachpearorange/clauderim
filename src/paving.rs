@@ -66,7 +66,14 @@ fn ribbon(spine: &[Vec2], start_length: f32, width: f32) -> (Vec3, Mesh) {
           let at = point + side * offset;
           let dirt = 1.0 - 0.25 * decay(at);
           (
-            at.extend(height_at(at) + LIFT + crown).xzy() - center,
+            at.extend(
+              crate::river::deck(at)
+                .map_or(height_at(at), |deck| deck.max(height_at(at)))
+                + LIFT
+                + crown
+            )
+            .xzy()
+              - center,
             (Vec2::new(across, length / (2.0 * width)), [
               dirt,
               dirt * 0.97,

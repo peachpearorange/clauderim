@@ -48,7 +48,7 @@ impl View {
   pub fn flat_forward(&self) -> Vec3 { Quat::from_rotation_y(self.yaw) * Vec3::NEG_Z }
 }
 
-fn capsule_offset() -> f32 { CAPSULE_HEIGHT / 2.0 }
+pub fn capsule_offset() -> f32 { CAPSULE_HEIGHT / 2.0 }
 
 fn start_spot() -> (Vec2, Vec2) {
   let named = opts().at.as_deref().and_then(|name| {
@@ -156,9 +156,12 @@ fn capture_cursor(
   if mouse.just_pressed(MouseButton::Left) {
     view.captured = true;
   }
-  cursor.visible = !view.captured;
-  cursor.grab_mode =
+  let grab =
     view.captured.then_some(CursorGrabMode::Locked).unwrap_or(CursorGrabMode::None);
+  if cursor.grab_mode != grab || cursor.visible == view.captured {
+    cursor.visible = !view.captured;
+    cursor.grab_mode = grab;
+  }
 }
 
 fn steer(

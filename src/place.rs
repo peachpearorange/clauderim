@@ -37,7 +37,7 @@ impl Spot {
   const fn rise(self, rise: f32) -> Self { Spot { rise, ..self } }
 }
 
-const NAMED: [Spot; 15] = [
+const NAMED: [Spot; 27] = [
   Spot::new("Hollowcrag Barrow", Vec2::new(-250.0, -170.0), Marker::Barrow, 36.0)
     .sunk(9.0),
   Spot::new("Fellhound Den", Vec2::new(302.8, -216.2), Marker::Cave, 24.0).sunk(6.0),
@@ -53,7 +53,19 @@ const NAMED: [Spot; 15] = [
   Spot::new("Fort Skarn", Vec2::new(1910.0, -1320.0), Marker::Fort, 44.0),
   Spot::new("Blackbriar Camp", Vec2::new(560.0, 800.0), Marker::Camp, 14.0),
   Spot::new("Wolfskull Camp", Vec2::new(-880.0, 420.0), Marker::Camp, 14.0),
-  Spot::new("Snowgate Watch", Vec2::new(-640.0, -40.0), Marker::Tower, 16.0)
+  Spot::new("Snowgate Watch", Vec2::new(-640.0, -40.0), Marker::Tower, 16.0),
+  Spot::new("Ravensholt", Vec2::new(-2250.0, 950.0), Marker::City, 96.0).rise(18.0),
+  Spot::new("Hvitmark", Vec2::new(2300.0, 2450.0), Marker::City, 96.0).rise(20.0),
+  Spot::new("Ulfstad", Vec2::new(-2050.0, -2250.0), Marker::Town, 60.0),
+  Spot::new("Tjarnby", Vec2::new(700.0, 2250.0), Marker::Town, 58.0),
+  Spot::new("Kaldvik", Vec2::new(-2500.0, -1050.0), Marker::Town, 56.0),
+  Spot::new("Mossgard", Vec2::new(-1500.0, 250.0), Marker::Town, 56.0),
+  Spot::new("Eldmark Farm", Vec2::new(-1900.0, 1250.0), Marker::Farm, 34.0),
+  Spot::new("Sunhill Farm", Vec2::new(2000.0, 2250.0), Marker::Farm, 34.0),
+  Spot::new("Birchmoor Farm", Vec2::new(-1750.0, -2150.0), Marker::Farm, 32.0),
+  Spot::new("Lakeside Farm", Vec2::new(850.0, 2000.0), Marker::Farm, 32.0),
+  Spot::new("Stonebrook Farm", Vec2::new(-1150.0, 350.0), Marker::Farm, 32.0),
+  Spot::new("Greyfell Farm", Vec2::new(2250.0, 1250.0), Marker::Farm, 34.0)
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -75,6 +87,18 @@ impl Place {
   pub const BLACKBRIAR: Place = Place(12);
   pub const WOLFSKULL: Place = Place(13);
   pub const SNOWGATE: Place = Place(14);
+  pub const RAVENSHOLT: Place = Place(15);
+  pub const HVITMARK: Place = Place(16);
+  pub const ULFSTAD: Place = Place(17);
+  pub const TJARNBY: Place = Place(18);
+  pub const KALDVIK: Place = Place(19);
+  pub const MOSSGARD: Place = Place(20);
+  pub const ELDMARK: Place = Place(21);
+  pub const SUNHILL: Place = Place(22);
+  pub const BIRCHMOOR: Place = Place(23);
+  pub const LAKESIDE: Place = Place(24);
+  pub const STONEBROOK: Place = Place(25);
+  pub const GREYFELL: Place = Place(26);
 
   fn info(self) -> &'static Spot {
     let index = usize::from(self.0);
@@ -240,6 +264,77 @@ const BLACKBRIAR_TRAIL: [Vec2; 3] =
 const WOLFSKULL_TRAIL: [Vec2; 3] =
   [Vec2::new(-450.0, 60.0), Vec2::new(-650.0, 250.0), Vec2::new(-868.0, 412.0)];
 
+const RAVEN_ROAD: [Vec2; 7] = [
+  Vec2::new(-1950.0, -620.0),
+  Vec2::new(-2040.0, -330.0),
+  Vec2::new(-2120.0, -20.0),
+  Vec2::new(-2150.0, 300.0),
+  Vec2::new(-2200.0, 560.0),
+  Vec2::new(-2240.0, 760.0),
+  Vec2::new(-2250.0, 950.0)
+];
+
+const MOSS_ROAD: [Vec2; 8] = [
+  Vec2::new(-1050.0, -150.0),
+  Vec2::new(-1180.0, 20.0),
+  Vec2::new(-1330.0, 150.0),
+  Vec2::new(-1500.0, 250.0),
+  Vec2::new(-1700.0, 420.0),
+  Vec2::new(-1900.0, 600.0),
+  Vec2::new(-2080.0, 780.0),
+  Vec2::new(-2250.0, 950.0)
+];
+
+const NORTH_TRAIL: [Vec2; 8] = [
+  Vec2::new(-1950.0, -620.0),
+  Vec2::new(-2150.0, -760.0),
+  Vec2::new(-2350.0, -900.0),
+  Vec2::new(-2500.0, -1050.0),
+  Vec2::new(-2380.0, -1450.0),
+  Vec2::new(-2230.0, -1850.0),
+  Vec2::new(-2120.0, -2080.0),
+  Vec2::new(-2050.0, -2250.0)
+];
+
+const LAKE_ROAD: [Vec2; 11] = [
+  Vec2::new(330.0, 1330.0),
+  Vec2::new(430.0, 1600.0),
+  Vec2::new(580.0, 1930.0),
+  Vec2::new(700.0, 2250.0),
+  Vec2::new(900.0, 2080.0),
+  Vec2::new(1080.0, 1960.0),
+  Vec2::new(1300.0, 1860.0),
+  Vec2::new(1700.0, 1940.0),
+  Vec2::new(2000.0, 2130.0),
+  Vec2::new(2180.0, 2300.0),
+  Vec2::new(2300.0, 2450.0)
+];
+
+const HVIT_ROAD: [Vec2; 7] = [
+  Vec2::new(2080.0, 420.0),
+  Vec2::new(2140.0, 800.0),
+  Vec2::new(2230.0, 1200.0),
+  Vec2::new(2240.0, 1600.0),
+  Vec2::new(2250.0, 1950.0),
+  Vec2::new(2280.0, 2200.0),
+  Vec2::new(2300.0, 2450.0)
+];
+
+const BIRCHMOOR_TRAIL: [Vec2; 3] =
+  [Vec2::new(-2050.0, -2250.0), Vec2::new(-1900.0, -2200.0), Vec2::new(-1750.0, -2150.0)];
+
+const ELDMARK_TRAIL: [Vec2; 3] =
+  [Vec2::new(-1900.0, 600.0), Vec2::new(-1880.0, 950.0), Vec2::new(-1900.0, 1250.0)];
+
+const LAKESIDE_TRAIL: [Vec2; 2] = [Vec2::new(900.0, 2080.0), Vec2::new(850.0, 2000.0)];
+
+const SUNHILL_TRAIL: [Vec2; 2] = [Vec2::new(2000.0, 2130.0), Vec2::new(2000.0, 2250.0)];
+
+const STONEBROOK_TRAIL: [Vec2; 3] =
+  [Vec2::new(-1180.0, 20.0), Vec2::new(-1160.0, 200.0), Vec2::new(-1150.0, 350.0)];
+
+const GREYFELL_TRAIL: [Vec2; 2] = [Vec2::new(2230.0, 1200.0), Vec2::new(2250.0, 1250.0)];
+
 pub fn smoothed(path: &[Vec2]) -> Vec<Vec2> {
   let key = |index: isize| path[index.clamp(0, path.len() as isize - 1) as usize];
   (0..path.len() as isize - 1)
@@ -294,7 +389,18 @@ pub static ROADS: LazyLock<Vec<Road>> = LazyLock::new(|| {
     road(Paving::Dirt, &ALDVIK_TRAIL),
     road(Paving::Dirt, &HALLGRIM_TRAIL),
     road(Paving::Dirt, &BLACKBRIAR_TRAIL),
-    road(Paving::Dirt, &WOLFSKULL_TRAIL)
+    road(Paving::Dirt, &WOLFSKULL_TRAIL),
+    road(Paving::Stone, &RAVEN_ROAD),
+    road(Paving::Dirt, &MOSS_ROAD),
+    road(Paving::Dirt, &NORTH_TRAIL),
+    road(Paving::Stone, &LAKE_ROAD),
+    road(Paving::Stone, &HVIT_ROAD),
+    road(Paving::Dirt, &BIRCHMOOR_TRAIL),
+    road(Paving::Dirt, &ELDMARK_TRAIL),
+    road(Paving::Dirt, &LAKESIDE_TRAIL),
+    road(Paving::Dirt, &SUNHILL_TRAIL),
+    road(Paving::Dirt, &STONEBROOK_TRAIL),
+    road(Paving::Dirt, &GREYFELL_TRAIL)
   ]
   .into_iter()
   .chain(crate::settlement::streets())

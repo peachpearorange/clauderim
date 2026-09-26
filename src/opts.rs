@@ -23,7 +23,8 @@ pub struct Opts {
   pub eye: Option<[f32; 3]>,
   pub look: Option<[f32; 3]>,
   pub haze: f32,
-  pub torch: bool
+  pub torch: bool,
+  pub delve: Option<String>
 }
 
 impl Default for Opts {
@@ -47,7 +48,8 @@ impl Default for Opts {
       eye: None,
       look: None,
       haze: 1.0,
-      torch: false
+      torch: false,
+      delve: None
     }
   }
 }

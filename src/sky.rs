@@ -32,7 +32,7 @@ const SUNSET: f32 = 20.0;
 const DAYLIGHT_DEPTH: Vec3 = Vec3::new(0.014, 0.038, 0.1);
 const SKY_FILL: f32 = 1.9;
 const HAZE_VISIBILITY: f32 = 2000.0;
-const DAY_HAZE: Vec3 = Vec3::new(0.60, 0.68, 0.80);
+const DAY_HAZE: Vec3 = Vec3::new(0.70, 0.75, 0.82);
 const DUSK_HAZE: Vec3 = Vec3::new(0.80, 0.66, 0.64);
 const NIGHT_HAZE: Vec3 = Vec3::new(0.09, 0.14, 0.19);
 const COOL: f32 = -0.025;
@@ -61,7 +61,8 @@ impl Default for Clock {
 #[derive(Resource, Default)]
 pub struct Daylight {
   pub level: f32,
-  pub shelter: f32
+  pub shelter: f32,
+  pub snap: u8
 }
 
 #[derive(Component)]
@@ -104,8 +105,8 @@ pub fn lens() -> impl Bundle {
       directional_light_exponent: 12.0,
       falloff: FogFalloff::from_visibility_colors(
         HAZE_VISIBILITY * crate::opts::opts().haze,
-        Color::srgb(0.38, 0.45, 0.56),
-        Color::srgb(0.68, 0.74, 0.84)
+        Color::srgb(0.46, 0.50, 0.58),
+        Color::srgb(0.76, 0.80, 0.86)
       )
     },
     Msaa::Off,
@@ -203,8 +204,9 @@ fn cycle_day(
     .lerp(UNDERGROUND_EXPOSURE, daylight.shelter);
   let haze = DAY_HAZE.lerp(DUSK_HAZE, golden).lerp(NIGHT_HAZE, dark);
   let glow = Vec3::new(1.0, 0.9, 0.76).lerp(warmth / warmth.max_element(), golden);
-  let adapting = *adapted;
+  let adapting = *adapted && daylight.snap == 0;
   *adapted = !lenses.is_empty();
+  daylight.snap = daylight.snap.saturating_sub(1);
   lenses.iter_mut().for_each(|(mut exposure, mut fog, mut grading, ambient)| {
     let rate = (settled > exposure.ev100).then_some(BRIGHTENING).unwrap_or(DARKENING);
     exposure.ev100 = adapting
