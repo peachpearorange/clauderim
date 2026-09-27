@@ -12,7 +12,7 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              walker::{Walker, Walking},
              wolf},
      avian3d::prelude::*,
-     bevy::prelude::*,
+     bevy::{mesh::skinning::SkinnedMeshInverseBindposes, prelude::*},
      std::sync::LazyLock};
 
 struct Breed {
@@ -220,12 +220,15 @@ fn raise(
           (
             bones.to_vec(),
             crate::work::task(move || {
-              humanoid::tailor(match kind {
-                FoeKind::Draugr => humanoid::draugr(seed),
-                FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
-                FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
-                _ => humanoid::bandit(seed)
-              })
+              humanoid::tailor(
+                match kind {
+                  FoeKind::Draugr => humanoid::draugr(seed),
+                  FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
+                  FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
+                  _ => humanoid::bandit(seed)
+                },
+                &MAN
+              )
             })
           )
         }
@@ -243,14 +246,22 @@ pub struct Dressing {
 pub fn dress(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
+  mut poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
   stuffs: Res<Stuffs>,
   mut pending: ResMut<crate::signal::Pending>,
-  mut dressing: Query<(Entity, &mut Dressing)>
+  mut dressing: Query<(Entity, &mut Dressing, Option<&Rig>)>
 ) {
   pending.0.insert("dressing", dressing.iter().count());
-  for (entity, mut dressing) in dressing.iter_mut() {
+  for (entity, mut dressing, rig) in dressing.iter_mut() {
     if let Some(parts) = dressing.tailoring.done() {
-      humanoid::dress(&mut commands, &mut meshes, &stuffs, &dressing.bones, parts);
+      match rig {
+        Some(rig) => {
+          humanoid::dress(&mut commands, &mut meshes, &mut poses, &stuffs, rig, parts);
+        }
+        None => {
+          humanoid::fasten(&mut commands, &mut meshes, &stuffs, &dressing.bones, parts)
+        }
+      }
       commands.entity(entity).remove::<Dressing>();
     }
   }

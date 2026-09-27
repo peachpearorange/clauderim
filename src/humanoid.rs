@@ -1,9 +1,13 @@
 use {crate::{combat::Dead,
+             face::{self, Beard, Person, Race, Style},
              model::{self, Hoop, Piece, ball, block, curve, lathe, loft, rod, taper,
                      tube},
              ragdoll::{Limb, Link},
              stuff::{Stuff, Stuffs}},
-     bevy::{camera::visibility::RenderLayers, light::NotShadowCaster, prelude::*},
+     bevy::{camera::visibility::{DynamicSkinnedMeshBounds, RenderLayers},
+            light::NotShadowCaster,
+            mesh::skinning::{SkinnedMesh, SkinnedMeshInverseBindposes},
+            prelude::*},
      std::f32::consts::{FRAC_PI_2, PI}};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -343,26 +347,49 @@ fn animate(
   }
 }
 
-pub struct Kit(Vec<(Joint, Stuff, Piece)>);
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Hold {
+  Supple,
+  Rigid
+}
+
+pub struct Kit(Vec<(Joint, Stuff, Piece, Hold)>);
 
 impl Kit {
   pub fn new() -> Self { Self(Vec::new()) }
 
-  pub fn add(&mut self, joint: Joint, stuff: Stuff, piece: Piece) -> &mut Self {
-    self.0.push((joint, stuff, piece));
+  fn put(&mut self, joint: Joint, stuff: Stuff, piece: Piece, hold: Hold) -> &mut Self {
+    self.0.push((joint, stuff, piece, hold));
     self
+  }
+
+  pub fn add(&mut self, joint: Joint, stuff: Stuff, piece: Piece) -> &mut Self {
+    self.put(joint, stuff, piece, Hold::Supple)
+  }
+
+  pub fn held(&mut self, joint: Joint, stuff: Stuff, piece: Piece) -> &mut Self {
+    self.put(joint, stuff, piece, Hold::Rigid)
   }
 
   pub fn both(&mut self, joint: Joint, stuff: Stuff, piece: Piece) -> &mut Self {
     let mirrored = piece.mirrored();
-    let twin = match joint {
+    self.add(joint, stuff, piece).add(joint.twin(), stuff, mirrored)
+  }
+}
+
+impl Joint {
+  const fn twin(self) -> Joint {
+    match self {
       Joint::ArmR => Joint::ArmL,
+      Joint::ArmL => Joint::ArmR,
       Joint::ElbowR => Joint::ElbowL,
+      Joint::ElbowL => Joint::ElbowR,
       Joint::LegR => Joint::LegL,
+      Joint::LegL => Joint::LegR,
       Joint::KneeR => Joint::KneeL,
+      Joint::KneeL => Joint::KneeR,
       other => other
-    };
-    self.add(joint, stuff, piece).add(twin, stuff, mirrored)
+    }
   }
 }
 
@@ -420,25 +447,128 @@ pub fn limbs(frame: &Frame) -> [Option<Limb>; JOINTS] {
   })
 }
 
-pub fn tailor(Kit(pieces): Kit) -> Vec<(usize, Stuff, Mesh)> {
+impl Frame {
+  fn bind(&self) -> [Vec3; JOINTS] {
+    Joint::ALL.iter().fold([Vec3::ZERO; JOINTS], |mut placed, &joint| {
+      placed[joint as usize] =
+        joint.parent().map_or(Vec3::ZERO, |parent| placed[parent as usize])
+          + self.rest(joint);
+      placed
+    })
+  }
+}
+
+struct Seam {
+  axis: Vec3,
+  width: f32,
+  reach: f32
+}
+
+impl Joint {
+  fn seam(self) -> Seam {
+    let seam =
+      |axis: Vec3, width: f32, reach: f32| Seam { axis: axis.normalize(), width, reach };
+    match self {
+      Joint::Pelvis => seam(Vec3::Y, 0.0, 0.0),
+      Joint::Chest => seam(Vec3::Y, 0.07, 0.34),
+      Joint::Head => seam(Vec3::Y, 0.03, 0.14),
+      Joint::ArmL => seam(Vec3::new(-0.6, -0.8, 0.0), 0.045, 0.13),
+      Joint::ArmR => seam(Vec3::new(0.6, -0.8, 0.0), 0.045, 0.13),
+      Joint::ElbowL | Joint::ElbowR => seam(Vec3::NEG_Y, 0.04, 0.1),
+      Joint::LegL | Joint::LegR => seam(Vec3::NEG_Y, 0.06, 0.17),
+      Joint::KneeL | Joint::KneeR => seam(Vec3::NEG_Y, 0.045, 0.1)
+    }
+  }
+}
+
+fn smoothstep(from: f32, to: f32, value: f32) -> f32 {
+  ease(((value - from) / (to - from)).clamp(0.0, 1.0))
+}
+
+fn influences(bind: &[Vec3; JOINTS], owner: Joint, at: Vec3) -> ([u16; 4], [f32; 4]) {
+  let mut shares = [0.0f32; JOINTS];
+  shares[owner as usize] = 1.0;
+  for &child in Joint::ALL.iter() {
+    if let Some(parent) = child.parent()
+      && (owner == parent || owner == child)
+      && let Seam { axis, width, reach } = child.seam()
+      && let offset = at - bind[child as usize]
+      && let near = 1.0 - smoothstep(reach * 0.45, reach, offset.length())
+      && let beyond = smoothstep(-width, width, offset.dot(axis))
+    {
+      let (from, to, moved) = match owner == child {
+        true => (child, parent, (1.0 - beyond) * near),
+        false => (parent, child, beyond * near)
+      };
+      let amount = shares[from as usize] * moved;
+      shares[from as usize] -= amount;
+      shares[to as usize] += amount;
+    }
+  }
+  let mut ranked: Vec<(usize, f32)> = shares.into_iter().enumerate().collect();
+  ranked.sort_by(|a, b| b.1.total_cmp(&a.1));
+  let total: f32 = ranked.iter().take(4).map(|&(_, share)| share).sum();
+  (
+    std::array::from_fn(|slot| ranked[slot].0 as u16),
+    std::array::from_fn(|slot| ranked[slot].1 / total)
+  )
+}
+
+fn bound(piece: Piece, bind: &[Vec3; JOINTS], joint: Joint, hold: Hold) -> Piece {
+  let Piece(mesh) = piece.at(bind[joint as usize]);
+  let positions: Vec<Vec3> = mesh
+    .attribute(Mesh::ATTRIBUTE_POSITION)
+    .and_then(|values| values.as_float3())
+    .map(|values| values.iter().copied().map(Vec3::from).collect())
+    .unwrap_or_default();
+  let (indices, weights): (Vec<[u16; 4]>, Vec<[f32; 4]>) = positions
+    .iter()
+    .map(|&at| match hold {
+      Hold::Supple => influences(bind, joint, at),
+      Hold::Rigid => ([joint as u16, 0, 0, 0], [1.0, 0.0, 0.0, 0.0])
+    })
+    .unzip();
+  Piece(
+    mesh
+      .with_inserted_attribute(
+        Mesh::ATTRIBUTE_JOINT_INDEX,
+        bevy::mesh::VertexAttributeValues::Uint16x4(indices)
+      )
+      .with_inserted_attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT, weights)
+  )
+}
+
+pub fn tailor(Kit(pieces): Kit, frame: &Frame) -> Vec<(usize, Stuff, Mesh)> {
+  let bind = frame.bind();
   pieces
     .into_iter()
     .fold(
       Vec::<(Joint, Stuff, Vec<Piece>)>::new(),
-      |mut groups, (joint, stuff, piece)| {
-        match groups.iter_mut().find(|(each, kind, _)| *each == joint && *kind == stuff) {
+      |mut groups, (joint, stuff, piece, hold)| {
+        let anchor =
+          (joint == Joint::Head).then_some(Joint::Head).unwrap_or(Joint::Pelvis);
+        let piece = bound(piece, &bind, joint, hold);
+        match groups.iter_mut().find(|(each, kind, _)| *each == anchor && *kind == stuff)
+        {
           Some((_, _, list)) => list.push(piece),
-          None => groups.push((joint, stuff, vec![piece]))
+          None => groups.push((anchor, stuff, vec![piece]))
         }
         groups
       }
     )
     .into_iter()
-    .map(|(joint, stuff, list)| (joint as usize, stuff, model::merge(list)))
+    .map(|(anchor, stuff, list)| {
+      let mut mesh = model::merge(list);
+      if stuff.grain() == crate::stuff::Grain::Scales {
+        mesh.generate_tangents().ok();
+      }
+      mesh.generate_skinned_mesh_bounds().ok();
+      (anchor as usize, stuff, mesh)
+    })
     .collect()
 }
 
-pub fn dress(
+pub fn fasten(
   commands: &mut Commands,
   meshes: &mut Assets<Mesh>,
   stuffs: &Stuffs,
@@ -457,19 +587,49 @@ pub fn dress(
   }
 }
 
+pub fn dress(
+  commands: &mut Commands,
+  meshes: &mut Assets<Mesh>,
+  poses: &mut Assets<SkinnedMeshInverseBindposes>,
+  stuffs: &Stuffs,
+  rig: &Rig,
+  parts: Vec<(usize, Stuff, Mesh)>
+) -> Vec<Entity> {
+  let inverse =
+    poses.add(rig.frame.bind().map(|at| Mat4::from_translation(-at)).to_vec());
+  parts
+    .into_iter()
+    .filter_map(|(anchor, stuff, mesh)| {
+      let mut part = commands.spawn((
+        Mesh3d(meshes.add(mesh)),
+        MeshMaterial3d(stuffs.of(stuff)),
+        SkinnedMesh { inverse_bindposes: inverse.clone(), joints: rig.bones.to_vec() },
+        DynamicSkinnedMeshBounds,
+        ChildOf(rig.bones[Joint::Pelvis as usize])
+      ));
+      if matches!(stuff, Stuff::Frost | Stuff::Ember) {
+        part.insert(NotShadowCaster);
+      }
+      (anchor == Joint::Head as usize).then_some(part.id())
+    })
+    .collect()
+}
+
 pub fn spawn_body(
   commands: &mut Commands,
   meshes: &mut Assets<Mesh>,
+  poses: &mut Assets<SkinnedMeshInverseBindposes>,
   stuffs: &Stuffs,
   owner: Entity,
   frame: Frame,
   grip: Grip,
   hunch: f32,
   kit: Kit
-) -> Rig {
+) -> (Rig, Vec<Entity>) {
   let bones = skeleton(commands, owner, frame);
-  dress(commands, meshes, stuffs, &bones, tailor(kit));
-  Rig { bones, frame, grip, hunch }
+  let rig = Rig { bones, frame, grip, hunch };
+  let head = dress(commands, meshes, poses, stuffs, &rig, tailor(kit, &frame));
+  (rig, head)
 }
 
 fn srgb(red: f32, green: f32, blue: f32) -> Srgba { Srgba::new(red, green, blue, 1.0) }
@@ -702,137 +862,21 @@ fn horned_helmet(kit: &mut Kit, iron: Srgba, horn: Srgba, horn_size: f32) {
   kit.both(Joint::Head, Stuff::Bone, Piece::new(horn_mesh, horn));
 }
 
-fn face(
-  kit: &mut Kit,
-  build: &Build,
-  skin: Srgba,
-  beard: Option<Srgba>,
-  eyes: Stuff,
-  eye_color: Srgba
-) {
-  let nose = loft(
-    &[
-      Hoop::new(0.17, 0.008, 0.006, 0.0).shifted(0.0, -0.098),
-      Hoop::new(0.125, 0.011, 0.03, 0.0).shifted(0.0, -0.098),
-      Hoop::new(0.106, 0.018, 0.024, 0.0).shifted(0.0, -0.098),
-      Hoop::pole(0.098).shifted(0.0, -0.11)
-    ],
-    12
-  );
-  let neck = loft(
-    &[
-      Hoop::new(-0.04, 0.06, 0.055, 0.06).shifted(0.0, 0.005),
-      Hoop::new(0.02, 0.055, 0.05, 0.055).shifted(0.0, -0.005),
-      Hoop::new(0.07, 0.052, 0.047, 0.052).shifted(0.0, -0.015),
-      Hoop::new(0.1, 0.045, 0.04, 0.045).shifted(0.0, -0.02)
-    ]
-    .map(|hoop| hoop.scaled(build.limbs.sqrt())),
-    LIMB_SIDES
-  );
-  let beard_mass = loft(
-    &[
-      Hoop::new(0.098, 0.074, 0.1, 0.03).shifted(0.0, -0.015),
-      Hoop::new(0.06, 0.066, 0.104, 0.04).shifted(0.0, -0.02),
-      Hoop::new(0.025, 0.046, 0.078, 0.035).shifted(0.0, -0.04),
-      Hoop::new(-0.005, 0.022, 0.044, 0.02).shifted(0.0, -0.062),
-      Hoop::pole(-0.015).shifted(0.0, -0.072)
-    ],
-    LIMB_SIDES
-  );
-  let moustache = curve(
-    Vec3::new(-0.04, 0.078, -0.098),
-    Vec3::new(0.0, 0.108, -0.132),
-    Vec3::new(0.04, 0.078, -0.098),
-    10
-  );
-  kit
-    .add(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(loft(&head_hoops(build), TRUNK_SIDES), skin)
-    )
-    .add(Joint::Head, Stuff::Skin, Piece::new(nose, skin))
-    .add(Joint::Head, Stuff::Skin, Piece::new(neck, skin))
-    .add(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(ball(1.0), skin * 0.95)
-        .sized(Vec3::new(0.068, 0.014, 0.02))
-        .at_xyz(0.0, 0.172, -0.098)
-    )
-    .both(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(ball(1.0), skin * 0.92)
-        .sized(Vec3::new(0.012, 0.03, 0.019))
-        .at_xyz(0.076, 0.14, 0.012)
-    )
-    .both(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(ball(1.0), skin * 0.9)
-        .sized(Vec3::new(0.014, 0.034, 0.024))
-        .rolled(0.15)
-        .at_xyz(0.094, 0.15, 0.015)
-    )
-    .add(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(ball(1.0), skin * 0.82)
-        .sized(Vec3::new(0.026, 0.007, 0.01))
-        .at_xyz(0.0, 0.088, -0.1)
-    )
-    .both(
-      Joint::Head,
-      Stuff::Skin,
-      Piece::new(ball(1.0), skin * 0.96)
-        .sized(Vec3::new(0.03, 0.016, 0.02))
-        .at_xyz(0.05, 0.118, -0.082)
-    )
-    .both(
-      Joint::Head,
-      eyes,
-      Piece::new(ball(0.012), eye_color).at_xyz(0.033, 0.152, -0.094)
-    );
-  if let Some(beard) = beard {
-    kit.add(Joint::Head, Stuff::Fur, Piece::new(beard_mass, beard)).add(
-      Joint::Head,
-      Stuff::Fur,
-      Piece::new(tube(&moustache, &[0.004, 0.012, 0.004], 8), beard)
-    );
-  }
-}
-
-fn hair(kit: &mut Kit, color: Srgba) {
-  let cap = loft(
-    &[
-      Hoop::new(0.1, 0.078, 0.02, 0.106),
-      Hoop::new(0.19, 0.084, 0.108, 0.113).shifted(0.0, -0.005),
-      Hoop::new(0.23, 0.078, 0.095, 0.108),
-      Hoop::new(0.26, 0.061, 0.072, 0.083).shifted(0.0, 0.005),
-      Hoop::new(0.28, 0.034, 0.037, 0.046).shifted(0.0, 0.008),
-      Hoop::pole(0.29).shifted(0.0, 0.008)
-    ],
-    TRUNK_SIDES
-  );
-  kit.add(Joint::Head, Stuff::Fur, Piece::new(cap, color));
-}
-
 pub fn torch(kit: &mut Kit, frame: &Frame) {
   let hand = frame.hand();
   let upright = |piece: Piece| piece.pitched(-FRAC_PI_2).at(hand);
   kit
-    .add(
+    .held(
       Joint::ElbowL,
       Stuff::Wood,
       upright(Piece::new(rod(0.025, 0.62), srgb(0.3, 0.2, 0.12)).at_xyz(0.0, 0.12, 0.0))
     )
-    .add(
+    .held(
       Joint::ElbowL,
       Stuff::Cloth,
       upright(Piece::new(rod(0.042, 0.14), srgb(0.2, 0.16, 0.12)).at_xyz(0.0, 0.4, 0.0))
     )
-    .add(
+    .held(
       Joint::ElbowL,
       Stuff::Ember,
       upright(
@@ -846,28 +890,28 @@ pub fn iron_sword(kit: &mut Kit, frame: &Frame) {
   let steel = srgb(0.78, 0.8, 0.83);
   let grip_forward = |piece: Piece| piece.yawed(FRAC_PI_2).pitched(-FRAC_PI_2).at(hand);
   kit
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Steel,
       grip_forward(
         Piece::new(model::blade(0.82, 0.058, 0.014, 0.14), steel).at_xyz(0.0, 0.12, 0.0)
       )
     )
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Iron,
       grip_forward(
         Piece::new(block(0.2, 0.028, 0.04), srgb(0.4, 0.4, 0.42)).at_xyz(0.0, 0.11, 0.0)
       )
     )
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Leather,
       grip_forward(
         Piece::new(rod(0.019, 0.17), srgb(0.28, 0.18, 0.1)).at_xyz(0.0, 0.02, 0.0)
       )
     )
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Iron,
       grip_forward(
@@ -893,21 +937,21 @@ pub fn war_axe(kit: &mut Kit, frame: &Frame, metal: Srgba) {
     0.022
   );
   kit
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Wood,
       grip_forward(
         Piece::new(rod(0.02, 0.62), srgb(0.3, 0.22, 0.14)).at_xyz(0.0, 0.2, 0.0)
       )
     )
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Iron,
       grip_forward(
         Piece::new(head, metal).yawed(FRAC_PI_2).rolled(0.0).at_xyz(0.0, 0.42, -0.01)
       )
     )
-    .add(
+    .held(
       Joint::ElbowR,
       Stuff::Leather,
       grip_forward(
@@ -928,9 +972,9 @@ pub fn round_shield(kit: &mut Kit, frame: &Frame) {
     })
     .collect();
   kit
-    .add(Joint::ElbowL, Stuff::Wood, facing(Piece::new(model::rod(0.34, 0.035), wood)))
-    .add(Joint::ElbowL, Stuff::Iron, facing(Piece::new(tube(&rim, &[0.018], 6), iron)))
-    .add(
+    .held(Joint::ElbowL, Stuff::Wood, facing(Piece::new(model::rod(0.34, 0.035), wood)))
+    .held(Joint::ElbowL, Stuff::Iron, facing(Piece::new(tube(&rim, &[0.018], 6), iron)))
+    .held(
       Joint::ElbowL,
       Stuff::Iron,
       facing(
@@ -941,12 +985,12 @@ pub fn round_shield(kit: &mut Kit, frame: &Frame) {
         .at_xyz(0.0, 0.015, 0.0)
       )
     )
-    .add(
+    .held(
       Joint::ElbowL,
       Stuff::Iron,
       facing(Piece::new(block(0.66, 0.012, 0.05), iron).at_xyz(0.0, 0.02, 0.0))
     )
-    .add(
+    .held(
       Joint::ElbowL,
       Stuff::Iron,
       facing(Piece::new(block(0.05, 0.012, 0.66), iron).at_xyz(0.0, 0.02, 0.0))
@@ -1164,16 +1208,16 @@ pub fn dragonborn() -> Kit {
   let iron = srgb(0.5, 0.5, 0.52);
   let fur = srgb(0.42, 0.3, 0.2);
   let leather = srgb(0.3, 0.2, 0.13);
-  let locks = srgb(0.36, 0.22, 0.12);
-  face(
-    &mut kit,
-    &build,
-    srgb(0.78, 0.6, 0.48),
-    Some(locks),
-    Stuff::Gloss,
-    srgb(0.1, 0.12, 0.14)
-  );
-  hair(&mut kit, locks);
+  let person = Person {
+    skin: srgb(0.78, 0.6, 0.48),
+    mane: srgb(0.36, 0.22, 0.12),
+    iris: srgb(0.3, 0.4, 0.45),
+    style: Style::Cropped,
+    beard: Some(Beard::Full),
+    paint: None,
+    ..Person::roll(Race::Nord, false, 4)
+  };
+  face::head(&mut kit, &person, &build);
   horned_helmet(&mut kit, iron, srgb(0.82, 0.76, 0.64), 1.0);
   torso(&mut kit, &build, (Stuff::Cloth, srgb(0.3, 0.26, 0.2)), Some(iron), fur, leather);
   skirt(&mut kit, &build, leather, srgb(0.25, 0.21, 0.17));
@@ -1198,22 +1242,12 @@ pub fn draugr(seed: u32) -> Kit {
   let flesh = srgb(0.36, 0.33, 0.27);
   let rags = srgb(0.22, 0.2, 0.17);
   let ancient = srgb(0.3, 0.33, 0.3);
-  face(
-    &mut kit,
-    &build,
-    flesh,
-    Some(srgb(0.7, 0.68, 0.62)),
-    Stuff::Frost,
-    srgb(0.5, 0.8, 1.0)
-  );
-  kit.add(
-    Joint::Head,
-    Stuff::Fur,
-    Piece::new(model::lump(seed, 0.2, 2), srgb(0.62, 0.6, 0.55))
-      .sized(Vec3::new(0.09, 0.19, 0.07))
-      .at_xyz(0.0, 0.08, 0.085)
-  );
-  (seed % 2 == 0).then(|| horned_helmet(&mut kit, ancient, srgb(0.55, 0.5, 0.42), 0.6));
+  let helmed = seed % 2 == 0;
+  let person = Person::draugr(seed);
+  let person =
+    Person { style: helmed.then_some(Style::Cropped).unwrap_or(person.style), ..person };
+  face::head(&mut kit, &person, &build);
+  helmed.then(|| horned_helmet(&mut kit, ancient, srgb(0.55, 0.5, 0.42), 0.6));
   torso(
     &mut kit,
     &build,
@@ -1242,17 +1276,8 @@ pub fn bandit(seed: u32) -> Kit {
   let mut kit = Kit::new();
   let fur = srgb(0.5, 0.4, 0.3);
   let leather = srgb(0.34, 0.24, 0.16);
-  let locks = [srgb(0.3, 0.2, 0.1), srgb(0.6, 0.45, 0.25), srgb(0.15, 0.1, 0.08)]
-    [seed as usize % 3];
-  face(
-    &mut kit,
-    &build,
-    srgb(0.8, 0.62, 0.5),
-    Some(locks),
-    Stuff::Gloss,
-    srgb(0.1, 0.1, 0.1)
-  );
-  hair(&mut kit, locks);
+  let person = Person::roll(Race::of(seed), false, seed);
+  face::head(&mut kit, &person, &build);
   torso(&mut kit, &build, (Stuff::Cloth, srgb(0.36, 0.3, 0.22)), None, fur, leather);
   skirt(&mut kit, &build, leather, srgb(0.3, 0.25, 0.2));
   arms(
@@ -1340,7 +1365,7 @@ fn shirt(kit: &mut Kit, build: &Build, color: Srgba, cuffs: Option<Srgba>, seed:
   }
 }
 
-fn hands(kit: &mut Kit, build: &Build, skin: Srgba) {
+fn hands(kit: &mut Kit, build: &Build, (flesh, skin): (Stuff, Srgba)) {
   let thumb = curve(
     Vec3::new(-0.018, -0.262, -0.026),
     Vec3::new(-0.036, -0.285, -0.046),
@@ -1350,12 +1375,12 @@ fn hands(kit: &mut Kit, build: &Build, skin: Srgba) {
   kit
     .both(
       Joint::ElbowR,
-      Stuff::Skin,
+      flesh,
       Piece::new(loft(&limb_hoops(&FIST, build), LIMB_SIDES), skin)
     )
     .both(
       Joint::ElbowR,
-      Stuff::Skin,
+      flesh,
       Piece::new(tube(&thumb, &taper(8, 0.012, 0.009), 8), skin)
     );
 }
@@ -1488,25 +1513,6 @@ fn boots(
   }
 }
 
-fn long_hair(kit: &mut Kit, color: Srgba, length: f32, seed: u32) {
-  hair(kit, color);
-  let mass = loft(
-    &[
-      Hoop::new(0.24, 0.06, 0.01, 0.07).shifted(0.0, 0.03),
-      Hoop::new(0.16, 0.1, 0.02, 0.1).shifted(0.0, 0.04),
-      Hoop::new(0.06, 0.1, 0.01, 0.08).shifted(0.0, 0.055),
-      Hoop::new(0.06 - length, 0.1, 0.01, 0.05).shifted(0.0, 0.07),
-      Hoop::pole(0.04 - length).shifted(0.0, 0.07)
-    ],
-    TRUNK_SIDES
-  );
-  kit.add(
-    Joint::Head,
-    Stuff::Fur,
-    Piece::new(model::ruffled(mass, 0.012, Vec3::new(60.0, 4.0, 60.0), seed), color)
-  );
-}
-
 fn hood(kit: &mut Kit, build: &Build, color: Srgba, seed: u32) {
   let hoops: Vec<Hoop> = head_hoops(build)
     .into_iter()
@@ -1597,16 +1603,16 @@ fn harness(kit: &mut Kit, build: &Build, leather: Srgba, metal: Srgba) {
   );
 }
 
-fn bare_arms(kit: &mut Kit, build: &Build, skin: Srgba, bracer: Srgba) {
+fn bare_arms(kit: &mut Kit, build: &Build, (flesh, skin): (Stuff, Srgba), bracer: Srgba) {
   kit
     .both(
       Joint::ArmR,
-      Stuff::Skin,
+      flesh,
       Piece::new(loft(&limb_hoops(&UPPER_ARM, build), LIMB_SIDES), skin)
     )
     .both(
       Joint::ElbowR,
-      Stuff::Skin,
+      flesh,
       Piece::new(loft(&limb_hoops(&FOREARM, build), LIMB_SIDES), skin)
     )
     .both(
@@ -1614,23 +1620,8 @@ fn bare_arms(kit: &mut Kit, build: &Build, skin: Srgba, bracer: Srgba) {
       Stuff::Leather,
       hide(sheath(&limb_hoops(&FOREARM, build), -0.1, -0.22, 1.14), bracer, 3)
     );
-  hands(kit, build, skin);
+  hands(kit, build, (flesh, skin));
 }
-
-const SKINS: [Srgba; 4] = [
-  Srgba::new(0.58, 0.43, 0.34, 1.0),
-  Srgba::new(0.53, 0.39, 0.3, 1.0),
-  Srgba::new(0.44, 0.31, 0.23, 1.0),
-  Srgba::new(0.62, 0.48, 0.4, 1.0)
-];
-
-const LOCKS: [Srgba; 5] = [
-  Srgba::new(0.3, 0.2, 0.1, 1.0),
-  Srgba::new(0.55, 0.38, 0.2, 1.0),
-  Srgba::new(0.12, 0.09, 0.07, 1.0),
-  Srgba::new(0.45, 0.2, 0.1, 1.0),
-  Srgba::new(0.6, 0.58, 0.54, 1.0)
-];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Calling {
@@ -1660,21 +1651,21 @@ impl Calling {
   }
 }
 
-pub fn villager(calling: Calling, seed: u32) -> Kit {
+pub fn villager(calling: Calling, person: &Person) -> Kit {
   let mut kit = Kit::new();
   let frame = calling.frame();
-  let skin = SKINS[seed as usize % SKINS.len()];
-  let locks = LOCKS[(seed / 3) as usize % LOCKS.len()];
+  let seed = person.seed;
+  let skin = person.skin;
+  let flesh = person.flesh();
   let pick = |colors: &[Srgba]| colors[(seed / 7) as usize % colors.len()];
   match calling {
     Calling::Cook => {
       let build = Build::HALE;
-      face(&mut kit, &build, skin, Some(locks), Stuff::Gloss, srgb(0.1, 0.1, 0.1));
-      hair(&mut kit, locks);
+      face::head(&mut kit, &Person { style: Style::Cropped, ..*person }, &build);
       cook_cap(&mut kit, srgb(0.7, 0.68, 0.64), seed);
       let linen = pick(&[srgb(0.56, 0.54, 0.5), srgb(0.6, 0.55, 0.46)]);
       shirt(&mut kit, &build, linen, Some(srgb(0.45, 0.22, 0.14)), seed);
-      hands(&mut kit, &build, skin);
+      hands(&mut kit, &build, (flesh, skin));
       hem(&mut kit, &build, Stuff::Cloth, linen * 0.95, 0.22, 0.25, seed + 10);
       girdle(&mut kit, &build, srgb(0.4, 0.3, 0.26), None);
       apron(&mut kit, &build, srgb(0.6, 0.56, 0.48), seed + 11);
@@ -1690,22 +1681,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
     }
     Calling::Huntress => {
       let build = Build::FAIR;
-      face(&mut kit, &build, skin, None, Stuff::Gloss, srgb(0.3, 0.32, 0.26));
-      long_hair(
-        &mut kit,
-        pick(&[srgb(0.4, 0.2, 0.1), srgb(0.28, 0.18, 0.1)]),
-        0.32,
-        seed
-      );
-      for x in [-0.03, 0.0, 0.03] {
-        kit.add(
-          Joint::Head,
-          Stuff::Fur,
-          Piece::new(block(0.012, 0.075, 0.004), srgb(0.14, 0.18, 0.18))
-            .rolled(0.5)
-            .at_xyz(x + 0.035, 0.15, -0.101)
-        );
-      }
+      face::head(&mut kit, person, &build);
       let leather = srgb(0.34, 0.24, 0.16);
       let iron = srgb(0.3, 0.32, 0.33);
       let hoops = chest_hoops(&build);
@@ -1745,7 +1721,7 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
         &build,
         (Stuff::Cloth, srgb(0.36, 0.44, 0.3)),
         leather * 0.8,
-        (Stuff::Skin, skin),
+        (flesh, skin),
         Some(iron)
       );
       girdle(&mut kit, &build, srgb(0.2, 0.15, 0.1), Some(iron));
@@ -1759,12 +1735,12 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
       kit
         .both(
           Joint::LegR,
-          Stuff::Skin,
+          flesh,
           Piece::new(loft(&limb_hoops(&THIGH, &build), LIMB_SIDES), skin)
         )
         .both(
           Joint::KneeR,
-          Stuff::Skin,
+          flesh,
           Piece::new(loft(&limb_hoops(&SHIN, &build), LIMB_SIDES), skin)
         );
       boots(
@@ -1781,17 +1757,10 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
       let build = Build { limbs: 0.92, ..Build::HALE };
       let robe =
         pick(&[srgb(0.1, 0.1, 0.12), srgb(0.16, 0.12, 0.2), srgb(0.36, 0.3, 0.22)]);
-      face(
-        &mut kit,
-        &build,
-        skin * 0.95,
-        Some(srgb(0.62, 0.6, 0.58)),
-        Stuff::Gloss,
-        srgb(0.2, 0.2, 0.2)
-      );
+      face::head(&mut kit, &Person { style: Style::Cropped, ..*person }, &build);
       hood(&mut kit, &build, robe, seed);
       shirt(&mut kit, &build, robe, None, seed + 1);
-      hands(&mut kit, &build, skin * 0.95);
+      hands(&mut kit, &build, (flesh, skin));
       kit.add(
         Joint::Chest,
         Stuff::Cloth,
@@ -1835,24 +1804,18 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
     }
     Calling::Farmer => {
       let build = Build::HALE;
-      face(
-        &mut kit,
-        &build,
-        skin,
-        (seed % 2 == 0).then_some(locks),
-        Stuff::Gloss,
-        srgb(0.12, 0.1, 0.08)
-      );
-      hair(&mut kit, locks);
-      kit.add(
-        Joint::Head,
-        Stuff::Cloth,
-        Piece::new(sheath(&head_hoops(&build), 0.2, 0.225, 1.06), srgb(0.4, 0.3, 0.2))
-      );
+      face::head(&mut kit, person, &build);
+      (person.race != Race::Argonian).then(|| {
+        kit.add(
+          Joint::Head,
+          Stuff::Cloth,
+          Piece::new(sheath(&head_hoops(&build), 0.2, 0.225, 1.06), srgb(0.4, 0.3, 0.2))
+        )
+      });
       let linen =
         pick(&[srgb(0.7, 0.64, 0.46), srgb(0.66, 0.62, 0.54), srgb(0.55, 0.5, 0.4)]);
       shirt(&mut kit, &build, linen, None, seed);
-      hands(&mut kit, &build, skin);
+      hands(&mut kit, &build, (flesh, skin));
       let vest = srgb(0.42, 0.28, 0.17);
       kit.add(
         Joint::Chest,
@@ -1873,26 +1836,18 @@ pub fn villager(calling: Calling, seed: u32) -> Kit {
     }
     Calling::Barbarian => {
       let build = Build::BURLY;
-      face(
-        &mut kit,
-        &build,
-        skin * 0.92,
-        (seed % 2 == 1).then_some(locks),
-        Stuff::Gloss,
-        srgb(0.1, 0.1, 0.1)
-      );
-      long_hair(&mut kit, srgb(0.08, 0.07, 0.07), 0.18, seed);
+      face::head(&mut kit, person, &build);
       kit.add(
         Joint::Chest,
-        Stuff::Skin,
-        Piece::new(loft(&chest_hoops(&build), TRUNK_SIDES), skin * 0.92).creased(
+        flesh,
+        Piece::new(loft(&chest_hoops(&build), TRUNK_SIDES), skin).creased(
           0.004,
           Vec3::new(12.0, 16.0, 12.0),
           seed
         )
       );
       harness(&mut kit, &build, srgb(0.3, 0.22, 0.14), srgb(0.62, 0.62, 0.6));
-      bare_arms(&mut kit, &build, skin * 0.92, srgb(0.3, 0.22, 0.14));
+      bare_arms(&mut kit, &build, (flesh, skin), srgb(0.3, 0.22, 0.14));
       kit.add(
         Joint::Pelvis,
         Stuff::Fur,

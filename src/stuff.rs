@@ -13,7 +13,7 @@ use {crate::texture,
 #[func(pub const fn glow_follows_grain(self) -> bool { false })]
 #[func(pub const fn translucency(self) -> f32 { 0.0 })]
 pub enum Stuff {
-  #[assoc(roughness = 0.75, grain = Grain::Plain)]
+  #[assoc(roughness = 0.6, reflectance = 0.35, grain = Grain::Plain)]
   Skin,
   #[assoc(roughness = 0.95, grain = Grain::Fur, tiling = 2.0)]
   Fur,

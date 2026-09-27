@@ -5,6 +5,7 @@ mod combat;
 mod creature;
 mod depths;
 mod dragon;
+mod face;
 mod flora;
 mod fx;
 mod horse;

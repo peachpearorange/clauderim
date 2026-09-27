@@ -8,6 +8,7 @@ use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
      bevy::{camera::visibility::RenderLayers,
             input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll,
                            MouseScrollUnit},
+            mesh::skinning::SkinnedMeshInverseBindposes,
             prelude::*,
             window::{CursorGrabMode, CursorOptions}}};
 
@@ -65,6 +66,7 @@ fn start_spot() -> (Vec2, Vec2) {
 fn spawn_player(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
+  mut poses: ResMut<Assets<SkinnedMeshInverseBindposes>>,
   stuffs: Res<Stuffs>,
   ground: Res<Ground>
 ) {
@@ -100,9 +102,10 @@ fn spawn_player(
       ChildOf(player)
     ))
     .id();
-  let rig = humanoid::spawn_body(
+  let (rig, head) = humanoid::spawn_body(
     &mut commands,
     &mut meshes,
+    &mut poses,
     &stuffs,
     body,
     MAN,
@@ -110,14 +113,11 @@ fn spawn_player(
     0.0,
     humanoid::dragonborn()
   );
-  commands.entity(rig.bones[humanoid::Joint::Head as usize]).queue(
-    |head: EntityWorldMut| {
-      let parts =
-        head.get::<Children>().map(|children| children.to_vec()).unwrap_or_default();
-      head.into_world_mut().insert_batch(
-        parts.into_iter().map(|part| (part, (Hidden1st, RenderLayers::default())))
-      );
-    }
+  commands.insert_batch(
+    head
+      .into_iter()
+      .map(|part| (part, (Hidden1st, RenderLayers::default())))
+      .collect::<Vec<_>>()
   );
   commands.entity(player).insert(rig);
 

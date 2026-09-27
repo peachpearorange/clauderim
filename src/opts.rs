@@ -24,7 +24,10 @@ pub struct Opts {
   pub look: Option<[f32; 3]>,
   pub haze: f32,
   pub torch: bool,
-  pub delve: Option<String>
+  pub delve: Option<String>,
+  pub race: Option<String>,
+  pub seed: Option<u32>,
+  pub gap: Option<f32>
 }
 
 impl Default for Opts {
@@ -49,7 +52,10 @@ impl Default for Opts {
       look: None,
       haze: 1.0,
       torch: false,
-      delve: None
+      delve: None,
+      race: None,
+      seed: None,
+      gap: None
     }
   }
 }

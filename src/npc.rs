@@ -1,4 +1,5 @@
 use {crate::{creature::Dressing,
+             face::{Person, Race},
              humanoid::{self, Calling, Grip, Motion, Rig},
              noise::Roll,
              place::{self, Marker},
@@ -99,6 +100,7 @@ fn spawn_villager(
   seed: u32,
   at: Vec3,
   facing: f32,
+  race: Race,
   torch: Option<&crate::fx::Effects>
 ) -> Entity {
   let lit = torch.is_some();
@@ -133,11 +135,12 @@ fn spawn_villager(
   commands.entity(entity).insert((rig, Dressing {
     bones: bones.to_vec(),
     tailoring: crate::work::task(move || {
-      let mut kit = humanoid::villager(calling, seed);
+      let woman = frame.hip < humanoid::MAN.hip;
+      let mut kit = humanoid::villager(calling, &Person::roll(race, woman, seed));
       if lit {
         humanoid::torch(&mut kit, &frame)
       }
-      humanoid::tailor(kit)
+      humanoid::tailor(kit, &frame)
     })
   }));
   entity
@@ -168,6 +171,7 @@ fn gather(
                 seed,
                 ground.surface(at),
                 roll.range(0.0, std::f32::consts::TAU),
+                Race::of(seed),
                 None
               );
               commands.entity(entity).insert(Townsfolk {
@@ -289,12 +293,14 @@ fn set_out(
         if onward { (index + 1).min(path.len() - 1) } else { index.saturating_sub(1) };
       let at = path[index];
       let heading = path[next] - at;
+      let seed = roll.below(100_000) as u32;
       let entity = spawn_villager(
         &mut commands,
         calling,
-        roll.below(100_000) as u32,
+        seed,
         ground.surface(at),
         f32::atan2(-heading.x, -heading.y),
+        Race::of(seed),
         lit.then_some(&*effects)
       );
       commands.entity(entity).insert(Travelling {
@@ -402,15 +408,18 @@ fn specimen(
     _ => None
   };
   if let Some(calling) = calling {
-    let ahead = player.translation + player.forward().as_vec3() * 3.2;
+    let opts = crate::opts::opts();
+    let ahead = player.translation + player.forward().as_vec3() * opts.gap.unwrap_or(3.2);
     let toward = -player.forward().as_vec3();
+    let seed = opts.seed.unwrap_or(7);
     spawn_villager(
       &mut commands,
       calling,
-      7,
+      seed,
       ground.surface(ahead.xz()),
       f32::atan2(-toward.x, -toward.z),
-      crate::opts::opts().torch.then_some(&*effects)
+      opts.race.as_deref().and_then(Race::named).unwrap_or(Race::of(seed)),
+      opts.torch.then_some(&*effects)
     );
   }
 }
