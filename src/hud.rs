@@ -28,6 +28,7 @@ pub const DIM: Color = Color::srgba(0.8, 0.79, 0.76, 0.5);
 pub const FRAME: Color = Color::srgba(0.74, 0.73, 0.7, 0.55);
 const TRACK: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
 const GLOOM: Color = Color::srgba(0.0, 0.0, 0.0, 0.58);
+const HOLLOW: Color = Color::srgba(0.03, 0.03, 0.04, 0.85);
 const HOSTILE: Color = Color::srgb(0.86, 0.12, 0.08);
 
 const HINTS: [&str; 6] = [
@@ -137,6 +138,16 @@ impl Stat {
 enum Gauge {
   Own(Stat),
   Rival
+}
+
+impl Gauge {
+  fn anchor(self) -> f32 {
+    match self {
+      Gauge::Own(Stat::Magicka) => 0.0,
+      Gauge::Own(Stat::Stamina) => 1.0,
+      _ => 0.5
+    }
+  }
 }
 
 #[derive(Component)]
@@ -334,16 +345,19 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
       BorderColor::all(DIM)
     )
   };
-  let outline = UiRect::all(Px(1.5));
+  let outline = UiRect::all(VMin(0.24));
   mark
-    .spawn(Node {
-      width: VMin(1.9),
-      height: VMin(1.9),
-      flex_direction: FlexDirection::Column,
-      justify_content: JustifyContent::Center,
-      align_items: AlignItems::Center,
-      ..default()
-    })
+    .spawn((
+      Node {
+        width: VMin(1.9),
+        height: VMin(1.9),
+        flex_direction: FlexDirection::Column,
+        justify_content: JustifyContent::Center,
+        align_items: AlignItems::Center,
+        ..default()
+      },
+      UiTransform::from_scale(Vec2::splat(1.4))
+    ))
     .with_children(|glyph| match place.marker() {
       Marker::Cave => {
         glyph.spawn(part(
@@ -754,13 +768,13 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
         for (stat, place) in [
           (Stat::Magicka, Node {
             position_type: PositionType::Absolute,
-            left: Vw(4.0),
+            left: Vw(5.5),
             ..default()
           }),
           (Stat::Health, Node { ..at(50.0, 0.0) }),
           (Stat::Stamina, Node {
             position_type: PositionType::Absolute,
-            right: Vw(4.0),
+            right: Vw(5.5),
             ..default()
           })
         ]
@@ -1014,7 +1028,7 @@ fn drain(
       Gauge::Rival => rival.fill
     };
     fill.shown = fill.shown.lerp(want, blend);
-    node.left = Percent(50.0 * (1.0 - fill.shown));
+    node.left = Percent(100.0 * fill.gauge.anchor() * (1.0 - fill.shown));
     node.width = Percent(100.0 * fill.shown);
   }
 }
@@ -1064,7 +1078,7 @@ fn ink(charted: Res<Charted>, mut parts: Query<(&Ink, &mut Paint)>) {
     paint.back = Some(match (ink.stroke, known) {
       (_, true) => INK,
       (Stroke::Line, false) => DIM,
-      (Stroke::Solid, false) => Color::NONE
+      (Stroke::Solid, false) => HOLLOW
     });
     paint.border = Some(BorderColor::all(known.then_some(INK).unwrap_or(DIM)));
   }
