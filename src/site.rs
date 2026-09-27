@@ -11,6 +11,7 @@ const PIT: f32 = 12.0;
 const PIT_DEPTH: f32 = 3.4;
 const UPLAND: f32 = 170.0;
 const SUMMIT: f32 = 430.0;
+const PEAK: f32 = 800.0;
 const TRIES: usize = 10;
 
 const LOWLAND: [(Marker, f32); 9] = [
@@ -19,7 +20,7 @@ const LOWLAND: [(Marker, f32); 9] = [
   (Marker::Farm, 2.0),
   (Marker::Ruin, 2.0),
   (Marker::Cave, 2.0),
-  (Marker::Barrow, 1.5),
+  (Marker::Barrow, 0.4),
   (Marker::Tower, 1.5),
   (Marker::Shrine, 1.0),
   (Marker::Stone, 1.0)
@@ -30,7 +31,7 @@ const HIGHLAND: [(Marker, f32); 5] = [
   (Marker::Cave, 2.0),
   (Marker::Shrine, 1.5),
   (Marker::Tower, 1.0),
-  (Marker::Barrow, 1.0)
+  (Marker::Barrow, 2.5)
 ];
 
 const FIRST: [&str; 24] = [
@@ -100,14 +101,23 @@ fn steepness(at: Vec2, reach: f32) -> f32 {
 fn gentle(marker: Marker) -> f32 {
   match marker {
     Marker::Farm => 0.2,
-    Marker::Ruin | Marker::Barrow => 0.32,
+    Marker::Ruin => 0.32,
+    Marker::Barrow => 0.42,
     _ => 0.4
+  }
+}
+
+fn preference(marker: Marker, at: Vec2, steep: f32) -> f32 {
+  match marker {
+    Marker::Barrow => terrain::natural_height(at),
+    _ => -steep
   }
 }
 
 fn welcoming(at: Vec2, marker: Marker) -> bool {
   let room = flat(marker);
-  terrain::natural_height(at) < SUMMIT
+  terrain::natural_height(at)
+    < (marker == Marker::Barrow).then_some(PEAK).unwrap_or(SUMMIT)
     && place::named().all(|place| at.distance(place.spot()) > place.flat() * 2.5 + 110.0)
     && place::nearest_road(at).edge() > room + 12.0
     && river::course_distance(at) > room + 30.0
@@ -147,8 +157,9 @@ pub static SITES: LazyLock<Vec<Spot>> = LazyLock::new(|| {
         .map(|_| corner + Vec2::new(roll.range(0.1, 0.9), roll.range(0.1, 0.9)) * STEP)
         .filter(|&at| welcoming(at, marker))
         .map(|at| (at, steepness(at, flat(marker) * 1.4)))
-        .min_by(|a, b| a.1.total_cmp(&b.1))
         .filter(|&(_, steep)| steep < gentle(marker))
+        .map(|(at, steep)| (at, preference(marker, at, steep)))
+        .max_by(|a, b| a.1.total_cmp(&b.1))
         .map(|(at, _)| (at, marker, seed))
     })
     .collect();
@@ -187,7 +198,14 @@ mod tests {
   fn census() {
     println!("{} sites", SITES.len());
     for site in SITES.iter() {
-      println!("{:?} {} {} {}", site.marker, site.name, site.at, site.sunk)
+      println!(
+        "{:?} {} {} {} {}",
+        site.marker,
+        site.name,
+        site.at,
+        site.sunk,
+        terrain::natural_height(site.at)
+      )
     }
   }
 }

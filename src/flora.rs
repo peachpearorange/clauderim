@@ -1190,6 +1190,11 @@ fn bluffs(patch: IVec2) -> Vec<Plant> {
         *heading = contour;
         Some(plant)
       })
+      .filter(|&Plant { place: Transform { translation, scale, .. }, .. }| {
+        place::all().all(|place| {
+          translation.xz().distance(place.spot()) > place.flat() * 1.9 + scale.x * 0.5
+        })
+      })
       .collect::<Vec<_>>()
   })
   .unwrap_or_default()

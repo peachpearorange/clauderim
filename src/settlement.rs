@@ -69,7 +69,7 @@ pub enum Work {
   Tent { at: Vec2, facing: f32 },
   Mill { at: Vec2, facing: f32 },
   Fire { at: Vec2 },
-  Mound { at: Vec2, facing: f32, radius: f32 },
+  Tiers { at: Vec2, facing: f32, radius: f32 },
   Den { at: Vec2, facing: f32 },
   Shrine { at: Vec2, facing: f32 },
   Menhirs { at: Vec2 },
@@ -630,8 +630,8 @@ fn barrow(place: Place, seed: u32) -> Layout {
   let facing = plan.roll.range(0.0, TAU);
   let front = Vec2::from_angle(-facing).rotate(Vec2::Y);
   let sunken = place.sunk() > 0.0;
-  let mounded = !sunken && plan.roll.chance(0.6);
-  let (door, guard, entry) = match (sunken, mounded) {
+  let tiered = !sunken && plan.roll.chance(0.6);
+  let (door, guard, entry) = match (sunken, tiered) {
     (true, _) => {
       let (inner, outer) = (place.flat() * 0.6, place.flat() * 0.98);
       plan.works.push(Work::Pit { at: center, facing, inner, outer });
@@ -650,7 +650,7 @@ fn barrow(place: Place, seed: u32) -> Layout {
     }
     (false, true) => {
       let radius = place.flat() * 0.55;
-      plan.works.push(Work::Mound { at: center, facing, radius });
+      plan.works.push(Work::Tiers { at: center, facing, radius });
       plan.works.push(Work::Portal { at: center + front * radius * 0.9, facing });
       plan.worn.push((center + front * (radius + 5.0), 5.0));
       (
@@ -1750,48 +1750,7 @@ fn clutter(kind: Clutter, ground: Ground, roll: &mut Roll) -> Works {
   works
 }
 
-const SOD: Srgba = Srgba::new(0.36, 0.37, 0.25, 1.0);
 const GRANITE: Srgba = Srgba::new(0.5, 0.5, 0.48, 1.0);
-
-fn mound(radius: f32, ground: Ground, roll: &mut Roll) -> Works {
-  let mut works = Works::default();
-  let (low, high) = spread(ground, Vec2::splat(radius));
-  let rise = radius * 0.62;
-  let profile: Vec<Vec2> = [Vec2::new(0.0, low - 1.0), Vec2::new(radius, low - 1.0)]
-    .into_iter()
-    .chain((0..=10).map(|step| {
-      let angle = step as f32 / 10.0 * FRAC_PI_2;
-      Vec2::new(radius * angle.cos(), high + rise * angle.sin())
-    }))
-    .collect();
-  works.add(Stuff::Stone, Piece::new(lathe(&profile, 24), tinted(SOD, roll, 0.08)));
-  let stone = tinted(STONEWORK, roll, 0.06) * 0.85;
-  let front = radius * 0.9;
-  works
-    .add(Stuff::Masonry, slab(4.4, 3.6, 2.0, stone, 1.8).at_xyz(0.0, high + 0.8, front));
-  works.add(
-    Stuff::Masonry,
-    slab(5.0, 0.7, 2.4, stone * 0.9, 1.8).at_xyz(0.0, high + 2.9, front + 0.2)
-  );
-  works.add(
-    Stuff::Gloss,
-    Piece::new(block(2.0, 2.4, 0.1), GLOOM).at_xyz(0.0, high + 1.2, front + 1.02)
-  );
-  for (wide, tall) in [(0.95, 0.35), (0.7, 0.7), (0.4, 1.0)] {
-    let top = high + rise * tall;
-    works.solid(
-      Vec3::Y * (top + low - 1.0) / 2.0,
-      Quat::IDENTITY,
-      Collider::cylinder(radius * wide, top - low + 1.0)
-    )
-  }
-  works.solid(
-    Vec3::new(0.0, high + 1.0, front),
-    Quat::IDENTITY,
-    Collider::cuboid(4.4, 4.0, 2.0)
-  );
-  works
-}
 
 fn boulder(
   works: &mut Works,
@@ -2054,6 +2013,68 @@ fn column(works: &mut Works, base: Vec3, tall: f32, width: f32, roll: &mut Roll)
     Quat::IDENTITY,
     Collider::cuboid(width, tall, width)
   );
+}
+
+fn tiers(radius: f32, ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (low, high) = spread(ground, Vec2::splat(radius));
+  let bottom = low - 1.0;
+  let front = radius * 0.9 - 0.5;
+  let stone = tinted(CARVED, roll, 0.05);
+  for (scale, lift, recess) in [(1.0, 3.2, 0.0), (0.74, 5.8, 0.3), (0.48, 8.2, 0.6)] {
+    let half = radius * scale;
+    let (back, face) = (-half, front - recess * radius);
+    let (top, depth) = (high + lift, face - back);
+    let middle = Vec3::new(0.0, (top + bottom) / 2.0, (face + back) / 2.0);
+    works.add(
+      Stuff::Masonry,
+      slab(half * 2.0, top - bottom, depth, stone * roll.range(0.8, 0.9), HEWN)
+        .at(middle)
+    );
+    works.solid(
+      middle,
+      Quat::IDENTITY,
+      Collider::cuboid(half * 2.0, top - bottom, depth)
+    );
+    works.add(
+      Stuff::Masonry,
+      slab(half * 2.0 + 0.5, 0.4, depth + 0.5, stone * 0.74, HEWN).at_xyz(
+        0.0,
+        top - 0.2,
+        middle.z
+      )
+    );
+    let edges = [
+      (Vec2::new(-half, face), Vec2::new(half, face)),
+      (Vec2::new(-half, back), Vec2::new(-half, face)),
+      (Vec2::new(half, back), Vec2::new(half, face))
+    ];
+    for (from, to) in edges {
+      let count = (from.distance(to) / 1.8).round().max(1.0) as usize;
+      let along = (to - from) / count as f32;
+      let standing: Vec<usize> = (0..count).filter(|_| roll.chance(0.6)).collect();
+      for index in standing {
+        let spot = from + along * (index as f32 + 0.5) - from.normalize_or_zero() * 0.3;
+        let (tall, lean) = (roll.range(0.5, 1.3), roll.spread(0.08));
+        let at = Vec3::new(spot.x, top + tall / 2.0, spot.y);
+        let turn = Quat::from_rotation_y(along.to_angle()) * Quat::from_rotation_x(lean);
+        works.add(
+          Stuff::Masonry,
+          slab(1.5, tall, 0.8, stone * roll.range(0.78, 0.95), HEWN).turned(turn).at(at)
+        );
+        works.solid(at, turn, Collider::cuboid(1.5, tall, 0.8));
+      }
+    }
+  }
+  for side in [-1.0, 1.0] {
+    let at = Vec3::new(side * (radius + 0.4), bottom, front + 0.4);
+    let tall = high + 6.5 - bottom;
+    column(&mut works, at, tall, 1.3, roll);
+    for (stuff, piece) in bird_head(roll) {
+      works.add(stuff, piece.sized(Vec3::splat(1.2)).at(at + Vec3::Y * tall))
+    }
+  }
+  works
 }
 
 fn spire(tall: f32, lit: bool, ground: Ground, roll: &mut Roll) -> Works {
@@ -2595,7 +2616,7 @@ fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
       }
       works
     }
-    Work::Mound { radius, .. } => mound(*radius, ground, roll),
+    Work::Tiers { radius, .. } => tiers(*radius, ground, roll),
     Work::Den { .. } => den(ground, roll),
     Work::Shrine { .. } => shrine(ground, roll),
     Work::Menhirs { .. } => menhirs(ground, roll),
@@ -2642,7 +2663,7 @@ fn anchor(work: &Work) -> (Vec2, f32) {
     | Work::Clutter { at, facing, .. }
     | Work::Tent { at, facing }
     | Work::Mill { at, facing }
-    | Work::Mound { at, facing, .. }
+    | Work::Tiers { at, facing, .. }
     | Work::Den { at, facing }
     | Work::Shrine { at, facing }
     | Work::Stable { at, facing }

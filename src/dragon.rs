@@ -11,7 +11,7 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              terrain::{BOUND, Ground}},
      avian3d::prelude::*,
      bevy::{color::Mix, prelude::*},
-     bevy_hanabi::EffectSpawner,
+     bevy_hanabi::{EffectProperties, EffectSpawner},
      std::f32::consts::{FRAC_PI_2, TAU}};
 
 const ARRIVAL: f32 = 75.0;
@@ -21,6 +21,7 @@ const ALTITUDE: f32 = 48.0;
 const STANCE: f32 = 2.5;
 const BREATH_REACH: f32 = 24.0;
 const BREATH_DPS: f32 = 16.0;
+const BREATH_SPEED: f32 = 26.0;
 const SHELTERED: f32 = 0.5;
 const HEALTH: f32 = 420.0;
 
@@ -761,6 +762,7 @@ fn spawn_dragon(
     effects.emit(&effects.breath),
     EffectSpawner::new(&bevy_hanabi::SpawnerSettings::rate(420.0.into()))
       .with_active(false),
+    EffectProperties::default(),
     Transform::from_xyz(0.0, -0.05, -1.3),
     ChildOf(bones[Bone::Head as usize])
   ));
@@ -886,7 +888,12 @@ fn fly(
         *visibility = Visibility::Inherited;
         Flight::Posing { aloft }
       }
-      Flight::Posing { .. } => flight,
+      Flight::Posing { .. } => {
+        dragon.breath = (opts().foe.as_deref() == Some("dragonfire"))
+          .then_some(1.0)
+          .unwrap_or(dragon.breath);
+        flight
+      }
       Flight::Waiting => {
         *visibility = Visibility::Hidden;
         let ready = time.elapsed_secs() > arrival && daylight.shelter < 0.3;
@@ -1132,12 +1139,29 @@ fn fly(
   }
 }
 
-fn kindle(dragons: Query<&Dragon>, mut breaths: Query<&mut EffectSpawner, With<Breath>>) {
-  let breathing = dragons.iter().any(|dragon| {
+fn kindle(
+  dragons: Query<(&Dragon, &Transform)>,
+  heroes: Query<&Transform, (With<Player>, Without<Dragon>)>,
+  mut breaths: Query<
+    (&mut EffectSpawner, &mut EffectProperties, &GlobalTransform),
+    With<Breath>
+  >
+) {
+  let breathing = dragons.iter().find(|(dragon, _)| {
     dragon.breath > 0.0 && !matches!(dragon.flight, Flight::Slain(_) | Flight::Falling)
   });
-  for mut spawner in breaths.iter_mut() {
-    spawner.active = breathing
+  for (mut spawner, mut properties, mouth) in breaths.iter_mut() {
+    spawner.active = breathing.is_some();
+    if let Some((&Dragon { velocity, .. }, transform)) = breathing
+      && let ahead = transform.forward().as_vec3().with_y(0.0).normalize_or(Vec3::NEG_Z)
+      && let toward =
+        heroes.single().map_or(ahead * BREATH_REACH - Vec3::Y * 2.0, |hero| {
+          hero.translation + Vec3::Y - mouth.translation()
+        })
+    {
+      let aim = (ahead * toward.dot(ahead).max(6.0) + Vec3::Y * toward.y).normalize();
+      properties.set("thrust", (aim * BREATH_SPEED + velocity).into())
+    }
   }
 }
 
@@ -1171,7 +1195,7 @@ fn pose(
         Bone::Body if flying => Vec3::ZERO,
         Bone::Body => Vec3::new(-0.08 + 0.02 * sway, 0.0, 0.0),
         Bone::Neck1 if slain => Vec3::new(0.35, 0.3, 0.0),
-        Bone::Neck1 if breathing => Vec3::new(0.15, 0.0, 0.0),
+        Bone::Neck1 if breathing => Vec3::new(-0.25, 0.0, 0.0),
         Bone::Neck1 if flying => Vec3::new(-0.05, 0.05 * sway, 0.0),
         Bone::Neck1 => Vec3::new(-0.55 + 0.4 * bite, 0.0, 0.0),
         Bone::Neck2 if slain => Vec3::new(0.2, 0.3, 0.0),
@@ -1179,7 +1203,7 @@ fn pose(
         Bone::Neck2 => Vec3::new(0.15 + 0.3 * bite, 0.0, 0.0),
         Bone::Neck3 if slain => Vec3::new(0.1, 0.4, 0.0),
         Bone::Neck3 => Vec3::new(0.25 + 0.2 * bite, 0.0, 0.0),
-        Bone::Head if breathing => Vec3::new(0.25, 0.0, 0.0),
+        Bone::Head if breathing => Vec3::new(-0.3, 0.0, 0.0),
         Bone::Head if flying => Vec3::new(0.05, 0.0, 0.0),
         Bone::Head => Vec3::new(0.3 - 0.2 * bite, 0.0, 0.0),
         Bone::Jaw if slain => Vec3::new(0.35, 0.0, 0.0),

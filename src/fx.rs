@@ -56,10 +56,9 @@ fn build(plume: Plume, spawner: SpawnerSettings, colors: Gradient<Vec4>) -> Effe
   let writer = ExprWriter::new();
   let drift = (writer.rand(VectorType::VEC3F) * writer.lit(2.0) - writer.lit(1.0))
     * writer.lit(plume.spread);
-  let velocity = SetAttributeModifier::new(
-    Attribute::VELOCITY,
-    (drift + writer.lit(plume.thrust)).expr()
-  );
+  let thrust = writer.add_property("thrust", plume.thrust.into());
+  let velocity =
+    SetAttributeModifier::new(Attribute::VELOCITY, (drift + writer.prop(thrust)).expr());
   let age = SetAttributeModifier::new(Attribute::AGE, writer.lit(0.0).expr());
   let lifetime = SetAttributeModifier::new(
     Attribute::LIFETIME,

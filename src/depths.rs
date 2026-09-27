@@ -207,7 +207,7 @@ fn passage_shape(depths: Depths, start: Vec3, end: Vec3) -> Tree {
   let rise = y - floor.clone();
   let cross = match depths {
     Depths::Tomb => {
-      let square = t.clone().abs().max(-rise.clone()).max(rise.clone() - 2.4) - 1.6;
+      let square = (t.clone().abs() - 1.6).max(-rise.clone()).max(rise.clone() - 2.4);
       let arch =
         (((t / 1.6).square() + ((rise - 2.4) / 1.3).square()).sqrt() - 1.0) * 1.3;
       square.min(arch)
