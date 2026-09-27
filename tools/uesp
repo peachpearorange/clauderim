@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""tools/uesp [-p PAGE] [-n N] [-w WIDTH] [--list] [words ...]
+
+Finds Skyrim screenshots on the UESP wiki and saves them to screenshots/uesp/.
+  tools/uesp dragon bridge          search Skyrim image files (File:SR-*) by words
+  tools/uesp -p Skyrim:Whiterun     every screenshot shown on a wiki page
+  tools/uesp -n 3 --list barrow     just print titles, sizes and URLs
+Icons and images under 400 px wide are skipped; downloads are thumbnails WIDTH px wide (default 1280)."""
+
+import argparse, json, os, re, sys, urllib.parse, urllib.request
+
+API = "https://en.uesp.net/w/api.php"
+AGENT = "clauderim-reference-fetcher/1.0 (procedural Skyrim look-alike; reference images)"
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots", "uesp")
+
+
+def get(url):
+  return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=60).read()
+
+
+def query(params, width):
+  base = {"action": "query", "format": "json", "prop": "imageinfo", "iiprop": "url|size|mime", "iiurlwidth": width}
+  return json.loads(get(API + "?" + urllib.parse.urlencode({**base, **params}))).get("query", {}).get("pages", {}).values()
+
+
+def is_screenshot(page):
+  info = (page.get("imageinfo") or [{}])[0]
+  return (
+    page["title"].startswith("File:SR-")
+    and not page["title"].startswith(("File:SR-icon-", "File:SR-banner-", "File:SR-map-icon"))
+    and info.get("mime", "").startswith("image/")
+    and info.get("width", 0) >= 400
+  )
+
+
+def found(args):
+  pages = (
+    query({"generator": "images", "titles": args.page, "gimlimit": "max"}, args.width)
+    if args.page
+    else query({"generator": "search", "gsrsearch": "SR " + " ".join(args.words), "gsrnamespace": 6, "gsrlimit": 50}, args.width)
+  )
+  return sorted(filter(is_screenshot, pages), key=lambda page: page.get("index", 0))[: args.n]
+
+
+def main():
+  parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+  parser.add_argument("words", nargs="*")
+  parser.add_argument("-p", "--page", help="wiki page whose images to take, e.g. Skyrim:Whiterun")
+  parser.add_argument("-n", type=int, default=8, help="how many images (default 8)")
+  parser.add_argument("-w", "--width", type=int, default=1280, help="thumbnail width (default 1280)")
+  parser.add_argument("--list", action="store_true", help="print only, don't download")
+  args = parser.parse_args()
+  if not args.words and not args.page:
+    parser.error("give search words or -p PAGE")
+  pages = found(args)
+  if not pages:
+    sys.exit("nothing found")
+  os.makedirs(OUT, exist_ok=True)
+  for page in pages:
+    info = page["imageinfo"][0]
+    url = info.get("thumburl", info["url"])
+    name = re.sub(r"[^\w.-]+", "_", page["title"].removeprefix("File:"))
+    path = os.path.normpath(os.path.join(OUT, name))
+    print(f"{page['title']}  {info['width']}x{info['height']}  {info['descriptionurl']}")
+    if not args.list:
+      open(path, "wb").write(get(url))
+      print(f"  -> {path}")
+
+
+main()
