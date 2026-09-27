@@ -4,6 +4,7 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              model::{self, Piece, ball, cone, curve, sculpt, taper, tube},
              opts::opts,
              player::{Player, View},
+             ragdoll::{Limb, Link},
              shout::{self, Staggered, WispLook},
              signal::{Cue, Notice, Shouts, Sound},
              sky::Daylight,
@@ -128,6 +129,42 @@ impl Bone {
   }
 }
 
+pub fn limbs() -> [Option<Limb>; BONES] {
+  let along = |radius: f32, reach: Vec3, link: Link| {
+    Some(Limb { radius, from: Vec3::ZERO, to: reach, link })
+  };
+  let spine = Link::Socket { swing: 0.55, twist: 0.4 };
+  Bone::ALL.map(|bone| match bone {
+    Bone::Body => Some(Limb {
+      radius: 0.85,
+      from: Vec3::new(0.0, 0.2, -1.4),
+      to: Vec3::new(0.0, 0.1, 2.5),
+      link: Link::Root
+    }),
+    Bone::Neck1 => along(0.5, Vec3::Z * -1.0, spine),
+    Bone::Neck2 => along(0.42, Vec3::Z * -1.0, spine),
+    Bone::Neck3 => along(0.36, Vec3::Z * -0.95, spine),
+    Bone::Head => along(0.34, Vec3::Z * -0.8, Link::Socket { swing: 0.7, twist: 0.5 }),
+    Bone::Tail1 => along(0.5, Vec3::Z * 1.5, spine),
+    Bone::Tail2 => along(0.4, Vec3::Z * 1.5, spine),
+    Bone::Tail3 => along(0.3, Vec3::Z * 1.5, spine),
+    Bone::Tail4 => along(0.2, Vec3::Z * 1.6, spine),
+    Bone::WingL => {
+      along(0.28, Vec3::new(-3.8, 0.2, 0.3), Link::Socket { swing: 1.3, twist: 0.8 })
+    }
+    Bone::WingR => {
+      along(0.28, Vec3::new(3.8, 0.2, 0.3), Link::Socket { swing: 1.3, twist: 0.8 })
+    }
+    Bone::LegL | Bone::LegR => {
+      along(0.34, Vec3::new(0.0, -1.2, 0.15), Link::Socket { swing: 1.2, twist: 0.4 })
+    }
+    Bone::ShinL | Bone::ShinR => {
+      along(0.24, Vec3::new(0.0, -1.1, -0.3), Link::Hinge { low: -0.5, high: 1.6 })
+    }
+    Bone::Jaw | Bone::TipL | Bone::TipR => None
+  })
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Flight {
   Waiting,
@@ -145,8 +182,8 @@ enum Flight {
 #[derive(Component)]
 pub struct Dragon {
   flight: Flight,
-  bones: [Entity; BONES],
-  velocity: Vec3,
+  pub bones: [Entity; BONES],
+  pub velocity: Vec3,
   flap: f32,
   flap_rate: f32,
   breath: f32,
@@ -1021,7 +1058,7 @@ fn fly(
       Flight::Falling => {
         dragon.velocity += Vec3::NEG_Y * 12.0 * delta;
         dragon.velocity = dragon.velocity.with_y(dragon.velocity.y.max(-25.0));
-        (at.y <= floor(at) + STANCE * 0.5)
+        (at.y <= floor(at) + STANCE)
           .then(|| {
             shake.0 = 1.0;
             Flight::Slain(0.0)
@@ -1044,13 +1081,16 @@ fn fly(
       Vec3::new(-BOUND * 1.4, -400.0, -BOUND * 1.4),
       Vec3::new(BOUND * 1.4, 3000.0, BOUND * 1.4)
     );
-    transform.translation = if grounded {
+    let placed = if grounded {
       let settle = matches!(next, Flight::Slain(_)).then_some(1.2).unwrap_or(0.0);
       clamped
         .with_y((floor(clamped) + STANCE - settle).lerp(clamped.y, (-6.0 * delta).exp()))
     } else {
       clamped.with_y(clamped.y.max(floor(clamped) + 2.0))
     };
+    if !dead {
+      transform.translation = placed;
+    }
     let forward = transform.forward().as_vec3();
     let hovering = match next {
       Flight::Landing(spot) => (spot - at).with_y(0.0).length() < 12.0,
@@ -1076,7 +1116,9 @@ fn fly(
     let pitch = (!grounded).then_some(heading.y.asin() * 0.8).unwrap_or(0.0);
     let yaw = f32::atan2(-heading.x, -heading.z);
     let aim = Quat::from_euler(EulerRot::YXZ, yaw, pitch, bank);
-    if !matches!(next, Flight::Slain(_) | Flight::Waiting | Flight::Posing { .. }) {
+    if !dead
+      && !matches!(next, Flight::Slain(_) | Flight::Waiting | Flight::Posing { .. })
+    {
       let agility = grounded.then_some(1.6).unwrap_or(2.2);
       transform.rotation = transform.rotation.slerp(aim, 1.0 - (-agility * delta).exp());
     }
@@ -1167,7 +1209,7 @@ fn kindle(
 
 fn pose(
   time: Res<Time>,
-  dragons: Query<(&Dragon, &Motion)>,
+  dragons: Query<(&Dragon, &Motion), Without<Dead>>,
   mut bones: Query<&mut Transform, (Without<Dragon>, Without<FoldsAway>)>,
   mut folding: Query<&mut Transform, (With<FoldsAway>, Without<Dragon>)>
 ) {

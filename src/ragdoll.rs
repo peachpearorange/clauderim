@@ -1,4 +1,5 @@
 use {crate::{combat::Dead,
+             dragon::{self, Dragon},
              humanoid::{self, Rig},
              player::Player,
              walker::{Layer, Walker},
@@ -35,7 +36,8 @@ struct Strand {
   bone: Entity,
   parent: Option<usize>,
   part: Option<Entity>,
-  rest: Vec3
+  rest: Vec3,
+  scale: Vec3
 }
 
 struct Hinge {
@@ -48,7 +50,6 @@ struct Hinge {
 #[derive(Component)]
 pub struct Ragdoll {
   body: Entity,
-  scale: f32,
   strands: Vec<Strand>,
   joints: Vec<Entity>,
   hinges: Vec<Hinge>
@@ -57,16 +58,26 @@ pub struct Ragdoll {
 fn collapse(
   mut commands: Commands,
   mut fallen: Query<
-    (Entity, Option<&mut Walker>, Option<&LinearVelocity>, Option<&Rig>, Option<&Beast>),
+    (
+      Entity,
+      Option<&mut Walker>,
+      Option<&LinearVelocity>,
+      Option<&Rig>,
+      Option<&Beast>,
+      Option<&Dragon>
+    ),
     Added<Dead>
   >,
   bones: Query<(&GlobalTransform, &Transform, &ChildOf)>
 ) {
-  for (owner, walker, velocity, rig, beast) in fallen.iter_mut() {
+  for (owner, walker, velocity, rig, beast, dragon) in fallen.iter_mut() {
     let plan: Vec<(Entity, Option<Limb>)> = rig
       .map(|rig| rig.bones.iter().copied().zip(humanoid::limbs(&rig.frame)).collect())
       .or_else(|| {
         beast.map(|beast| beast.bones.iter().copied().zip(wolf::limbs()).collect())
+      })
+      .or_else(|| {
+        dragon.map(|dragon| dragon.bones.iter().copied().zip(dragon::limbs()).collect())
       })
       .unwrap_or_default();
     let found: Option<Vec<_>> = plan
@@ -74,25 +85,21 @@ fn collapse(
       .map(|&(bone, limb)| {
         bones.get(bone).ok().map(|(world, local, parent)| {
           let (scale, rotation, translation) = world.to_scale_rotation_translation();
-          (bone, limb, scale.x, rotation, translation, local.translation, parent.parent())
+          (bone, limb, scale, rotation, translation, local.translation, parent.parent())
         })
       })
       .collect();
     if let Some(found) = found
-      && let Some(&(_, _, scale, _, _, _, body)) = found.first()
+      && let Some(&(.., body)) = found.first()
     {
       let shove =
         walker.map(|mut walker| std::mem::take(&mut walker.shove)).unwrap_or_default();
-      let drift = velocity.map_or(Vec3::ZERO, |velocity| velocity.0);
+      let drift = velocity.map_or(Vec3::ZERO, |velocity| velocity.0)
+        + dragon.map_or(Vec3::ZERO, |dragon| dragon.velocity);
       let feet = found.iter().map(|each| each.4.y).fold(f32::MAX, f32::min);
-      let mut ragdoll = Ragdoll {
-        body,
-        scale,
-        strands: Vec::new(),
-        joints: Vec::new(),
-        hinges: Vec::new()
-      };
-      for &(bone, limb, _, rotation, translation, rest, parent) in found.iter() {
+      let mut ragdoll =
+        Ragdoll { body, strands: Vec::new(), joints: Vec::new(), hinges: Vec::new() };
+      for &(bone, limb, scale, rotation, translation, rest, parent) in found.iter() {
         let parent = found.iter().position(|each| each.0 == parent);
         let part = limb.map(|limb| {
           commands
@@ -101,9 +108,9 @@ fn collapse(
               Tumbling,
               RigidBody::Dynamic,
               Collider::capsule_endpoints(
-                limb.radius * scale,
-                limb.from * scale,
-                limb.to * scale
+                limb.radius * scale.x,
+                limb.from * scale.x,
+                limb.to * scale.x
               ),
               ColliderDensity(DENSITY),
               CollisionLayers::new(Layer::Limb, Layer::World),
@@ -119,9 +126,10 @@ fn collapse(
         });
         if let Some(limb) = limb
           && let Some(lower) = part
-          && let Some(upper) = parent.and_then(|index| ragdoll.strands[index].part)
+          && let Some(above) = parent.map(|index| &ragdoll.strands[index])
+          && let Some(upper) = above.part
         {
-          let anchor = rest * scale;
+          let anchor = rest * above.scale;
           let damping = JointDamping { linear: 0.5, angular: 2.5 };
           match limb.link {
             Link::Root => {}
@@ -151,9 +159,9 @@ fn collapse(
             }
           }
         }
-        ragdoll.strands.push(Strand { bone, parent, part, rest });
+        ragdoll.strands.push(Strand { bone, parent, part, rest, scale });
       }
-      commands.entity(owner).insert(ragdoll);
+      commands.entity(owner).insert((ragdoll, CollisionLayers::NONE));
     }
   }
 }
@@ -191,16 +199,12 @@ fn dangle(
   mut bones: Query<&mut Transform, (Without<Ragdoll>, Without<Tumbling>)>
 ) {
   for (ragdoll, mut place, walker, velocity) in ragdolls.iter_mut() {
-    let posed = |part: Option<Entity>| {
-      part.and_then(|part| parts.get(part).ok()).map(|(position, rotation)| {
-        Affine3A::from_scale_rotation_translation(
-          Vec3::splat(ragdoll.scale),
-          rotation.0,
-          position.0
-        )
+    let posed = |strand: &Strand| {
+      strand.part.and_then(|part| parts.get(part).ok()).map(|(position, rotation)| {
+        Affine3A::from_scale_rotation_translation(strand.scale, rotation.0, position.0)
       })
     };
-    if let Some(pelvis) = ragdoll.strands.first().and_then(|root| posed(root.part)) {
+    if let Some(pelvis) = ragdoll.strands.first().and_then(posed) {
       place.translation = pelvis.translation.into();
     }
     if let Some(mut walker) = walker {
@@ -214,7 +218,7 @@ fn dangle(
       let body = place.compute_affine() * body.compute_affine();
       ragdoll.strands.iter().fold(Vec::<Affine3A>::new(), |mut worlds, strand| {
         let above = strand.parent.map_or(body, |index| worlds[index]);
-        let world = match (posed(strand.part), bones.get_mut(strand.bone)) {
+        let world = match (posed(strand), bones.get_mut(strand.bone)) {
           (Some(world), Ok(mut local)) => {
             *local = Transform::from_matrix((above.inverse() * world).into());
             world
@@ -253,7 +257,10 @@ fn stiffen(
         bone.translation = strand.rest;
       }
     }
-    commands.entity(entity).remove::<Ragdoll>();
+    commands
+      .entity(entity)
+      .remove::<Ragdoll>()
+      .insert(CollisionLayers::new(Layer::Walker, LayerMask::ALL));
   }
 }
 

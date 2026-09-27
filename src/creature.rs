@@ -1,9 +1,11 @@
-use {crate::{combat::{Dead, Fighter, Side, Struck, Vitals},
+use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
+             fx::{Effects, Fleeting},
              humanoid::{self, Grip, MAN, Motion, Rig},
              inventory::{Inventory, Item, Loot},
              noise::Roll,
              place::Place,
              player::{Player, View},
+             shout::Staggered,
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
              stuff::{Stuff, Stuffs},
              terrain::Ground,
@@ -116,7 +118,9 @@ pub struct Foe {
   cooldown: f32,
   circling: f32,
   roll: Roll,
-  looted: bool
+  looted: bool,
+  voice: f32,
+  inhaling: Option<f32>
 }
 
 impl Foe {
@@ -165,7 +169,9 @@ fn raise(
         cooldown: 0.0,
         circling: 0.0,
         roll: Roll::new(seed),
-        looted: false
+        looted: false,
+        voice: 4.0,
+        inhaling: None
       },
       Walker::default(),
       Motion::default(),
@@ -358,6 +364,83 @@ fn think(
   }
 }
 
+const BELLOW_WINDUP: f32 = 0.45;
+const BELLOW_REACH: f32 = 11.0;
+const BELLOW_FORCE: f32 = 15.0;
+const BELLOW_DAMAGE: f32 = 16.0;
+
+fn bellow(
+  time: Res<Time>,
+  effects: Res<Effects>,
+  mut shake: ResMut<Shake>,
+  mut sounds: MessageWriter<Sound>,
+  mut commands: Commands,
+  player: Single<
+    (Entity, &Transform, &mut Walker, &mut Vitals),
+    (With<Player>, Without<Dead>, Without<Foe>)
+  >,
+  mut foes: Query<
+    (&mut Foe, &Transform, &mut Walker, &mut Motion),
+    (Without<Dead>, Without<Player>, Without<Specimen>)
+  >
+) {
+  let delta = time.delta_secs();
+  let (hero, hero_at, mut hero_walker, mut vitals) = player.into_inner();
+  for (mut foe, transform, mut walker, mut motion) in
+    foes.iter_mut().filter(|(foe, ..)| foe.kind == FoeKind::DraugrOverlord)
+  {
+    let at = transform.translation;
+    let gap = hero_at.translation - at;
+    let flat = gap.with_y(0.0);
+    let toward = flat.normalize_or_zero();
+    let in_reach = flat.length() < BELLOW_REACH && gap.y.abs() < 3.0;
+    let aimed = transform.forward().as_vec3().dot(toward) > 0.7;
+    foe.voice -= delta;
+    foe.inhaling = match foe.inhaling {
+      Some(held) if held >= BELLOW_WINDUP => {
+        let mouth = at + Vec3::Y * 0.6 + toward * 0.6;
+        sounds.write(Sound::here(Cue::Shout, at));
+        commands.spawn((
+          effects.emit(&effects.gust),
+          Fleeting(2.0),
+          Transform::from_translation(mouth).looking_to(toward, Vec3::Y)
+        ));
+        if in_reach && aimed {
+          let falloff = 1.0 - flat.length() / BELLOW_REACH * 0.5;
+          hero_walker.shove += (toward + Vec3::Y * 0.35) * BELLOW_FORCE * falloff;
+          vitals.health -= BELLOW_DAMAGE;
+          shake.0 = shake.0.max(0.7);
+          commands.entity(hero).insert(Staggered(1.1));
+          if vitals.health <= 0.0 {
+            commands.entity(hero).insert(Dead);
+          }
+        }
+        None
+      }
+      Some(held) => {
+        walker.wish = Vec3::ZERO;
+        walker.facing = Some(toward);
+        Some(held + delta)
+      }
+      None
+        if foe.mind == Mind::Hunt
+          && foe.voice <= 0.0
+          && motion.swing.is_none()
+          && flat.length() > 2.5
+          && in_reach
+          && aimed =>
+      {
+        foe.voice = foe.roll.range(10.0, 16.0);
+        Some(0.0)
+      }
+      None => None
+    };
+    motion.shout = foe.inhaling.map_or((motion.shout - delta * 1.4).max(0.0), |held| {
+      (held / BELLOW_WINDUP).min(1.0)
+    });
+  }
+}
+
 fn perish(
   fallen: Query<(&Foe, &Transform), Added<Dead>>,
   mut sounds: MessageWriter<Sound>,
@@ -529,7 +612,7 @@ pub fn plugin(app: &mut App) {
     .add_systems(Startup, encounters)
     .add_systems(Update, garrison.before(Thinking))
     .add_systems(PostStartup, specimen)
-    .add_systems(Update, (raise, think).chain().in_set(Thinking).before(Walking))
+    .add_systems(Update, (raise, think, bellow).chain().in_set(Thinking).before(Walking))
     .add_systems(Update, (perish, search).after(Walking))
     .add_systems(Update, dress);
 }

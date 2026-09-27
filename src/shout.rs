@@ -144,6 +144,9 @@ fn shout(
             + Vec3::Y * FORCE[power] * 0.35 * falloff;
           vitals.health -= 4.0 * (power + 1) as f32;
           commands.entity(entity).insert(Staggered(1.2 + power as f32 * 0.6));
+          if vitals.health <= 0.0 {
+            commands.entity(entity).insert(Dead);
+          }
         }
       }
       for (position, mut velocity) in limbs.iter_mut() {
