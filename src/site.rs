@@ -114,6 +114,17 @@ fn preference(marker: Marker, at: Vec2, steep: f32) -> f32 {
   }
 }
 
+fn uncarved(at: Vec2, reach: f32) -> bool {
+  (0..=8)
+    .map(|step| {
+      at + Vec2::from_angle(step as f32 / 8.0 * TAU) * reach * (step > 0) as u8 as f32
+    })
+    .all(|spot| {
+      let height = terrain::natural_height(spot);
+      river::carve(spot, height) > height - 1.0
+    })
+}
+
 fn welcoming(at: Vec2, marker: Marker) -> bool {
   let room = flat(marker);
   terrain::natural_height(at)
@@ -122,6 +133,7 @@ fn welcoming(at: Vec2, marker: Marker) -> bool {
     && place::nearest_road(at).edge() > room + 12.0
     && river::course_distance(at) > room + 30.0
     && river::lake_near(at, 2.3).is_none()
+    && uncarved(at, room * 1.9)
 }
 
 fn named(marker: Marker, roll: &mut Roll, used: &HashSet<String>) -> String {
