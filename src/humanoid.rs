@@ -817,8 +817,8 @@ fn horned_helmet(kit: &mut Kit, iron: Srgba, horn: Srgba, horn_size: f32) {
   let stretch = Vec3::new(1.0, 1.0, 1.2);
   let dome = shell(
     &[
-      (0.093, 0.15),
-      (0.097, 0.19),
+      (0.094, 0.172),
+      (0.097, 0.2),
       (0.092, 0.235),
       (0.074, 0.275),
       (0.04, 0.302),
@@ -837,13 +837,13 @@ fn horned_helmet(kit: &mut Kit, iron: Srgba, horn: Srgba, horn_size: f32) {
     .add(
       Joint::Head,
       Stuff::Iron,
-      Piece::new(rod(0.098, 0.03), iron * 0.8).sized(stretch).at_xyz(0.0, 0.16, 0.0)
+      Piece::new(rod(0.099, 0.026), iron * 0.8).sized(stretch).at_xyz(0.0, 0.185, 0.0)
     )
     .add(Joint::Head, Stuff::Iron, Piece::new(tube(&crest, &[0.011], 8), iron * 0.9))
     .add(
       Joint::Head,
       Stuff::Iron,
-      Piece::new(block(0.018, 0.05, 0.012), iron).at_xyz(0.0, 0.155, -0.118)
+      Piece::new(block(0.014, 0.05, 0.012), iron).at_xyz(0.0, 0.16, -0.118)
     )
     .both(
       Joint::Head,
