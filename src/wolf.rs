@@ -1,6 +1,8 @@
-use {crate::{humanoid::Motion,
+use {crate::{combat::Dead,
+             humanoid::Motion,
              model::{self, Piece, ball, sculpt},
              noise,
+             ragdoll::{Limb, Link},
              stuff::Stuff},
      bevy::prelude::*};
 
@@ -78,6 +80,44 @@ const LOWER: f32 = 0.36;
 #[derive(Component)]
 pub struct Beast {
   pub bones: [Entity; BONES]
+}
+
+pub fn limbs() -> [Option<Limb>; BONES] {
+  let leg = |radius: f32, length: f32, link: Link| {
+    Some(Limb {
+      radius,
+      from: Vec3::NEG_Y * 0.03,
+      to: Vec3::NEG_Y * (length - 0.03),
+      link
+    })
+  };
+  Bone::ALL.map(|bone| match bone {
+    Bone::Body => Some(Limb {
+      radius: 0.12,
+      from: Vec3::new(0.0, -0.02, -0.34),
+      to: Vec3::new(0.0, -0.01, 0.38),
+      link: Link::Root
+    }),
+    Bone::Head => Some(Limb {
+      radius: 0.07,
+      from: Vec3::new(0.0, 0.03, 0.02),
+      to: Vec3::new(0.0, 0.0, -0.2),
+      link: Link::Socket { swing: 0.8, twist: 0.5 }
+    }),
+    Bone::Jaw => None,
+    Bone::Tail => Some(Limb {
+      radius: 0.04,
+      from: Vec3::new(0.0, 0.0, 0.04),
+      to: Vec3::new(0.0, -0.1, 0.36),
+      link: Link::Socket { swing: 0.9, twist: 0.8 }
+    }),
+    Bone::FrontL | Bone::FrontR | Bone::BackL | Bone::BackR => {
+      leg(0.045, UPPER, Link::Socket { swing: 1.1, twist: 0.3 })
+    }
+    Bone::ShinFL | Bone::ShinFR | Bone::ShinBL | Bone::ShinBR => {
+      leg(0.03, LOWER, Link::Hinge { low: -1.8, high: 0.5 })
+    }
+  })
 }
 
 fn fur(red: f32, green: f32, blue: f32) -> Srgba { Srgba::new(red, green, blue, 1.0) }
@@ -459,7 +499,7 @@ fn stance(motion: &Motion) -> Stance {
 
 fn animate(
   time: Res<Time>,
-  mut beasts: Query<(&Beast, &mut Motion)>,
+  mut beasts: Query<(&Beast, &mut Motion), Without<Dead>>,
   mut bones: Query<&mut Transform>
 ) {
   let blend = 1.0 - (-16.0 * time.delta_secs()).exp();

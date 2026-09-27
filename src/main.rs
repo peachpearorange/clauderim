@@ -21,6 +21,7 @@ mod par;
 mod paving;
 mod place;
 mod player;
+mod ragdoll;
 mod river;
 mod sdf;
 mod settlement;
@@ -211,7 +212,8 @@ fn main() {
       paving::plugin,
       settlement::plugin,
       river::plugin,
-      npc::plugin
+      npc::plugin,
+      ragdoll::plugin
     ))
     .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)

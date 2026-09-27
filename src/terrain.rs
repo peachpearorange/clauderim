@@ -17,7 +17,7 @@ pub const WORLD: f32 = 3072.0;
 pub const BOUND: f32 = WORLD - 60.0;
 pub const SPACING: f32 = 2.0;
 const CHUNK: i32 = 64;
-const CHUNK_SIZE: f32 = CHUNK as f32 * SPACING;
+pub(crate) const CHUNK_SIZE: f32 = CHUNK as f32 * SPACING;
 const FAR_HALF: i32 = 12288;
 const ROOT: i32 = 4096;
 const LEAF_CELLS: usize = 64;
@@ -231,7 +231,7 @@ type Chunks = HashMap<IVec2, Arc<[f32]>>;
 #[derive(Resource, Clone, Default)]
 pub struct Ground(Arc<RwLock<Chunks>>);
 
-fn chunk_of(at: Vec2) -> IVec2 { (at / CHUNK_SIZE).floor().as_ivec2() }
+pub(crate) fn chunk_of(at: Vec2) -> IVec2 { (at / CHUNK_SIZE).floor().as_ivec2() }
 
 impl Ground {
   fn sample(chunks: &Chunks, point: IVec2) -> f32 {
@@ -625,7 +625,7 @@ impl Footing {
   }
 }
 
-fn chunk_collider(heights: &[f32]) -> Collider {
+pub(crate) fn chunk_collider(heights: &[f32]) -> Collider {
   let side = CHUNK as usize + 1;
   let rows = (0..side)
     .map(|column| (0..side).map(|row| heights[row * side + column]).collect())

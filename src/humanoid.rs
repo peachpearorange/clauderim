@@ -1,5 +1,7 @@
-use {crate::{model::{self, Hoop, Piece, ball, block, curve, lathe, loft, rod, taper,
+use {crate::{combat::Dead,
+             model::{self, Hoop, Piece, ball, block, curve, lathe, loft, rod, taper,
                      tube},
+             ragdoll::{Limb, Link},
              stuff::{Stuff, Stuffs}},
      bevy::{camera::visibility::RenderLayers, light::NotShadowCaster, prelude::*},
      std::f32::consts::{FRAC_PI_2, PI}};
@@ -317,7 +319,7 @@ pub fn posed(rig: &Rig, motion: &Motion) -> Pose {
 
 fn animate(
   time: Res<Time>,
-  mut rigs: Query<(&Rig, &mut Motion)>,
+  mut rigs: Query<(&Rig, &mut Motion), Without<Dead>>,
   mut bones: Query<&mut Transform>
 ) {
   let blend = 1.0 - (-18.0 * time.delta_secs()).exp();
@@ -388,6 +390,34 @@ pub fn skeleton(
       .id();
   }
   bones
+}
+
+pub fn limbs(frame: &Frame) -> [Option<Limb>; JOINTS] {
+  let bone = |radius: f32, from: f32, to: f32, link: Link| {
+    Some(Limb { radius, from: Vec3::Y * from, to: Vec3::Y * to, link })
+  };
+  Joint::ALL.map(|joint| match joint {
+    Joint::Pelvis => Some(Limb {
+      radius: 0.12,
+      from: Vec3::new(-0.06, -0.04, 0.0),
+      to: Vec3::new(0.06, -0.04, 0.0),
+      link: Link::Root
+    }),
+    Joint::Chest => bone(0.14, 0.1, 0.34, Link::Socket { swing: 0.7, twist: 0.6 }),
+    Joint::Head => bone(0.1, 0.08, 0.18, Link::Socket { swing: 0.8, twist: 1.0 }),
+    Joint::ArmL | Joint::ArmR => {
+      bone(0.05, -0.04, 0.04 - frame.upper_arm, Link::Socket { swing: 2.4, twist: 1.2 })
+    }
+    Joint::ElbowL | Joint::ElbowR => {
+      bone(0.045, -0.03, -0.04 - frame.forearm, Link::Hinge { low: -0.15, high: 2.4 })
+    }
+    Joint::LegL | Joint::LegR => {
+      bone(0.07, -0.06, 0.06 - frame.thigh, Link::Socket { swing: 1.3, twist: 0.4 })
+    }
+    Joint::KneeL | Joint::KneeR => {
+      bone(0.055, -0.05, -frame.shin, Link::Hinge { low: -2.3, high: 0.15 })
+    }
+  })
 }
 
 pub fn tailor(Kit(pieces): Kit) -> Vec<(usize, Stuff, Mesh)> {

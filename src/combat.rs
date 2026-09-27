@@ -250,9 +250,15 @@ fn resound(
   }
 }
 
+#[derive(SystemSet, Debug, Clone, PartialEq, Eq, Hash)]
+pub struct Fighting;
+
 pub fn plugin(app: &mut App) {
   app.add_message::<Struck>().init_resource::<Shake>().add_systems(
     Update,
-    (player_attacks, swing, wound, recover, resound).chain().after(Walking)
+    (player_attacks, swing, wound, recover, resound)
+      .chain()
+      .after(Walking)
+      .in_set(Fighting)
   );
 }

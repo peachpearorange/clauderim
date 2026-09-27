@@ -3,7 +3,7 @@ use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
              place, sky,
              stuff::Stuffs,
              terrain::Ground,
-             walker::Walker},
+             walker::{Layer, Walker}},
      avian3d::prelude::*,
      bevy::{camera::visibility::RenderLayers,
             input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll,
@@ -268,7 +268,8 @@ fn follow(
         direction,
         gap.length(),
         true,
-        &SpatialQueryFilter::from_excluded_entities([entity])
+        &SpatialQueryFilter::from_mask(!LayerMask::from(Layer::Limb))
+          .with_excluded_entities([entity])
       )
     })
     .map_or(gap.length(), |hit| (hit.distance - 0.25).max(0.1));

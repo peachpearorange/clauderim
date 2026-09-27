@@ -13,9 +13,18 @@ const FLOAT_DEPTH: f32 = 1.2;
 const SWIM_PACE: f32 = 0.45;
 const SURGE: f32 = 2.6;
 
+#[derive(PhysicsLayer, Clone, Copy, Default)]
+pub enum Layer {
+  #[default]
+  World,
+  Walker,
+  Limb
+}
+
 #[derive(Component, Default)]
 #[require(
   RigidBody::Kinematic,
+  CollisionLayers = CollisionLayers::new(Layer::Walker, LayerMask::ALL),
   CustomPositionIntegration,
   SpeculativeMargin(0.0),
   LinearVelocity,
@@ -61,7 +70,8 @@ fn walk(
       velocity.0 = Vec3::ZERO;
       (true, false)
     } else {
-      let filter = SpatialQueryFilter::from_excluded_entities([entity]);
+      let filter = SpatialQueryFilter::from_mask(!LayerMask::from(Layer::Limb))
+        .with_excluded_entities([entity]);
       let &Transform { translation, rotation, .. } = &*transform;
       let feet = collider.aabb(translation.adjust_precision(), rotation).min.y;
       let level = river::water_level(translation.xz());

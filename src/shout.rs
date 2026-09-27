@@ -3,9 +3,11 @@ use {crate::{combat::{Dead, Shake, Side, Vitals},
              humanoid::Motion,
              model,
              player::{Player, View},
+             ragdoll::Tumbling,
              signal::{Cue, Notice, Shouts, Sound, WordWall},
              stuff::{Stuff, Stuffs},
              walker::{Walker, Walking}},
+     avian3d::prelude::*,
      bevy::{light::NotShadowCaster, prelude::*}};
 
 const WORDS: [&str; 3] = ["FUS", "RO", "DAH"];
@@ -107,7 +109,8 @@ fn shout(
   mut foes: Query<
     (Entity, &Transform, &Side, &mut Walker, &mut Vitals),
     (Without<Player>, Without<Dead>)
-  >
+  >,
+  mut limbs: Query<(&Position, &mut LinearVelocity), With<Tumbling>>
 ) {
   shouts.cooldown = (shouts.cooldown - time.delta_secs()).max(0.0);
   let (transform, mut motion) = player.into_inner();
@@ -141,6 +144,16 @@ fn shout(
             + Vec3::Y * FORCE[power] * 0.35 * falloff;
           vitals.health -= 4.0 * (power + 1) as f32;
           commands.entity(entity).insert(Staggered(1.2 + power as f32 * 0.6));
+        }
+      }
+      for (position, mut velocity) in limbs.iter_mut() {
+        let flat = (position.0 - transform.translation).with_y(0.0);
+        if flat.length() < REACH[power]
+          && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55
+        {
+          let falloff = 1.0 - flat.length() / REACH[power] * 0.5;
+          velocity.0 +=
+            (flat.normalize_or_zero() + Vec3::Y * 0.35) * FORCE[power] * falloff;
         }
       }
     }
