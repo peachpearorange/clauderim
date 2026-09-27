@@ -1,45 +1,91 @@
 #!/usr/bin/env python3
-"""tools/uesp [-p PAGE] [-n N] [-w WIDTH] [--list] [words ...]
+"""tools/uesp [-p PAGE] [-n N] [-w WIDTH] [--list] [--fandom] [words ...]
 
 Finds Skyrim screenshots on the UESP wiki and saves them to screenshots/uesp/.
   tools/uesp dragon bridge          search Skyrim image files (File:SR-*) by words
   tools/uesp -p Skyrim:Whiterun     every screenshot shown on a wiki page
   tools/uesp -n 3 --list barrow     just print titles, sizes and URLs
-Icons and images under 400 px wide are skipped; downloads are thumbnails WIDTH px wide (default 1280)."""
+Icons and images under 400 px wide are skipped; downloads are WIDTH px wide (default 1280).
+UESP's image host sits behind a Cloudflare browser challenge that scripts can't pass, so when
+a download is refused the same query is run on the Elder Scrolls Fandom wiki instead
+(Skyrim:Whiterun becomes Whiterun (Skyrim)); --fandom goes there directly."""
 
-import argparse, json, os, re, sys, urllib.parse, urllib.request
+import argparse, json, os, re, sys, urllib.error, urllib.parse, urllib.request
+from dataclasses import dataclass
+from typing import Callable
 
-API = "https://en.uesp.net/w/api.php"
 AGENT = "clauderim-reference-fetcher/1.0 (procedural Skyrim look-alike; reference images)"
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots", "uesp")
+OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots", "uesp"))
+
+
+@dataclass
+class Wiki:
+  name: str
+  api: str
+  search: Callable[[list], str]
+  page: Callable[[str], str]
+  keeps: Callable[[str], bool]
+  image: Callable[[str], str]
+
+
+UESP = Wiki(
+  "UESP",
+  "https://en.uesp.net/w/api.php",
+  lambda words: "SR " + " ".join(words),
+  lambda page: page,
+  lambda title: title.startswith("File:SR-")
+  and not title.startswith(("File:SR-icon-", "File:SR-banner-", "File:SR-mapicon-", "File:SR-emoticon-", "File:SR-symbol-")),
+  lambda url: url,
+)
+
+FANDOM = Wiki(
+  "Fandom",
+  "https://elderscrolls.fandom.com/api.php",
+  lambda words: " ".join(words) + " Skyrim",
+  lambda page: re.sub(r"^Skyrim:(.*)$", r"\1 (Skyrim)", page),
+  lambda title: not re.search(r"icon|\.svg$|\.gif$", title, re.I),
+  lambda url: url + ("&" if "?" in url else "?") + "format=original",
+)
 
 
 def get(url):
   return urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=60).read()
 
 
-def query(params, width):
-  base = {"action": "query", "format": "json", "prop": "imageinfo", "iiprop": "url|size|mime", "iiurlwidth": width}
-  return json.loads(get(API + "?" + urllib.parse.urlencode({**base, **params}))).get("query", {}).get("pages", {}).values()
-
-
-def is_screenshot(page):
-  info = (page.get("imageinfo") or [{}])[0]
-  return (
-    page["title"].startswith("File:SR-")
-    and not page["title"].startswith(("File:SR-icon-", "File:SR-banner-", "File:SR-map-icon"))
-    and info.get("mime", "").startswith("image/")
-    and info.get("width", 0) >= 400
-  )
-
-
-def found(args):
-  pages = (
-    query({"generator": "images", "titles": args.page, "gimlimit": "max"}, args.width)
+def found(wiki, args):
+  source = (
+    {"generator": "images", "titles": wiki.page(args.page), "gimlimit": "max"}
     if args.page
-    else query({"generator": "search", "gsrsearch": "SR " + " ".join(args.words), "gsrnamespace": 6, "gsrlimit": 50}, args.width)
+    else {"generator": "search", "gsrsearch": wiki.search(args.words), "gsrnamespace": 6, "gsrlimit": 50}
   )
-  return sorted(filter(is_screenshot, pages), key=lambda page: page.get("index", 0))[: args.n]
+  params = {"action": "query", "format": "json", "prop": "imageinfo", "iiprop": "url|size|mime", "iiurlwidth": args.width, **source}
+  pages = json.loads(get(wiki.api + "?" + urllib.parse.urlencode(params))).get("query", {}).get("pages", {}).values()
+  return sorted(
+    (
+      page
+      for page in pages
+      if wiki.keeps(page["title"])
+      and (info := (page.get("imageinfo") or [{}])[0])
+      and info.get("mime", "").startswith("image/")
+      and info.get("width", 0) >= 400
+    ),
+    key=lambda page: page.get("index", 0),
+  )[: args.n]
+
+
+def fetch(wiki, args):
+  pages = found(wiki, args)
+  print(f"{wiki.name}: {len(pages) or 'nothing'} found")
+  os.makedirs(OUT, exist_ok=True)
+  for page in pages:
+    info = page["imageinfo"][0]
+    print(f"{page['title']}  {info['width']}x{info['height']}  {info['descriptionurl']}")
+    if not args.list:
+      body = get(wiki.image(info.get("thumburl", info["url"])))
+      ext = {b"\x89PNG": ".png", b"RIFF": ".webp"}.get(body[:4], ".jpg")
+      path = os.path.join(OUT, re.sub(r"[^\w-]+", "_", os.path.splitext(page["title"].removeprefix("File:"))[0]) + ext)
+      open(path, "wb").write(body)
+      print(f"  -> {path}")
 
 
 def main():
@@ -47,24 +93,19 @@ def main():
   parser.add_argument("words", nargs="*")
   parser.add_argument("-p", "--page", help="wiki page whose images to take, e.g. Skyrim:Whiterun")
   parser.add_argument("-n", type=int, default=8, help="how many images (default 8)")
-  parser.add_argument("-w", "--width", type=int, default=1280, help="thumbnail width (default 1280)")
+  parser.add_argument("-w", "--width", type=int, default=1280, help="image width (default 1280)")
   parser.add_argument("--list", action="store_true", help="print only, don't download")
+  parser.add_argument("--fandom", action="store_true", help="use the Elder Scrolls Fandom wiki")
   args = parser.parse_args()
   if not args.words and not args.page:
     parser.error("give search words or -p PAGE")
-  pages = found(args)
-  if not pages:
-    sys.exit("nothing found")
-  os.makedirs(OUT, exist_ok=True)
-  for page in pages:
-    info = page["imageinfo"][0]
-    url = info.get("thumburl", info["url"])
-    name = re.sub(r"[^\w.-]+", "_", page["title"].removeprefix("File:"))
-    path = os.path.normpath(os.path.join(OUT, name))
-    print(f"{page['title']}  {info['width']}x{info['height']}  {info['descriptionurl']}")
-    if not args.list:
-      open(path, "wb").write(get(url))
-      print(f"  -> {path}")
+  try:
+    fetch(FANDOM if args.fandom else UESP, args)
+  except urllib.error.HTTPError as refused:
+    if args.fandom or refused.code != 403:
+      raise
+    print(f"UESP refused {refused.url} (Cloudflare challenge); trying Fandom", file=sys.stderr)
+    fetch(FANDOM, args)
 
 
 main()
