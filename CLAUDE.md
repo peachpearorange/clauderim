@@ -46,7 +46,7 @@ Priority is fast incremental builds over runtime speed. Debug builds only; relea
 - On a panic or startup failure (including Bevy system param conflicts), rerun with `RUST_BACKTRACE=1`.
 - Cloud sessions have no GPU: wrap runs in `xvfb-run -a -s "-screen 0 1920x1080x24"` (lavapipe, software Vulkan). Frames are slow and the game clock is capped per frame, so it runs far behind real time: `shot: 3` takes ~1.5 min. Keep `shot` small and pair it with `intro: false`.
 - Bevy and avian3d run without default features: `Cargo.toml` lists only what the game uses (no audio, gltf, scenes, gizmos, sprites, gamepads, webgl). Add a feature there when using a new Bevy part (e.g. `tonemapping_luts` for LUT tonemappers).
-- Web build (GitHub Pages on master push): `trunk build --release`; release profile is thin LTO, one codegen unit (fat LTO runs out of memory), `wasm-opt -O3`, `tracing` capped at warn. ~12 MB gzipped.
+- Web build (GitHub Pages on master push): `trunk build --release`; release profile is thin LTO, one codegen unit (fat LTO runs out of memory), `wasm-opt -O3` (with the wasm features Rust emits enabled, e.g. bulk memory), `tracing` capped at warn. ~12 MB gzipped.
 - Docs: https://docs.rs/bevy/0.19.1/bevy/
 
 # Style

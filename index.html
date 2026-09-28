@@ -22,7 +22,7 @@
         gestures.forEach((name) => document.addEventListener(name, resume));
       })();
     </script>
-    <link data-trunk rel="rust" data-wasm-opt="3" />
+    <link data-trunk rel="rust" data-wasm-opt="3" data-wasm-opt-params="--enable-bulk-memory --enable-nontrapping-float-to-int --enable-sign-ext --enable-mutable-globals --enable-reference-types --enable-multivalue" />
     <link data-trunk rel="copy-dir" href="assets" />
     <style>
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
