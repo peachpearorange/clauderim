@@ -4,8 +4,39 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-bevy = { version = "0.19.1", features = ["wav"] }
-avian3d = "0.7.0"
+bevy = { version = "0.19.1", default-features = false, features = [
+  "std",
+  "async_executor",
+  "bevy_asset",
+  "bevy_log",
+  "bevy_winit",
+  "bevy_window",
+  "bevy_render",
+  "bevy_core_pipeline",
+  "bevy_pbr",
+  "bevy_post_process",
+  "bevy_anti_alias",
+  "smaa_luts",
+  "zstd_rust",
+  "bevy_light",
+  "bevy_mesh",
+  "bevy_mikktspace",
+  "bevy_image",
+  "bevy_shader",
+  "bevy_material",
+  "bevy_text",
+  "bevy_ui",
+  "bevy_ui_render",
+  "ui_picking",
+] }
+avian3d = { version = "0.7.0", default-features = false, features = [
+  "3d",
+  "f32",
+  "parry-f32",
+  "xpbd_joints",
+  "parallel",
+  "collider-from-mesh",
+] }
 fidget = { version = "0.5.0", default-features = false, features = ["mesh"] }
 nalgebra = "0.35.0"
 bevy_hanabi = { version = "0.19.0", default-features = false, features = ["3d"] }
@@ -15,10 +46,16 @@ enum-assoc = "1.4.1"
 web-time = "1.1.0"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+bevy = { version = "0.19.1", default-features = false, features = ["multi_threaded", "x11", "wayland", "png"] }
 cpal = "0.17.3"
 
 [features]
 dev = ["bevy/dynamic_linking"]
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
 
 [profile.dev]
 opt-level = 1
@@ -27,6 +64,7 @@ opt-level = 1
 opt-level = 3
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
-bevy = { version = "0.19.1", features = ["wav", "webgpu"] }
+bevy = { version = "0.19.1", default-features = false, features = ["webgpu", "web"] }
+tracing = { version = "0.1", features = ["release_max_level_warn"] }
 getrandom = { version = "0.3", features = ["wasm_js"] }
 web-sys = { version = "0.3.105", features = ["AudioContext", "BaseAudioContext", "AudioBuffer", "AudioBufferSourceNode", "AudioScheduledSourceNode", "AudioNode", "AudioParam", "GainNode", "StereoPannerNode", "AudioDestinationNode", "Window", "Document", "Element"] }

@@ -174,7 +174,6 @@ fn main() {
     .add_plugins((
       DefaultPlugins
         .build()
-        .disable::<bevy::audio::AudioPlugin>()
         .set(RenderPlugin {
           render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
             instance_flags: InstanceFlags::empty().with_env(),
