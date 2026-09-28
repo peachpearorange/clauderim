@@ -804,7 +804,18 @@ const LEASH: f32 = 850.0;
 const SOAR_RADIUS: f32 = 170.0;
 const SOAR_HEIGHT: f32 = 90.0;
 
-pub static LAIR_SPOTS: std::sync::LazyLock<Vec<Vec3>> = std::sync::LazyLock::new(|| {
+pub const LAIR_SPOTS: [Vec2; LAIRS] = [
+  Vec2::new(960.0, -2592.0),
+  Vec2::new(-240.0, -2064.0),
+  Vec2::new(2256.0, -2736.0),
+  Vec2::new(1392.0, -1248.0),
+  Vec2::new(2640.0, -768.0),
+  Vec2::new(-2688.0, 2544.0),
+  Vec2::new(-432.0, -672.0)
+];
+
+#[cfg(test)]
+fn highest_peaks() -> Vec<Vec2> {
   let step = 48.0;
   let span = (BOUND - 200.0) / step;
   let cells = (-span as i32..=span as i32).flat_map(|x| {
@@ -822,18 +833,27 @@ pub static LAIR_SPOTS: std::sync::LazyLock<Vec<Vec3>> = std::sync::LazyLock::new
     })
     .collect();
   peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
-  peaks
-    .into_iter()
-    .fold(Vec::<Vec2>::new(), |mut kept, (at, _)| {
-      if kept.len() < LAIRS && kept.iter().all(|other| other.distance(at) > LAIR_APART) {
-        kept.push(at);
-      }
-      kept
-    })
-    .into_iter()
-    .map(|at| at.extend(terrain::height_at(at)).xzy())
-    .collect()
-});
+  peaks.into_iter().fold(Vec::new(), |mut kept, (at, _)| {
+    if kept.len() < LAIRS
+      && kept.iter().all(|other: &Vec2| other.distance(at) > LAIR_APART)
+    {
+      kept.push(at);
+    }
+    kept
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  #[test]
+  fn lairs_on_the_highest_peaks() {
+    assert_eq!(
+      super::highest_peaks(),
+      super::LAIR_SPOTS,
+      "terrain changed: paste these into LAIR_SPOTS"
+    );
+  }
+}
 
 fn spawn_dragon(
   commands: &mut Commands,
@@ -914,6 +934,7 @@ fn spawn_dragons(
   spawn_dragon(&mut commands, &anatomy, &stuffs, &effects, None, 0);
   let lairs = opts().foe.as_deref().is_none_or(|foe| !foe.starts_with("dragon"));
   for (index, &lair) in LAIR_SPOTS.iter().enumerate().filter(|_| lairs) {
+    let lair = lair.extend(terrain::height_at(lair)).xzy();
     spawn_dragon(&mut commands, &anatomy, &stuffs, &effects, Some(lair), index as u32 + 1)
   }
 }

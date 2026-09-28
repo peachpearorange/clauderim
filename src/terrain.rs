@@ -863,7 +863,7 @@ mod tests {
           .map(|pair| pair[0].distance(pair[1]))
           .sum::<f32>() as i32)
         .collect::<Vec<_>>(),
-      crate::dragon::LAIR_SPOTS.iter().map(|lair| lair.as_ivec3()).collect::<Vec<_>>()
+      crate::dragon::LAIR_SPOTS
     );
     map_image("screenshots/map.png", |at| {
       place::named()
