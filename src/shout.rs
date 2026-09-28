@@ -52,7 +52,7 @@ fn prepare(
     frost: stuffs.of(Stuff::Frost),
     ember: stuffs.of(Stuff::Ember)
   });
-  commands.insert_resource(Shouts { learned: 1, cooldown: 0.0 });
+  commands.insert_resource(Shouts { learned: 1, cooldown: 0.0, recharge: 1.0 });
 }
 
 pub fn stream(
@@ -121,6 +121,7 @@ fn shout(
     } else {
       let power = (shouts.learned as usize).min(3) - 1;
       shouts.cooldown = RECHARGE[power];
+      shouts.recharge = RECHARGE[power];
       motion.shout = 1.0;
       shake.0 = 0.4 + 0.3 * power as f32;
       sounds.write(Sound::flat(Cue::Shout));

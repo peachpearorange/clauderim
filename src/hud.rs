@@ -3,7 +3,7 @@ use {crate::{combat::{Dead, Side, Struck, Vitals},
              opts::opts,
              place::{self, Marker, Place},
              player::{Player, View},
-             signal::{Cue, Discovered, Engaged, Notice, Prompt, Sound}},
+             signal::{Cue, Discovered, Engaged, Notice, Prompt, Shouts, Sound}},
      bevy::{prelude::*,
             text::{FontSize, FontSource, FontStyle, LetterSpacing},
             ui::{UiSystems,
@@ -29,7 +29,8 @@ pub const FRAME: Color = Color::srgba(0.74, 0.73, 0.7, 0.55);
 const TRACK: Color = Color::srgba(0.02, 0.02, 0.03, 0.72);
 const STEEL: Color = Color::srgba(0.5, 0.51, 0.52, 0.95);
 const RIM: Color = Color::srgba(0.49, 0.67, 0.92, 0.95);
-const SHINE: Color = Color::srgba(0.84, 0.92, 1.0, 0.95);
+const SHINE: Color = Color::srgba(0.94, 0.97, 1.0, 1.0);
+const GLARE: Color = Color::srgba(0.7, 0.85, 1.0, 0.3);
 const MUTED: Color = Color::srgba(0.52, 0.52, 0.53, 0.95);
 const GLOOM: Color = Color::srgba(0.0, 0.0, 0.0, 0.58);
 const HOLLOW: Color = Color::srgba(0.03, 0.03, 0.04, 0.85);
@@ -102,6 +103,14 @@ enum Heading {
 enum Stroke {
   Solid,
   Line
+}
+
+#[derive(Component, Clone, Copy)]
+enum Rim {
+  Stroke,
+  Dot,
+  Line,
+  Flare(f32)
 }
 
 #[derive(Component)]
@@ -634,10 +643,11 @@ fn heading(heading: Heading, top: f32) -> impl Bundle {
 
 fn knot(end: &mut ChildSpawnerCommands) {
   end.spawn(lozenge(2.7, 2.1, Color::NONE, GLOOM));
-  end.spawn(lozenge(2.1, 2.0, RIM, Color::NONE));
-  end.spawn(lozenge(0.5, 2.0, Color::NONE, RIM));
-  end.spawn(lozenge(2.1, 3.45, RIM, Color::NONE));
+  end.spawn((lozenge(2.1, 2.0, STEEL, Color::NONE), Rim::Stroke));
+  end.spawn((lozenge(0.5, 2.0, Color::NONE, STEEL), Rim::Dot));
+  end.spawn((lozenge(2.1, 3.45, STEEL, Color::NONE), Rim::Stroke));
   end.spawn((
+    Rim::Stroke,
     Node {
       width: VMin(0.65),
       height: VMin(2.2),
@@ -645,7 +655,7 @@ fn knot(end: &mut ChildSpawnerCommands) {
       ..pinned(4.35, Percent(50.0))
     },
     UiTransform::from_translation(Val2::percent(0.0, -50.0)),
-    BorderColor::all(RIM)
+    BorderColor::all(STEEL)
   ));
 }
 
@@ -659,21 +669,25 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
       ends(band, 4.0, 5.4, knot);
       for top in [0.46, 3.04] {
         band.spawn((
+          Rim::Line,
           Node { width: Percent(100.0), height: VMin(0.2), ..pinned(0.0, VMin(top)) },
           BackgroundGradient::from(LinearGradient::to_right(vec![
-            ColorStop::new(RIM, Percent(0.0)),
-            ColorStop::new(RIM, Percent(28.0)),
-            ColorStop::new(SHINE, Percent(50.0)),
-            ColorStop::new(RIM, Percent(72.0)),
-            ColorStop::new(RIM, Percent(100.0)),
+            ColorStop::new(STEEL, Percent(0.0)),
+            ColorStop::new(STEEL, Percent(100.0)),
           ])),
-          BoxShadow::new(
-            Color::srgba(0.7, 0.85, 1.0, 0.3),
-            Px(0.0),
-            Px(0.0),
-            Px(0.0),
-            VMin(0.6)
-          )
+          BoxShadow::new(GLARE.with_alpha(0.0), Px(0.0), Px(0.0), Px(0.0), VMin(0.6))
+        ));
+      }
+      for side in [-1.0, 1.0] {
+        band.spawn((
+          Rim::Flare(side),
+          Node { width: VMin(12.0), height: Percent(100.0), ..at(50.0, 0.0) },
+          UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
+          BackgroundGradient::from(RadialGradient::new(
+            UiPosition::CENTER,
+            RadialGradientShape::FarthestSide,
+            vec![ColorStop::new(Color::NONE, Percent(0.0))]
+          ))
         ));
       }
       band
@@ -1181,6 +1195,64 @@ fn ink(charted: Res<Charted>, mut parts: Query<(&Ink, &mut Paint)>) {
   }
 }
 
+fn recharge(shouts: Res<Shouts>, mut parts: Query<(&Rim, &mut Paint, &mut Node)>) {
+  let &Shouts { cooldown, recharge, .. } = shouts.into_inner();
+  let left = (cooldown / recharge.max(1e-3)).clamp(0.0, 1.0);
+  let lit = smoothstep(0.0, 0.15, left);
+  let spread = 50.0 * (1.0 - left);
+  let base = STEEL.mix(&RIM, lit);
+  let shine = base.mix(&SHINE, lit);
+  let reach = 9.0;
+  let [west, east] = [50.0 - spread, 50.0 + spread];
+  let line = BackgroundGradient::from(LinearGradient::to_right(vec![
+    ColorStop::new(base, Percent(0.0)),
+    ColorStop::new(base, Percent((west - reach).max(0.0))),
+    ColorStop::new(shine, Percent(west)),
+    ColorStop::new(base, Percent((west + reach).min(50.0))),
+    ColorStop::new(base, Percent((east - reach).max(50.0))),
+    ColorStop::new(shine, Percent(east)),
+    ColorStop::new(base, Percent((east + reach).min(100.0))),
+    ColorStop::new(base, Percent(100.0)),
+  ]));
+  for (&rim, mut paint, mut node) in parts.iter_mut() {
+    match rim {
+      Rim::Stroke => paint.border = Some(BorderColor::all(base)),
+      Rim::Dot => paint.back = Some(base),
+      Rim::Line => {
+        paint.gradient = Some(line.clone());
+        paint.shadow = Some(BoxShadow::new(
+          GLARE.with_alpha(GLARE.alpha() * lit),
+          Px(0.0),
+          Px(0.0),
+          Px(0.0),
+          VMin(0.6)
+        ))
+      }
+      Rim::Flare(side) => {
+        node.left = Percent(50.0 + side * spread);
+        paint.gradient = Some(BackgroundGradient(
+          [
+            UiPosition::TOP.at(Px(0.0), VMin(0.56)),
+            UiPosition::BOTTOM.at(Px(0.0), VMin(0.56))
+          ]
+          .map(|position| {
+            Gradient::Radial(RadialGradient::new(
+              position,
+              RadialGradientShape::Ellipse(VMin(6.0), VMin(1.0)),
+              vec![
+                ColorStop::new(GLARE.with_alpha(0.7 * lit), Percent(0.0)),
+                ColorStop::new(GLARE.with_alpha(0.25 * lit), Percent(40.0)),
+                ColorStop::new(Color::NONE, Percent(100.0)),
+              ]
+            ))
+          })
+          .into()
+        ))
+      }
+    }
+  }
+}
+
 fn reticle(
   time: Res<Time>,
   view: Res<View>,
@@ -1370,6 +1442,7 @@ pub fn plugin(app: &mut App) {
         drain,
         swing_compass,
         ink,
+        recharge,
         reticle,
         mourn,
         unveil,

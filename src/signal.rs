@@ -87,7 +87,8 @@ pub struct WordWall;
 #[derive(Resource, Default)]
 pub struct Shouts {
   pub learned: u32,
-  pub cooldown: f32
+  pub cooldown: f32,
+  pub recharge: f32
 }
 
 fn forget_prompt(mut prompt: ResMut<Prompt>) { prompt.0 = None; }
