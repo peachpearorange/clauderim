@@ -9,6 +9,7 @@ use {crate::{combat::Dead,
 
 const DENSITY: f32 = 1000.0;
 const TOPPLE: f32 = 0.8;
+const TUMBLE: f32 = 0.25;
 const FROZEN_BEYOND: f32 = 220.0;
 const STOP_RATE: f32 = 30.0;
 const MAX_SPIN: f32 = 12.0;
@@ -32,6 +33,12 @@ pub struct Limb {
 #[derive(Component)]
 pub struct Tumbling;
 
+#[derive(Component)]
+pub struct Knocked {
+  pub left: f32,
+  pub fling: Vec3
+}
+
 struct Strand {
   bone: Entity,
   parent: Option<usize>,
@@ -52,7 +59,8 @@ pub struct Ragdoll {
   body: Entity,
   strands: Vec<Strand>,
   joints: Vec<Entity>,
-  hinges: Vec<Hinge>
+  hinges: Vec<Hinge>,
+  stand: f32
 }
 
 fn collapse(
@@ -60,17 +68,19 @@ fn collapse(
   mut fallen: Query<
     (
       Entity,
+      &Transform,
       Option<&mut Walker>,
       Option<&LinearVelocity>,
       Option<&Rig>,
       Option<&Beast>,
-      Option<&Dragon>
+      Option<&Dragon>,
+      Option<&Knocked>
     ),
-    Added<Dead>
+    (Or<(Added<Dead>, Added<Knocked>)>, Without<Ragdoll>)
   >,
   bones: Query<(&GlobalTransform, &Transform, &ChildOf)>
 ) {
-  for (owner, walker, velocity, rig, beast, dragon) in fallen.iter_mut() {
+  for (owner, place, walker, velocity, rig, beast, dragon, knocked) in fallen.iter_mut() {
     let plan: Vec<(Entity, Option<Limb>)> = rig
       .map(|rig| rig.bones.iter().copied().zip(humanoid::limbs(&rig.frame)).collect())
       .or_else(|| {
@@ -94,11 +104,29 @@ fn collapse(
     {
       let shove =
         walker.map(|mut walker| std::mem::take(&mut walker.shove)).unwrap_or_default();
+      let fling = knocked.map_or(Vec3::ZERO, |knocked| knocked.fling);
       let drift = velocity.map_or(Vec3::ZERO, |velocity| velocity.0)
         + dragon.map_or(Vec3::ZERO, |dragon| dragon.velocity);
       let feet = found.iter().map(|each| each.4.y).fold(f32::MAX, f32::min);
-      let mut ragdoll =
-        Ragdoll { body, strands: Vec::new(), joints: Vec::new(), hinges: Vec::new() };
+      let sole = found
+        .iter()
+        .filter_map(|&(_, limb, scale, rotation, translation, ..)| {
+          limb.map(|limb| {
+            [limb.from, limb.to]
+              .map(|end| (translation + rotation * (end * scale.x)).y)
+              .into_iter()
+              .fold(f32::MAX, f32::min)
+              - limb.radius * scale.x
+          })
+        })
+        .fold(f32::MAX, f32::min);
+      let mut ragdoll = Ragdoll {
+        body,
+        strands: Vec::new(),
+        joints: Vec::new(),
+        hinges: Vec::new(),
+        stand: place.translation.y - sole
+      };
       for &(bone, limb, scale, rotation, translation, rest, parent) in found.iter() {
         let parent = found.iter().position(|each| each.0 == parent);
         let part = limb.map(|limb| {
@@ -119,7 +147,11 @@ fn collapse(
               AngularDamping(0.8),
               MaxAngularSpeed(MAX_SPIN),
               MaxLinearSpeed(MAX_SPEED),
-              LinearVelocity(drift + shove * (1.0 + TOPPLE * (translation.y - feet))),
+              LinearVelocity(
+                drift
+                  + shove * (1.0 + TOPPLE * (translation.y - feet))
+                  + fling * (1.0 + TUMBLE * (translation.y - feet))
+              ),
               Transform::from_translation(translation).with_rotation(rotation)
             ))
             .id()
@@ -246,12 +278,35 @@ fn settle(
   }
 }
 
+fn rise(
+  time: Res<Time>,
+  mut commands: Commands,
+  mut knocked: Query<(Entity, &mut Knocked)>
+) {
+  for (entity, mut knocked) in knocked.iter_mut() {
+    knocked.left -= time.delta_secs();
+    if knocked.left <= 0.0 {
+      commands.entity(entity).remove::<Knocked>();
+    }
+  }
+}
+
 fn stiffen(
   mut commands: Commands,
-  risen: Query<(Entity, &Ragdoll), Without<Dead>>,
-  mut bones: Query<&mut Transform, Without<Ragdoll>>
+  mut risen: Query<(Entity, &Ragdoll, &mut Transform), (Without<Dead>, Without<Knocked>)>,
+  mut bones: Query<&mut Transform, Without<Ragdoll>>,
+  spatial: SpatialQuery
 ) {
-  for (entity, ragdoll) in risen.iter() {
+  for (entity, ragdoll, mut place) in risen.iter_mut() {
+    if let Some(hit) = spatial.cast_ray(
+      place.translation + Vec3::Y * ragdoll.stand,
+      Dir3::new_unchecked(Vec3::new(0.02, -1.0, 0.01).normalize()),
+      ragdoll.stand * 3.0,
+      true,
+      &SpatialQueryFilter::from_mask(Layer::World)
+    ) {
+      place.translation.y += ragdoll.stand * 2.0 - hit.distance;
+    }
     for strand in ragdoll.strands.iter() {
       if let Ok(mut bone) = bones.get_mut(strand.bone) {
         bone.translation = strand.rest;
@@ -284,7 +339,7 @@ pub fn plugin(app: &mut App) {
     .add_systems(FixedUpdate, stop_hinges)
     .add_systems(
       Update,
-      (collapse, stiffen, settle).chain().after(crate::combat::Fighting)
+      (collapse, rise, stiffen, settle).chain().after(crate::combat::Fighting)
     )
     .add_systems(PostUpdate, dangle.before(TransformSystems::Propagate));
 }
@@ -297,7 +352,14 @@ mod tests {
        bevy::time::TimeUpdateStrategy,
        std::time::Duration};
 
-  fn fall(ground: &Ground, spot: Vec2, shove: Vec3, frame: f32) -> (f32, f32) {
+  fn fall(
+    ground: &Ground,
+    spot: Vec2,
+    shove: Vec3,
+    frame: f32,
+    felled: impl Bundle,
+    lasting: f32
+  ) -> (App, Entity, [Entity; humanoid::JOINTS]) {
     let mut app = App::new();
     app.add_plugins((
       MinimalPlugins,
@@ -310,7 +372,7 @@ mod tests {
     app
       .add_observer(unravel)
       .add_systems(FixedUpdate, stop_hinges)
-      .add_systems(Update, collapse)
+      .add_systems(Update, (collapse, rise, stiffen).chain())
       .add_systems(PostUpdate, dangle.before(TransformSystems::Propagate));
     app.finish();
     app.insert_resource(TimeUpdateStrategy::ManualDuration(Duration::from_secs_f32(
@@ -355,16 +417,9 @@ mod tests {
     });
     app.update();
     app.update();
-    app.world_mut().entity_mut(owner).insert(Dead);
-    (0..(6.0 / frame) as usize).for_each(|_| app.update());
-    let world = app.world_mut();
-    let fastest = world
-      .query_filtered::<&LinearVelocity, With<Tumbling>>()
-      .iter(world)
-      .map(|velocity| velocity.0.length())
-      .fold(0.0, f32::max);
-    let head = world.get::<GlobalTransform>(bones[2]).unwrap().translation();
-    (fastest, head.y - ground.height(head.xz()))
+    app.world_mut().entity_mut(owner).insert(felled);
+    (0..(lasting / frame) as usize).for_each(|_| app.update());
+    (app, owner, bones)
   }
 
   #[test]
@@ -377,10 +432,43 @@ mod tests {
       (Vec2::new(69.2, 286.9), Vec3::X * -2.0, 0.1),
       (Vec2::new(-250.0, -170.0), Vec3::Z * 5.0, 0.15)
     ] {
-      let (fastest, head) = fall(&ground, spot, shove, frame);
+      let (mut app, _, bones) = fall(&ground, spot, shove, frame, Dead, 6.0);
+      let world = app.world_mut();
+      let fastest = world
+        .query_filtered::<&LinearVelocity, With<Tumbling>>()
+        .iter(world)
+        .map(|velocity| velocity.0.length())
+        .fold(0.0, f32::max);
+      let head = world.get::<GlobalTransform>(bones[2]).unwrap().translation();
+      let head = head.y - ground.height(head.xz());
       assert!(
         fastest < 1.5 && head < 0.8,
         "{spot} {shove} {frame}: fastest limb {fastest} m/s, head {head} m above ground"
+      );
+    }
+  }
+
+  #[test]
+  fn knocked_ragdolls_get_back_up() {
+    let ground = Ground::default();
+    for (spot, fling, frame) in [
+      (Vec2::new(69.2, 286.9), Vec3::new(10.0, 3.5, 0.0), 1.0 / 60.0),
+      (Vec2::new(69.2, 286.9), Vec3::new(-5.0, 1.75, 0.0), 0.1),
+      (Vec2::new(-250.0, -170.0), Vec3::new(0.0, 3.5, 10.0), 0.15)
+    ] {
+      let knocked = Knocked { left: 3.0, fling };
+      let (mut app, owner, _) = fall(&ground, spot, Vec3::ZERO, frame, knocked, 4.0);
+      let world = app.world_mut();
+      let limbs = world.query_filtered::<(), With<Tumbling>>().iter(world).count();
+      let at = world.get::<Transform>(owner).unwrap().translation;
+      let hip = at.y - ground.height(at.xz());
+      let flung = at.xz().distance(spot);
+      assert!(
+        limbs == 0
+          && !world.entity(owner).contains::<Ragdoll>()
+          && (hip - MAN.hip).abs() < 0.25
+          && flung > 1.0,
+        "{spot} {fling} {frame}: {limbs} limbs left, hip {hip} m above ground, flung {flung} m"
       );
     }
   }

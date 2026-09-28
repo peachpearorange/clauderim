@@ -3,7 +3,7 @@ use {crate::{combat::{Dead, Shake, Side, Vitals},
              humanoid::Motion,
              model,
              player::{Player, View},
-             ragdoll::Tumbling,
+             ragdoll::{Knocked, Tumbling},
              signal::{Cue, Notice, Shouts, Sound, WordWall},
              stuff::{Stuff, Stuffs},
              walker::{Walker, Walking}},
@@ -12,7 +12,9 @@ use {crate::{combat::{Dead, Shake, Side, Vitals},
 
 const WORDS: [&str; 3] = ["FUS", "RO", "DAH"];
 const REACH: [f32; 3] = [7.0, 10.0, 15.0];
-const FORCE: [f32; 3] = [9.0, 15.0, 26.0];
+const FORCE: [f32; 3] = [5.0, 7.0, 10.0];
+const LIMP: [f32; 3] = [1.6, 2.2, 3.0];
+const GETTING_UP: f32 = 0.7;
 const RECHARGE: [f32; 3] = [6.0, 9.0, 12.0];
 const WALL_REACH: f32 = 7.5;
 const ABSORB_TIME: f32 = 4.5;
@@ -107,7 +109,7 @@ fn shout(
   mut commands: Commands,
   player: Single<(&Transform, &mut Motion), (With<Player>, Without<Dead>)>,
   mut foes: Query<
-    (Entity, &Transform, &Side, &mut Walker, &mut Vitals),
+    (Entity, &Transform, &Side, &mut Vitals),
     (Without<Player>, Without<Dead>)
   >,
   mut limbs: Query<(&Position, &mut LinearVelocity), With<Tumbling>>
@@ -132,32 +134,33 @@ fn shout(
         Fleeting(2.0),
         Transform::from_translation(mouth).looking_to(facing, Vec3::Y)
       ));
-      for (entity, their, _, mut walker, mut vitals) in
-        foes.iter_mut().filter(|(_, _, side, ..)| **side == Side::Wild)
+      let push = |at: Vec3| {
+        let flat = (at - transform.translation).with_y(0.0);
+        (flat.length() < REACH[power]
+          && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55)
+          .then(|| {
+            (flat.normalize_or_zero() + Vec3::Y * 0.35)
+              * FORCE[power]
+              * (1.0 - flat.length() / REACH[power] * 0.5)
+          })
+      };
+      for (entity, their, _, mut vitals) in
+        foes.iter_mut().filter(|(_, _, side, _)| **side == Side::Wild)
       {
-        let gap = their.translation - transform.translation;
-        let flat = gap.with_y(0.0);
-        if flat.length() < REACH[power]
-          && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55
-        {
-          let falloff = 1.0 - flat.length() / REACH[power] * 0.5;
-          walker.shove += flat.normalize_or_zero() * FORCE[power] * falloff
-            + Vec3::Y * FORCE[power] * 0.35 * falloff;
+        if let Some(fling) = push(their.translation) {
           vitals.health -= 4.0 * (power + 1) as f32;
-          commands.entity(entity).insert(Staggered(1.2 + power as f32 * 0.6));
+          commands.entity(entity).insert((
+            Knocked { left: LIMP[power], fling },
+            Staggered(LIMP[power] + GETTING_UP)
+          ));
           if vitals.health <= 0.0 {
             commands.entity(entity).insert(Dead);
           }
         }
       }
       for (position, mut velocity) in limbs.iter_mut() {
-        let flat = (position.0 - transform.translation).with_y(0.0);
-        if flat.length() < REACH[power]
-          && view.flat_forward().dot(flat.normalize_or_zero()) > 0.55
-        {
-          let falloff = 1.0 - flat.length() / REACH[power] * 0.5;
-          velocity.0 +=
-            (flat.normalize_or_zero() + Vec3::Y * 0.35) * FORCE[power] * falloff;
+        if let Some(fling) = push(position.0) {
+          velocity.0 += fling;
         }
       }
     }
