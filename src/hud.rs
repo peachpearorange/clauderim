@@ -26,7 +26,11 @@ pub const INK: Color = Color::srgba(0.95, 0.94, 0.91, 0.96);
 pub const PALE: Color = Color::srgba(0.84, 0.83, 0.8, 0.82);
 pub const DIM: Color = Color::srgba(0.8, 0.79, 0.76, 0.5);
 pub const FRAME: Color = Color::srgba(0.74, 0.73, 0.7, 0.55);
-const TRACK: Color = Color::srgba(0.0, 0.0, 0.0, 0.45);
+const TRACK: Color = Color::srgba(0.02, 0.02, 0.03, 0.72);
+const STEEL: Color = Color::srgba(0.5, 0.51, 0.52, 0.95);
+const RIM: Color = Color::srgba(0.49, 0.67, 0.92, 0.95);
+const SHINE: Color = Color::srgba(0.84, 0.92, 1.0, 0.95);
+const MUTED: Color = Color::srgba(0.52, 0.52, 0.53, 0.95);
 const GLOOM: Color = Color::srgba(0.0, 0.0, 0.0, 0.58);
 const HOLLOW: Color = Color::srgba(0.03, 0.03, 0.04, 0.85);
 const HOSTILE: Color = Color::srgb(0.86, 0.12, 0.08);
@@ -125,11 +129,26 @@ impl Stat {
     .clamp(0.0, 1.0)
   }
 
-  fn hues(self) -> [Color; 2] {
+  fn gloss(self) -> [Color; 4] {
     match self {
-      Stat::Health => [Color::srgb(0.8, 0.2, 0.15), Color::srgb(0.42, 0.06, 0.05)],
-      Stat::Magicka => [Color::srgb(0.32, 0.5, 0.9), Color::srgb(0.1, 0.18, 0.5)],
-      Stat::Stamina => [Color::srgb(0.4, 0.74, 0.32), Color::srgb(0.13, 0.36, 0.1)]
+      Stat::Health => [
+        Color::srgb(0.24, 0.06, 0.07),
+        Color::srgb(0.9, 0.56, 0.55),
+        Color::srgb(0.69, 0.11, 0.11),
+        Color::srgb(0.33, 0.07, 0.07)
+      ],
+      Stat::Magicka => [
+        Color::srgb(0.12, 0.2, 0.55),
+        Color::srgb(0.57, 0.63, 0.92),
+        Color::srgb(0.11, 0.19, 0.68),
+        Color::srgb(0.07, 0.11, 0.32)
+      ],
+      Stat::Stamina => [
+        Color::srgb(0.08, 0.26, 0.07),
+        Color::srgb(0.6, 0.86, 0.55),
+        Color::srgb(0.16, 0.58, 0.12),
+        Color::srgb(0.07, 0.3, 0.05)
+      ]
     }
   }
 }
@@ -275,29 +294,81 @@ pub fn fading_line(horizontal: bool, color: Color) -> BackgroundGradient {
   )
 }
 
+fn pinned(left: f32, top: Val) -> Node {
+  Node { position_type: PositionType::Absolute, left: VMin(left), top, ..default() }
+}
+
+fn chevron(size: f32, left: f32) -> impl Bundle {
+  (
+    Node {
+      width: VMin(size),
+      height: VMin(size),
+      border: UiRect { left: VMin(0.2), bottom: VMin(0.2), ..default() },
+      ..pinned(left, Percent(50.0))
+    },
+    BorderColor::all(STEEL),
+    UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
+  )
+}
+
+fn lozenge(size: f32, left: f32, rim: Color, fill: Color) -> impl Bundle {
+  (
+    Node {
+      width: VMin(size),
+      height: VMin(size),
+      border: UiRect::all(VMin(0.22)),
+      ..pinned(left, Percent(50.0))
+    },
+    BorderColor::all(rim),
+    BackgroundColor(fill),
+    UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
+  )
+}
+
+fn ends(
+  parent: &mut ChildSpawnerCommands,
+  reach: f32,
+  width: f32,
+  end: impl Fn(&mut ChildSpawnerCommands)
+) {
+  let side = |left: Val, right: Val| Node {
+    position_type: PositionType::Absolute,
+    left,
+    right,
+    top: Percent(0.0),
+    width: VMin(width),
+    height: Percent(100.0),
+    ..default()
+  };
+  parent.spawn(side(VMin(-reach), Val::Auto)).with_children(&end);
+  parent
+    .spawn((side(Val::Auto, VMin(-reach)), UiTransform::from_scale(Vec2::new(-1.0, 1.0))))
+    .with_children(&end);
+}
+
 fn gauge(
   parent: &mut ChildSpawnerCommands,
   width: f32,
   gauge: Gauge,
-  [top, bottom]: [Color; 2]
+  [top, shine, body, base]: [Color; 4]
 ) {
   parent
     .spawn((
       Node {
         width: VMin(width),
-        height: VMin(1.2),
-        padding: UiRect::all(Px(2.0)),
-        border: UiRect::all(Px(1.0)),
+        height: VMin(2.2),
+        padding: UiRect::axes(VMin(0.97), VMin(0.08)),
+        border: UiRect::vertical(VMin(0.19)),
         ..default()
       },
-      BorderColor::all(FRAME),
+      BorderColor::all(STEEL),
       BackgroundColor(TRACK),
       BoxShadow::new(
-        Color::srgba(0.0, 0.0, 0.0, 0.5),
+        Color::srgba(0.0, 0.0, 0.0, 0.55),
         Px(0.0),
         Px(0.0),
-        Px(0.0),
-        VMin(0.9)
+        VMin(0.3),
+        VMin(0.5)
       )
     ))
     .with_children(|frame| {
@@ -311,28 +382,40 @@ fn gauge(
               ..default()
             },
             BackgroundGradient::from(LinearGradient::to_bottom(vec![
-              ColorStop::auto(top),
-              ColorStop::auto(bottom),
+              ColorStop::new(top, Percent(0.0)),
+              ColorStop::new(body, Percent(24.0)),
+              ColorStop::new(shine, Percent(46.0)),
+              ColorStop::new(body, Percent(53.0)),
+              ColorStop::new(base, Percent(100.0)),
             ])),
             Fill { gauge, shown: 1.0 }
           ));
         });
-      frame.spawn(diamond(1.15, at(0.0, 50.0)));
-      frame.spawn(diamond(1.15, at(100.0, 50.0)));
+      ends(frame, 1.4, 2.4, |end| {
+        end.spawn((
+          chevron(1.56, 1.16),
+          BoxShadow::new(
+            Color::srgba(0.0, 0.0, 0.0, 0.5),
+            Px(0.0),
+            Px(0.0),
+            VMin(0.15),
+            VMin(0.4)
+          )
+        ));
+        end.spawn(chevron(1.1, 1.58));
+        end.spawn((
+          Node {
+            width: VMin(0.35),
+            height: VMin(1.3),
+            border: UiRect::right(VMin(0.19)),
+            border_radius: BorderRadius::right(VMin(0.35)),
+            ..pinned(2.05, Percent(50.0))
+          },
+          UiTransform::from_translation(Val2::percent(0.0, -50.0)),
+          BorderColor::all(STEEL)
+        ));
+      });
     });
-}
-
-fn cap(parent: &mut ChildSpawnerCommands) {
-  parent.spawn(Node { width: VMin(1.8), height: VMin(4.4), ..default() }).with_children(
-    |cap| {
-      cap.spawn((
-        Node { width: Px(1.0), height: Percent(100.0), ..at(50.0, 0.0) },
-        UiTransform::from_translation(Val2::percent(-50.0, 0.0)),
-        fading_line(false, FRAME)
-      ));
-      cap.spawn(diamond(0.85, at(50.0, 50.0)));
-    }
-  );
 }
 
 fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
@@ -342,7 +425,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
       node,
       transform,
       BackgroundColor(Color::NONE),
-      BorderColor::all(DIM)
+      BorderColor::all(MUTED)
     )
   };
   let outline = UiRect::all(VMin(0.24));
@@ -356,7 +439,7 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
         align_items: AlignItems::Center,
         ..default()
       },
-      UiTransform::from_scale(Vec2::splat(1.4))
+      UiTransform::from_scale(Vec2::splat(2.2))
     ))
     .with_children(|glyph| match place.marker() {
       Marker::Cave => {
@@ -549,60 +632,64 @@ fn heading(heading: Heading, top: f32) -> impl Bundle {
   )
 }
 
+fn knot(end: &mut ChildSpawnerCommands) {
+  end.spawn(lozenge(2.7, 2.1, Color::NONE, GLOOM));
+  end.spawn(lozenge(2.1, 2.0, RIM, Color::NONE));
+  end.spawn(lozenge(0.5, 2.0, Color::NONE, RIM));
+  end.spawn(lozenge(2.1, 3.45, RIM, Color::NONE));
+  end.spawn((
+    Node {
+      width: VMin(0.65),
+      height: VMin(2.2),
+      border: UiRect { right: VMin(0.2), top: VMin(0.2), bottom: VMin(0.2), ..default() },
+      ..pinned(4.35, Percent(50.0))
+    },
+    UiTransform::from_translation(Val2::percent(0.0, -50.0)),
+    BorderColor::all(RIM)
+  ));
+}
+
 fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
-  parent.spawn(Node { align_items: AlignItems::Center, ..default() }).with_children(
-    |row| {
-      cap(row);
-      row
-        .spawn((
-          Node {
-            width: VMin(64.0),
-            max_width: Vw(54.0),
-            height: VMin(2.9),
-            overflow: Overflow::clip(),
-            ..default()
-          },
+  parent
+    .spawn((
+      Node { width: VMin(44.5), max_width: Vw(48.0), height: VMin(3.7), ..default() },
+      BackgroundColor(GLOOM)
+    ))
+    .with_children(|band| {
+      ends(band, 4.0, 5.4, knot);
+      for top in [0.46, 3.04] {
+        band.spawn((
+          Node { width: Percent(100.0), height: VMin(0.2), ..pinned(0.0, VMin(top)) },
           BackgroundGradient::from(LinearGradient::to_right(vec![
-            ColorStop::new(Color::srgba(0.0, 0.0, 0.0, 0.22), Percent(0.0)),
-            ColorStop::new(GLOOM, Percent(14.0)),
-            ColorStop::new(GLOOM, Percent(86.0)),
-            ColorStop::new(Color::srgba(0.0, 0.0, 0.0, 0.22), Percent(100.0)),
-          ]))
-        ))
+            ColorStop::new(RIM, Percent(0.0)),
+            ColorStop::new(RIM, Percent(28.0)),
+            ColorStop::new(SHINE, Percent(50.0)),
+            ColorStop::new(RIM, Percent(72.0)),
+            ColorStop::new(RIM, Percent(100.0)),
+          ])),
+          BoxShadow::new(
+            Color::srgba(0.7, 0.85, 1.0, 0.3),
+            Px(0.0),
+            Px(0.0),
+            Px(0.0),
+            VMin(0.6)
+          )
+        ));
+      }
+      band
+        .spawn(Node {
+          width: Percent(100.0),
+          height: Percent(100.0),
+          overflow: Overflow::clip_x(),
+          ..pinned(0.0, Percent(0.0))
+        })
         .with_children(|bar| {
-          for top in [0.0, 100.0] {
-            bar.spawn((
-              Node { width: Percent(100.0), height: Px(1.0), ..at(0.0, top) },
-              UiTransform::from_translation(Val2::percent(0.0, -top)),
-              fading_line(true, FRAME)
-            ));
-          }
-          for step in 0..24 {
-            let degrees = step as f32 * 15.0;
-            bar.spawn(heading(Heading::Fixed(degrees.to_radians()), 50.0)).with_children(
-              |mark| {
-                if let Some(&letter) = ["N", "E", "S", "W"].get(step / 6)
-                  && step % 6 == 0
-                {
-                  let north = step == 0;
-                  mark.spawn(words(
-                    &fonts.sans,
-                    north.then_some(2.15).unwrap_or(1.7),
-                    north.then_some(INK).unwrap_or(PALE),
-                    letter
-                  ))
-                } else {
-                  mark.spawn((
-                    Node {
-                      width: Px(1.0),
-                      height: VMin((step % 3 == 0).then_some(0.85).unwrap_or(0.5)),
-                      ..default()
-                    },
-                    BackgroundColor(DIM)
-                  ))
-                };
-              }
-            );
+          for (quarter, letter) in ["N", "E", "S", "W"].into_iter().enumerate() {
+            bar
+              .spawn(heading(Heading::Fixed(quarter as f32 * FRAC_PI_2), 50.0))
+              .with_children(|mark| {
+                mark.spawn(words(&fonts.sans, 2.6, INK, letter));
+              });
           }
           for place in place::all() {
             bar
@@ -610,17 +697,27 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
               .with_children(|mark| icon(mark, place));
           }
           for index in 0..DOTS {
-            bar.spawn(heading(Heading::Hostile(index), 64.0)).with_children(|mark| {
+            bar.spawn(heading(Heading::Hostile(index), 50.0)).with_children(|mark| {
               mark.spawn((
                 Node {
-                  width: VMin(0.7),
-                  height: VMin(0.7),
+                  width: VMin(1.75),
+                  height: VMin(1.75),
+                  border: UiRect::all(VMin(0.12)),
                   border_radius: BorderRadius::MAX,
                   ..default()
                 },
-                BackgroundColor(HOSTILE),
+                BorderColor::all(Color::srgba(0.02, 0.0, 0.0, 0.9)),
+                BackgroundGradient::from(RadialGradient::new(
+                  UiPosition::CENTER.at(Percent(-14.0), Percent(-18.0)),
+                  RadialGradientShape::FarthestCorner,
+                  vec![
+                    ColorStop::new(Color::srgb(0.95, 0.55, 0.52), Percent(0.0)),
+                    ColorStop::new(HOSTILE, Percent(30.0)),
+                    ColorStop::new(Color::srgb(0.28, 0.02, 0.02), Percent(100.0)),
+                  ]
+                )),
                 BoxShadow::new(
-                  Color::srgba(0.0, 0.0, 0.0, 0.7),
+                  Color::srgba(0.0, 0.0, 0.0, 0.6),
                   Px(0.0),
                   Px(0.0),
                   Px(0.0),
@@ -630,9 +727,7 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
             });
           }
         });
-      cap(row);
-    }
-  );
+    });
 }
 
 fn raise(mut commands: Commands, assets: Res<AssetServer>) {
@@ -659,7 +754,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
     ..default()
   };
   commands.spawn((Name::new("Hud"), Hud, whole.clone())).with_children(|hud| {
-    hud.spawn(Node { top: VMin(2.6), row_gap: VMin(1.2), ..across(0.0) }).with_children(
+    hud.spawn(Node { top: VMin(3.2), row_gap: VMin(1.6), ..across(0.0) }).with_children(
       |top| {
         compass(top, &fonts);
         top
@@ -671,7 +766,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
           }))
           .with_children(|rival| {
             rival.spawn((RivalName, words(&fonts.sans, 1.75, INK, ""), spaced(0.25)));
-            gauge(rival, 24.0, Gauge::Rival, Stat::Health.hues());
+            gauge(rival, 24.0, Gauge::Rival, Stat::Health.gloss());
           });
       }
     );
@@ -758,23 +853,25 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
     hud
       .spawn(Node {
         position_type: PositionType::Absolute,
-        bottom: VMin(5.5),
+        bottom: VMin(4.9),
         left: Percent(0.0),
         right: Percent(0.0),
-        height: VMin(1.2),
+        height: VMin(2.2),
         ..default()
       })
       .with_children(|vitals| {
         for (stat, place) in [
           (Stat::Magicka, Node {
             position_type: PositionType::Absolute,
-            left: Vw(5.5),
+            left: Vw(5.3),
+            margin: UiRect::left(VMin(1.35)),
             ..default()
           }),
           (Stat::Health, Node { ..at(50.0, 0.0) }),
           (Stat::Stamina, Node {
             position_type: PositionType::Absolute,
-            right: Vw(5.5),
+            right: Vw(5.3),
+            margin: UiRect::right(VMin(1.35)),
             ..default()
           })
         ]
@@ -788,7 +885,7 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
               place,
               UiTransform::from_translation(Val2::percent(shift, 0.0))
             ))
-            .with_children(|meter| gauge(meter, 28.0, Gauge::Own(stat), stat.hues()));
+            .with_children(|meter| gauge(meter, 34.7, Gauge::Own(stat), stat.gloss()));
         }
       });
 
@@ -1077,10 +1174,10 @@ fn ink(charted: Res<Charted>, mut parts: Query<(&Ink, &mut Paint)>) {
     let known = charted.0.contains(&ink.place);
     paint.back = Some(match (ink.stroke, known) {
       (_, true) => INK,
-      (Stroke::Line, false) => DIM,
+      (Stroke::Line, false) => MUTED,
       (Stroke::Solid, false) => HOLLOW
     });
-    paint.border = Some(BorderColor::all(known.then_some(INK).unwrap_or(DIM)));
+    paint.border = Some(BorderColor::all(known.then_some(INK).unwrap_or(MUTED)));
   }
 }
 
