@@ -24,7 +24,8 @@ pub enum Roof {
 pub enum Walls {
   Timber,
   Logs,
-  Stone
+  Stone,
+  Jettied
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -80,7 +81,11 @@ pub enum Work {
   Terrace { at: Vec2, facing: f32 },
   Rubble { at: Vec2 },
   Stable { at: Vec2, facing: f32 },
-  Horse { at: Vec2, facing: f32 }
+  Horse { at: Vec2, facing: f32 },
+  Forge { at: Vec2, facing: f32 },
+  Inn(House),
+  Temple { at: Vec2, facing: f32 },
+  Longhall(House)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -158,6 +163,43 @@ impl Plan {
 
   fn street(&mut self, from: Vec2, to: Vec2) { self.streets.push((from, to)); }
 
+  fn fronting(&self, at: Vec2) -> Vec2 {
+    self
+      .streets
+      .iter()
+      .map(|&(from, to)| {
+        let along =
+          ((at - from).dot(to - from) / (to - from).length_squared()).clamp(0.0, 1.0);
+        from + (to - from) * along
+      })
+      .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)))
+      .map_or(self.center - at, |point| point - at)
+      .normalize_or(Vec2::Y)
+  }
+
+  fn settle(
+    &mut self,
+    near: Vec2,
+    reach: (f32, f32),
+    radius: f32,
+    make: impl Fn(Vec2, f32) -> Work
+  ) -> bool {
+    let tries: Vec<Vec2> = (0..60)
+      .map(|_| {
+        near
+          + Vec2::from_angle(self.roll.range(0.0, TAU))
+            * self.roll.range(reach.0, reach.1)
+      })
+      .collect();
+    tries.into_iter().find(|&at| self.free(at, radius)).is_some_and(|at| {
+      let toward = self.fronting(at);
+      self.taken.push((at, radius));
+      self.works.push(make(at, facing_toward(toward)));
+      self.worn.push((at + toward * (radius * 0.8), 4.5));
+      true
+    })
+  }
+
   fn line_houses(&mut self, from: Vec2, to: Vec2, roof: Roof, walls: Walls, size: f32) {
     let along = (to - from).normalize();
     let length = from.distance(to);
@@ -168,14 +210,18 @@ impl Plan {
           (self.roll.range(9.0, 13.5) * size, self.roll.range(6.5, 8.2) * size);
         let setback = depth / 2.0 + self.roll.range(4.5, 6.5);
         let at = from + along * travelled + along.perp() * side * setback;
+        let storeyed = walls == Walls::Jettied && self.roll.chance(0.6);
         let house = House {
           at,
           facing: facing_toward(-along.perp() * side),
           length: house_length,
           depth,
-          tall: self.roll.range(2.9, 3.5),
+          tall: self.roll.range(2.9, 3.5) + storeyed as u8 as f32 * 3.0,
           roof,
-          walls
+          walls: match walls {
+            Walls::Jettied if !storeyed => Walls::Timber,
+            other => other
+          }
         };
         let radius = 0.5 * Vec2::new(house_length, depth).length();
         let fits = self.clear(at, radius * 0.85, depth / 2.0 + 1.0);
@@ -256,11 +302,26 @@ fn town(place: Place, seed: u32, entry: Vec2, roof: Roof, walls: Walls) -> Layou
     facing: facing_toward(center - hall_at),
     length: 22.0,
     depth: 11.0,
-    tall: 4.2,
+    tall: 4.4,
     roof,
     walls: Walls::Timber
   };
-  plan.claim(hall_at, 12.5, Work::House(hall));
+  plan.claim(hall_at, 15.0, Work::Longhall(hall));
+  plan.settle(center, (14.0, 30.0), 10.5, |at, facing| {
+    Work::Inn(House {
+      at,
+      facing,
+      length: 15.0,
+      depth: 9.0,
+      tall: GROUND_STOREY + 2.9,
+      roof: Roof::Shingle,
+      walls: Walls::Jettied
+    })
+  });
+  plan.settle(center, (16.0, 36.0), 5.5, |at, facing| Work::Forge { at, facing });
+  if place.flat() >= 56.0 {
+    plan.settle(center, (18.0, 42.0), 14.0, |at, facing| Work::Temple { at, facing });
+  }
   for end in ends {
     plan.line_houses(center, end, roof, walls, 1.0)
   }
@@ -328,10 +389,25 @@ fn city(place: Place, seed: u32, entry: Vec2) -> Layout {
   for pair in lanes.windows(2) {
     plan.street(pair[0], pair[1])
   }
+  plan.settle(center, (20.0, 45.0), 14.0, |at, facing| Work::Temple { at, facing });
+  plan.settle(center, (16.0, 40.0), 11.0, |at, facing| {
+    Work::Inn(House {
+      at,
+      facing,
+      length: 17.0,
+      depth: 10.0,
+      tall: GROUND_STOREY + 3.1,
+      roof: Roof::Gilded,
+      walls: Walls::Jettied
+    })
+  });
+  for _ in 0..2 {
+    plan.settle(center, (20.0, 70.0), 5.5, |at, facing| Work::Forge { at, facing });
+  }
   let streets = plan.streets.clone();
   for (from, to) in streets {
-    plan.line_houses(from, to, Roof::Gilded, Walls::Timber, 1.1);
-    plan.line_houses(to, from, Roof::Gilded, Walls::Timber, 1.1);
+    plan.line_houses(from, to, Roof::Gilded, Walls::Jettied, 1.1);
+    plan.line_houses(to, from, Roof::Gilded, Walls::Jettied, 1.1);
   }
   for _ in 0..10 {
     let at =
@@ -760,6 +836,15 @@ pub static LAYOUTS: LazyLock<Vec<Layout>> = LazyLock::new(|| {
     farm(Place::LAKESIDE, 103, Vec2::new(0.5, 0.8), false),
     farm(Place::STONEBROOK, 107, Vec2::new(0.0, -1.0), false),
     farm(Place::GREYFELL, 109, Vec2::new(-0.5, -1.0), true),
+    city(Place::VINTERHOLM, 113, Vec2::new(-0.66, 0.75)),
+    city(Place::JARNVIK, 127, Vec2::new(0.32, 0.95)),
+    town(Place::ORRAVIK, 131, Vec2::new(1.0, -0.5), Roof::Thatch, Walls::Logs),
+    town(Place::DALVIK, 137, Vec2::new(1.0, -0.6), Roof::Shingle, Walls::Timber),
+    town(Place::BRATTHOLM, 139, Vec2::new(0.3, -1.0), Roof::Thatch, Walls::Stone),
+    town(Place::SKOGBY, 149, Vec2::new(-0.35, 1.0), Roof::Thatch, Walls::Logs),
+    town(Place::FJELLSTAD, 151, Vec2::new(-1.0, -0.5), Roof::Shingle, Walls::Stone),
+    town(Place::HRAFNBY, 157, Vec2::new(1.0, -0.6), Roof::Thatch, Walls::Timber),
+    town(Place::STENVIK, 163, Vec2::new(-1.0, -1.1), Roof::Shingle, Walls::Logs),
   ]
 });
 
@@ -930,11 +1015,19 @@ fn beam(from: Vec3, to: Vec3, girth: f32, color: Srgba) -> Piece {
   Piece::new(block(girth, 1.0, girth), color).span(from, to)
 }
 
+fn footing(ground: Ground, length: f32, depth: f32) -> (f32, f32) {
+  let (low, high) = spread(ground, Vec2::new(length / 2.0 + 0.4, depth / 2.0 + 0.4));
+  (low, high + 0.35)
+}
+
+const GROUND_STOREY: f32 = 3.2;
+const JETTY: f32 = 0.45;
+
 fn house(house: &House, ground: Ground, roll: &mut Roll) -> Works {
   let House { length, depth, tall, roof, walls, .. } = *house;
   let mut works = Works::default();
-  let (low, high) = spread(ground, Vec2::new(length / 2.0 + 0.4, depth / 2.0 + 0.4));
-  let floor = high + 0.35;
+  let (low, floor) = footing(ground, length, depth);
+  let jut = (walls == Walls::Jettied) as u8 as f32 * JETTY;
   let plinth = floor - low + 0.5;
   works.add(
     Stuff::Masonry,
@@ -1026,20 +1119,91 @@ fn house(house: &House, ground: Ground, roll: &mut Roll) -> Works {
           .planar(1.8)
       );
     }
+    Walls::Jettied => {
+      let upper = tall - GROUND_STOREY;
+      let sill = floor + GROUND_STOREY;
+      let (outer_length, outer_depth) = (length + 2.0 * jut, depth + 2.0 * jut);
+      works.add(
+        Stuff::Masonry,
+        Piece::new(block(length, GROUND_STOREY, depth), tinted(STONEWORK, roll, 0.1))
+          .at_xyz(0.0, floor + GROUND_STOREY / 2.0, 0.0)
+          .planar(1.8)
+      );
+      works.add(
+        Stuff::Planks,
+        Piece::new(block(outer_length, upper, outer_depth), timber)
+          .at_xyz(0.0, sill + upper / 2.0, 0.0)
+          .planar(2.4)
+      );
+      works.add(
+        Stuff::Wood,
+        Piece::new(block(outer_length + 0.2, 0.34, outer_depth + 0.2), BEAM).at_xyz(
+          0.0,
+          sill + 0.1,
+          0.0
+        )
+      );
+      let posts = (outer_length / 2.6).ceil() as usize;
+      for post in 0..=posts {
+        let x = -outer_length / 2.0 + post as f32 * outer_length / posts as f32;
+        for side in [-1.0, 1.0] {
+          let z = side * outer_depth / 2.0;
+          works.add(
+            Stuff::Wood,
+            Piece::new(block(0.26, upper, 0.26), BEAM).at_xyz(x, sill + upper / 2.0, z)
+          );
+          works.add(
+            Stuff::Wood,
+            beam(
+              Vec3::new(x, sill - 0.9, side * depth / 2.0),
+              Vec3::new(x, sill - 0.05, z),
+              0.18,
+              BEAM
+            )
+          );
+        }
+        let brace = |from: f32, to: f32| {
+          beam(
+            Vec3::new(x + from, sill + 0.2, outer_depth / 2.0 + 0.02),
+            Vec3::new(x + to, sill + upper - 0.2, outer_depth / 2.0 + 0.02),
+            0.16,
+            BEAM
+          )
+        };
+        if post < posts && post % 2 == 0 {
+          let step = outer_length / posts as f32;
+          works.add(Stuff::Wood, brace(0.1, step - 0.1));
+        }
+      }
+      for side in [-1.0, 1.0] {
+        for x in [-0.36, 0.0, 0.36].into_iter().map(|fraction| fraction * length) {
+          let z = side * (outer_depth / 2.0 + 0.04);
+          works.add(
+            Stuff::Gloss,
+            Piece::new(block(0.6, 0.8, 0.1), GLOOM).at_xyz(
+              x + 0.8,
+              sill + upper * 0.5,
+              z
+            )
+          );
+        }
+      }
+    }
   }
   let (pitch, overhang, thick, stuff, color, tile) = match roof {
     Roof::Thatch => (0.95_f32, 1.0, 0.5, Stuff::Thatch, tinted(STRAW, roll, 0.12), 2.2),
     Roof::Shingle => (0.8, 0.6, 0.18, Stuff::Shingle, tinted(SHINGLES, roll, 0.1), 2.0),
     Roof::Gilded => (0.82, 0.6, 0.2, Stuff::Shingle, tinted(GILT, roll, 0.1), 2.0)
   };
-  let gable = 0.6;
-  let half = depth / 2.0 + overhang;
+  let gable = 0.6 + jut;
+  let span = depth + 2.0 * jut;
+  let half = span / 2.0 + overhang;
   let slope = half / pitch.cos();
-  let rise = depth / 2.0 * pitch.tan();
+  let rise = span / 2.0 * pitch.tan();
   let ridge = top + rise;
   for side in [-1.0, 1.0] {
     let mid = half / 2.0;
-    let y = top + (depth / 2.0 - mid) * pitch.tan() + thick / 2.0 / pitch.cos();
+    let y = top + (span / 2.0 - mid) * pitch.tan() + thick / 2.0 / pitch.cos();
     works.add(
       stuff,
       slab(length + 2.0 * gable, thick, slope, color, tile).pitched(side * pitch).at_xyz(
@@ -1057,15 +1221,15 @@ fn house(house: &House, ground: Ground, roll: &mut Roll) -> Works {
   );
   let eave = top - overhang * pitch.tan();
   for end in [-1.0, 1.0] {
-    let x = end * (length / 2.0 - 0.05);
+    let x = end * (length / 2.0 + jut - 0.05);
     works.add(
       Stuff::Planks,
       Piece::new(
         crate::model::fan(
           &[
-            Vec2::new(-depth / 2.0, top),
+            Vec2::new(-span / 2.0, top),
             Vec2::new(0.0, ridge),
-            Vec2::new(depth / 2.0, top)
+            Vec2::new(span / 2.0, top)
           ],
           0.12
         ),
@@ -2594,6 +2758,365 @@ fn mill(site: &Site, roll: &mut Roll) -> Works {
   works
 }
 
+const IRON: Srgba = Srgba::new(0.26, 0.25, 0.25, 1.0);
+const GLOW: Srgba = Srgba::new(1.0, 0.55, 0.25, 1.0);
+
+fn standing_brazier(works: &mut Works, at: Vec3, roll: &mut Roll) {
+  for leg in 0..3 {
+    let angle = leg as f32 / 3.0 * TAU;
+    let foot = at + Vec3::new(angle.cos(), 0.0, angle.sin()) * 0.38;
+    works.add(Stuff::Iron, beam(foot, at + Vec3::Y * 1.05, 0.07, IRON));
+  }
+  brazier(works, at + Vec3::Y * 1.35, roll);
+}
+
+fn turned(works: Works, turn: f32) -> Works {
+  works.placed(Transform::from_rotation(Quat::from_rotation_y(turn)))
+}
+
+fn shifted(ground: Ground, turn: f32, by: Vec2) -> impl Fn(Vec2) -> f32 {
+  let frame = Transform::from_rotation(Quat::from_rotation_y(turn));
+  move |offset: Vec2| ground(frame.transform_point((offset + by).extend(0.0).xzy()).xz())
+}
+
+fn forge(ground: Ground, roll: &mut Roll) -> Works {
+  let mut works = Works::default();
+  let (length, depth) = (7.5, 5.2);
+  let (low, floor) = footing(ground, length, depth);
+  let timber = tinted(TIMBER, roll, 0.1);
+  let base = floor - low + 0.4;
+  works.add(
+    Stuff::Masonry,
+    slab(length + 0.6, base, depth + 0.6, tinted(STONEWORK, roll, 0.08), 1.6).at_xyz(
+      0.0,
+      floor - base / 2.0,
+      0.0
+    )
+  );
+  let (back, front) = (3.6, 2.9);
+  for (x, z, tall) in [
+    (-1.0, -1.0, back),
+    (1.0, -1.0, back),
+    (-1.0, 1.0, front),
+    (1.0, 1.0, front),
+    (0.0, 1.0, front)
+  ] {
+    works.add(
+      Stuff::Wood,
+      Piece::new(block(0.3, tall, 0.3), BEAM).at_xyz(
+        x * length / 2.0,
+        floor + tall / 2.0,
+        z * depth / 2.0
+      )
+    );
+  }
+  works.add(
+    Stuff::Planks,
+    Piece::new(block(length, back, 0.2), timber)
+      .at_xyz(0.0, floor + back / 2.0, -depth / 2.0)
+      .planar(2.4)
+  );
+  works.add(
+    Stuff::Planks,
+    Piece::new(block(0.2, back * 0.7, depth * 0.6), timber)
+      .at_xyz(-length / 2.0, floor + back * 0.35, -depth * 0.2)
+      .planar(2.4)
+  );
+  let lean = f32::atan2(back - front, depth);
+  let run = (depth + 1.4) / lean.cos();
+  works.add(
+    Stuff::Shingle,
+    slab(length + 1.2, 0.18, run, tinted(SHINGLES, roll, 0.1), 2.0).pitched(lean).at_xyz(
+      0.0,
+      floor + (back + front) / 2.0 + 0.2,
+      0.0
+    )
+  );
+  works.add(
+    Stuff::Wood,
+    Piece::new(block(length + 0.4, 0.3, 0.3), BEAM).at_xyz(
+      0.0,
+      floor + front,
+      depth / 2.0
+    )
+  );
+  let hearth = Vec3::new(-length * 0.28, floor, -depth * 0.18);
+  let stone = tinted(STONEWORK, roll, 0.08) * 0.8;
+  works.add(Stuff::Masonry, slab(2.0, 1.1, 1.6, stone, 1.4).at(hearth + Vec3::Y * 0.55));
+  works.add(
+    Stuff::Ember,
+    Piece::new(crate::model::lump(roll.below(500) as u32, 0.3, 1), GLOW)
+      .sized(Vec3::new(1.2, 0.14, 0.8))
+      .at(hearth + Vec3::Y * 1.12)
+  );
+  works.add(
+    Stuff::Masonry,
+    Piece::new(crate::model::cone(1.0, 1.1), stone).at(hearth + Vec3::Y * 1.9)
+  );
+  works.add(Stuff::Masonry, slab(0.75, 3.4, 0.75, stone, 1.4).at(hearth + Vec3::Y * 3.9));
+  works.fires.push(hearth + Vec3::Y * 1.2);
+  let anvil = Vec3::new(length * 0.05, floor, depth * 0.12);
+  works.add(
+    Stuff::Bark,
+    Piece::new(rod(0.32, 0.55), tinted(TIMBER, roll, 0.1)).at(anvil + Vec3::Y * 0.275)
+  );
+  works
+    .add(Stuff::Iron, Piece::new(block(0.3, 0.3, 0.24), IRON).at(anvil + Vec3::Y * 0.7));
+  works.add(
+    Stuff::Iron,
+    Piece::new(block(0.62, 0.16, 0.28), IRON).at(anvil + Vec3::Y * 0.93)
+  );
+  works.add(
+    Stuff::Iron,
+    Piece::new(crate::model::cone(0.1, 0.36), IRON)
+      .rolled(-FRAC_PI_2)
+      .at(anvil + Vec3::new(0.48, 0.93, 0.0))
+  );
+  let wheel = Vec3::new(length * 0.33, floor, depth * 0.2);
+  works.add(
+    Stuff::Stone,
+    Piece::new(rod(0.45, 0.14), tinted(STONEWORK, roll, 0.1))
+      .rolled(FRAC_PI_2)
+      .at(wheel + Vec3::Y * 0.75)
+  );
+  for side in [-0.2, 0.2] {
+    works.add(
+      Stuff::Wood,
+      Piece::new(block(0.1, 0.8, 0.5), BEAM).at(wheel + Vec3::new(side, 0.4, 0.0))
+    );
+  }
+  let trough = Vec3::new(length * 0.3, floor, -depth * 0.25);
+  works.add(
+    Stuff::Planks,
+    slab(1.5, 0.55, 0.65, timber * 0.8, 1.0).at(trough + Vec3::Y * 0.275)
+  );
+  works.add(
+    Stuff::Gloss,
+    Piece::new(block(1.35, 0.02, 0.5), Srgba::new(0.1, 0.12, 0.14, 1.0))
+      .at(trough + Vec3::Y * 0.53)
+  );
+  let rack = Vec3::new(length * 0.05, floor, -depth / 2.0 + 0.25);
+  works
+    .add(Stuff::Wood, Piece::new(block(2.4, 0.12, 0.12), BEAM).at(rack + Vec3::Y * 1.5));
+  for blade in 0..4 {
+    let x = -0.9 + blade as f32 * 0.6;
+    works.add(
+      Stuff::Steel,
+      Piece::new(block(0.07, 1.0, 0.02), Srgba::new(0.62, 0.64, 0.66, 1.0))
+        .at(rack + Vec3::new(x, 1.0, 0.08))
+    );
+    works.add(
+      Stuff::Leather,
+      Piece::new(block(0.05, 0.28, 0.05), Srgba::new(0.2, 0.13, 0.08, 1.0))
+        .at(rack + Vec3::new(x, 1.64, 0.08))
+    );
+  }
+  works.solid(hearth + Vec3::Y * 0.8, Quat::IDENTITY, Collider::cuboid(2.0, 1.6, 1.6));
+  works.solid(
+    Vec3::new(0.0, floor + back / 2.0, -depth / 2.0),
+    Quat::IDENTITY,
+    Collider::cuboid(length, back, 0.3)
+  );
+  works.solid(anvil + Vec3::Y * 0.5, Quat::IDENTITY, Collider::cuboid(0.7, 1.0, 0.4));
+  works.solid(
+    Vec3::new(0.0, (floor + low) / 2.0, 0.0),
+    Quat::IDENTITY,
+    Collider::cuboid(length + 0.6, floor - low + 0.05, depth + 0.6)
+  );
+  works
+}
+
+fn inn(plan: &House, ground: Ground, roll: &mut Roll) -> Works {
+  let &House { length, depth, .. } = plan;
+  let (_, floor) = footing(ground, length, depth);
+  let mut works = house(plan, ground, roll);
+  let corner = Vec3::new(length * 0.42, floor + GROUND_STOREY - 0.2, depth / 2.0);
+  works.add(Stuff::Iron, beam(corner, corner + Vec3::Z * 1.4, 0.07, IRON));
+  works
+    .add(Stuff::Iron, beam(corner - Vec3::Y * 0.7, corner + Vec3::Z * 0.8, 0.05, IRON));
+  let board = corner + Vec3::new(0.0, -0.55, 1.05);
+  works.add(
+    Stuff::Planks,
+    slab(0.08, 0.7, 0.95, tinted(TIMBER, roll, 0.1) * 0.8, 1.0).at(board)
+  );
+  works
+    .add(Stuff::Gold, Piece::new(block(0.1, 0.3, 0.3), GILT).at(board + Vec3::Y * 0.02));
+  for side in [-1.0, 1.0] {
+    works.add(
+      Stuff::Wood,
+      Piece::new(block(1.8, 0.1, 0.35), BEAM).at_xyz(
+        side * length * 0.3,
+        floor + 0.45,
+        depth / 2.0 + 0.6
+      )
+    );
+  }
+  works
+}
+
+fn temple(ground: Ground, roll: &mut Roll) -> Works {
+  let turn = -FRAC_PI_2;
+  let (length, depth, tall) = (19.0, 10.0, 6.5);
+  let nave = House {
+    at: Vec2::ZERO,
+    facing: 0.0,
+    length,
+    depth,
+    tall,
+    roof: Roof::Shingle,
+    walls: Walls::Stone
+  };
+  let inner = shifted(ground, turn, Vec2::ZERO);
+  let (low, floor) = footing(&inner, length, depth);
+  let mut works = turned(house(&nave, &inner, roll), turn);
+  let front = length / 2.0;
+  let stone = tinted(STONEWORK, roll, 0.06);
+  works.add(
+    Stuff::Masonry,
+    slab(4.2, 4.6, 0.5, stone * 0.9, 1.4).at_xyz(0.0, floor + 2.3, front + 0.2)
+  );
+  works.add(
+    Stuff::Wood,
+    Piece::new(block(2.4, 3.6, 0.2), DOOR).at_xyz(0.0, floor + 1.8, front + 0.5)
+  );
+  works.add(
+    Stuff::Gold,
+    Piece::new(rod(0.55, 0.1), GILT).pitched(FRAC_PI_2).at_xyz(
+      0.0,
+      floor + tall + 1.8,
+      front + 0.1
+    )
+  );
+  for side in [-1.0, 1.0] {
+    let x = side * 3.2;
+    works.add(
+      Stuff::Masonry,
+      Piece::new(rod(0.4, tall + 0.5), stone).at_xyz(
+        x,
+        floor + (tall + 0.5) / 2.0,
+        front + 2.6
+      )
+    );
+    works.add(
+      Stuff::Masonry,
+      slab(1.1, 0.4, 1.1, stone * 0.9, 1.4).at_xyz(x, floor + tall + 0.7, front + 2.6)
+    );
+    standing_brazier(
+      &mut works,
+      Vec3::new(side * 5.0, ground(Vec2::new(side * 5.0, front + 4.5)), front + 4.5),
+      roll
+    );
+  }
+  works.add(
+    Stuff::Shingle,
+    slab(8.0, 0.25, 3.6, tinted(SHINGLES, roll, 0.1), 2.0).pitched(-0.12).at_xyz(
+      0.0,
+      floor + tall + 1.0,
+      front + 1.9
+    )
+  );
+  let lip = floor - low + 0.3;
+  works.add(
+    Stuff::Masonry,
+    slab(8.0, lip, 5.2, stone * 0.85, 1.6).at_xyz(0.0, floor - lip / 2.0, front + 2.5)
+  );
+  let (radius, spire) = (3.0, 15.0);
+  let behind = Vec2::new(0.0, -front - radius + 0.8);
+  let steeple = tower(radius, spire, &|offset: Vec2| ground(offset + behind), roll)
+    .placed(Transform::from_translation(behind.extend(0.0).xzy()));
+  works.absorb(steeple);
+  works.solid(
+    Vec3::new(0.0, floor - lip / 2.0, front + 2.5),
+    Quat::IDENTITY,
+    Collider::cuboid(8.0, lip, 5.2)
+  );
+  works
+}
+
+fn longhall(plan: &House, ground: Ground, roll: &mut Roll) -> Works {
+  let turn = -FRAC_PI_2;
+  let &House { length, depth, tall, .. } = plan;
+  let inner = shifted(ground, turn, Vec2::ZERO);
+  let (low, floor) = footing(&inner, length, depth);
+  let mut works =
+    turned(house(&House { at: Vec2::ZERO, facing: 0.0, ..*plan }, &inner, roll), turn);
+  let front = length / 2.0;
+  let porch = 4.2;
+  let timber = tinted(TIMBER, roll, 0.1);
+  let lip = floor - low + 0.4;
+  works.add(
+    Stuff::Masonry,
+    slab(depth + 1.0, lip, porch + 0.4, tinted(STONEWORK, roll, 0.08), 1.6).at_xyz(
+      0.0,
+      floor - lip / 2.0,
+      front + porch / 2.0
+    )
+  );
+  let steps = ((floor - ground(Vec2::new(0.0, front + porch + 1.0))) / 0.3)
+    .floor()
+    .max(0.0) as usize;
+  for step in 0..steps {
+    let y = floor - 0.3 * (step as f32 + 1.0);
+    works.add(
+      Stuff::Masonry,
+      slab(4.0, 0.3, 0.45, STONEWORK * 0.85, 1.4).at_xyz(
+        0.0,
+        y + 0.15,
+        front + porch + 0.2 + step as f32 * 0.42
+      )
+    );
+  }
+  for x in [-1.0, -0.35, 0.35, 1.0].map(|fraction| fraction * depth * 0.45) {
+    works.add(
+      Stuff::Bark,
+      Piece::new(rod(0.24, tall), timber * 0.8).at_xyz(
+        x,
+        floor + tall / 2.0,
+        front + porch - 0.3
+      )
+    );
+  }
+  let pitch = 0.5;
+  for side in [-1.0, 1.0] {
+    works.add(
+      Stuff::Shingle,
+      slab(depth * 0.55, 0.2, porch + 0.8, tinted(SHINGLES, roll, 0.1), 2.0)
+        .pitched(0.0)
+        .rolled(side * pitch)
+        .at_xyz(side * depth * 0.24, floor + tall + 0.6, front + porch / 2.0)
+    );
+  }
+  works.add(
+    Stuff::Wood,
+    Piece::new(block(depth + 0.4, 0.34, 0.34), BEAM).at_xyz(
+      0.0,
+      floor + tall,
+      front + porch - 0.3
+    )
+  );
+  works.add(
+    Stuff::Wood,
+    Piece::new(block(2.2, 2.8, 0.2), DOOR).at_xyz(0.0, floor + 1.4, front + 0.08)
+  );
+  for side in [-1.0, 1.0] {
+    standing_brazier(
+      &mut works,
+      Vec3::new(
+        side * (depth * 0.5 + 1.8),
+        ground(Vec2::new(side * (depth * 0.5 + 1.8), front + porch + 2.0)),
+        front + porch + 2.0
+      ),
+      roll
+    );
+  }
+  works.solid(
+    Vec3::new(0.0, floor - lip / 2.0, front + porch / 2.0),
+    Quat::IDENTITY,
+    Collider::cuboid(depth + 1.0, lip, porch + 0.4)
+  );
+  works
+}
+
 fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
   let ground: Ground = &|offset| site.ground(offset);
   match work {
@@ -2627,6 +3150,10 @@ fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
     Work::Terrace { .. } => terrace(ground, roll),
     Work::Rubble { .. } => rubble(ground, roll),
     Work::Stable { .. } => stable(ground, roll),
+    Work::Forge { .. } => forge(ground, roll),
+    Work::Inn(plan) => inn(plan, ground, roll),
+    Work::Temple { .. } => temple(ground, roll),
+    Work::Longhall(plan) => longhall(plan, ground, roll),
     Work::Horse { .. } => {
       let mut works = Works::default();
       let y = ground(Vec2::ZERO);
@@ -2671,7 +3198,11 @@ fn anchor(work: &Work) -> (Vec2, f32) {
     | Work::Portal { at, facing }
     | Work::Pit { at, facing, .. }
     | Work::Terrace { at, facing }
-    | Work::Horse { at, facing } => (*at, *facing),
+    | Work::Horse { at, facing }
+    | Work::Forge { at, facing }
+    | Work::Temple { at, facing }
+    | Work::Inn(House { at, facing, .. })
+    | Work::Longhall(House { at, facing, .. }) => (*at, *facing),
     Work::Well { at }
     | Work::Tower { at, .. }
     | Work::Fire { at }

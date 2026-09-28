@@ -9,7 +9,7 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              signal::{Cue, Notice, Shouts, Sound},
              sky::Daylight,
              stuff::{Stuff, Stuffs},
-             terrain::{BOUND, Ground}},
+             terrain::{self, BOUND, Ground}},
      avian3d::prelude::*,
      bevy::{color::Mix, prelude::*},
      bevy_hanabi::{EffectProperties, EffectSpawner},
@@ -168,6 +168,9 @@ pub fn limbs() -> [Option<Limb>; BONES] {
 #[derive(Clone, Copy, PartialEq, Debug)]
 enum Flight {
   Waiting,
+  Roosting(f32),
+  Soaring(f32),
+  Homing,
   Arriving,
   Circling(f32),
   Strafing { from: Vec3, to: Vec3, low: f32 },
@@ -192,14 +195,16 @@ pub struct Dragon {
   passes: u32,
   scorch: f32,
   roared: bool,
-  spent: bool
+  spent: bool,
+  awake: bool,
+  lair: Option<Vec3>,
+  parts: Vec<Entity>,
+  streamed: u32,
+  absorbed: bool
 }
 
 #[derive(Component)]
-struct Breath;
-
-#[derive(Component)]
-struct DragonPart;
+struct Breath(Entity);
 
 #[derive(Component)]
 struct FoldsAway;
@@ -284,23 +289,7 @@ fn tiled(mut piece: Piece, around: f32, along: f32) -> Piece {
 
 fn mirrored(turn: Quat) -> Quat { Quat::from_xyzw(turn.x, -turn.y, -turn.z, turn.w) }
 
-fn build(
-  commands: &mut Commands,
-  meshes: &mut Assets<Mesh>,
-  stuffs: &Stuffs,
-  owner: Entity
-) -> [Entity; BONES] {
-  let mut bones = [Entity::PLACEHOLDER; BONES];
-  for bone in Bone::ALL {
-    let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
-    bones[bone as usize] = commands
-      .spawn((
-        Transform::from_translation(bone.rest()).with_scale(Vec3::splat(bone.size())),
-        Visibility::Inherited,
-        ChildOf(parent)
-      ))
-      .id();
-  }
+fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
   let hide = Hide::BRONZE.flank;
   let horn = srgb(0.38, 0.35, 0.29);
   let spike = srgb(0.2, 0.19, 0.16);
@@ -754,32 +743,111 @@ fn build(
     parts.push((bone.right_twin().unwrap_or(bone), stuff, mirrored));
     parts.push((bone, stuff, pieces));
   }
-  for (bone, stuff, pieces) in parts {
-    let mesh = model::merge(pieces);
-    let mesh = (stuff == Stuff::Scales)
-      .then(|| mesh.clone().with_generated_tangents().expect("dragon hide has uvs"))
-      .unwrap_or(mesh);
-    let part = commands
-      .spawn((
-        DragonPart,
-        Mesh3d(meshes.add(mesh)),
-        MeshMaterial3d(stuffs.of(stuff)),
-        ChildOf(bones[bone as usize])
-      ))
-      .id();
-    if matches!(bone, Bone::WingL | Bone::WingR) && stuff == Stuff::Membrane {
-      commands.entity(part).insert(FoldsAway);
-    }
-  }
-  bones
+  parts
+    .into_iter()
+    .map(|(bone, stuff, pieces)| {
+      let mesh = model::merge(pieces);
+      let mesh = (stuff == Stuff::Scales)
+        .then(|| mesh.clone().with_generated_tangents().expect("dragon hide has uvs"))
+        .unwrap_or(mesh);
+      (bone, stuff, mesh)
+    })
+    .collect()
 }
 
+#[derive(Resource)]
+struct Anatomy(Vec<(Bone, Stuff, Handle<Mesh>)>);
+
+fn build(
+  commands: &mut Commands,
+  anatomy: &Anatomy,
+  stuffs: &Stuffs,
+  owner: Entity
+) -> ([Entity; BONES], Vec<Entity>) {
+  let mut bones = [Entity::PLACEHOLDER; BONES];
+  for bone in Bone::ALL {
+    let parent = bone.parent().map_or(owner, |parent| bones[parent as usize]);
+    bones[bone as usize] = commands
+      .spawn((
+        Transform::from_translation(bone.rest()).with_scale(Vec3::splat(bone.size())),
+        Visibility::Inherited,
+        ChildOf(parent)
+      ))
+      .id();
+  }
+  let parts = anatomy
+    .0
+    .iter()
+    .map(|(bone, stuff, mesh)| {
+      let part = commands
+        .spawn((
+          Mesh3d(mesh.clone()),
+          MeshMaterial3d(stuffs.of(*stuff)),
+          ChildOf(bones[*bone as usize])
+        ))
+        .id();
+      if matches!(bone, Bone::WingL | Bone::WingR) && *stuff == Stuff::Membrane {
+        commands.entity(part).insert(FoldsAway);
+      }
+      part
+    })
+    .collect();
+  (bones, parts)
+}
+
+const LAIRS: usize = 7;
+const LAIR_APART: f32 = 1300.0;
+const LAIR_CLEAR_OF_START: f32 = 900.0;
+const WAKE: f32 = 260.0;
+const SNEAK_WAKE: f32 = 130.0;
+const LEASH: f32 = 850.0;
+const SOAR_RADIUS: f32 = 170.0;
+const SOAR_HEIGHT: f32 = 90.0;
+
+pub static LAIR_SPOTS: std::sync::LazyLock<Vec<Vec3>> = std::sync::LazyLock::new(|| {
+  let step = 48.0;
+  let span = (BOUND - 200.0) / step;
+  let cells = (-span as i32..=span as i32).flat_map(|x| {
+    (-span as i32..=span as i32).map(move |z| Vec2::new(x as f32, z as f32) * step)
+  });
+  let mut peaks: Vec<(Vec2, f32)> = cells
+    .map(|at| (at, terrain::natural_height(at)))
+    .filter(|&(at, height)| {
+      height > 300.0
+        && at.distance(crate::place::START) > LAIR_CLEAR_OF_START
+        && (0..8).all(|index| {
+          terrain::natural_height(at + Vec2::from_angle(index as f32 / 8.0 * TAU) * step)
+            <= height
+        })
+    })
+    .collect();
+  peaks.sort_by(|a, b| b.1.total_cmp(&a.1));
+  peaks
+    .into_iter()
+    .fold(Vec::<Vec2>::new(), |mut kept, (at, _)| {
+      if kept.len() < LAIRS && kept.iter().all(|other| other.distance(at) > LAIR_APART) {
+        kept.push(at);
+      }
+      kept
+    })
+    .into_iter()
+    .map(|at| at.extend(terrain::height_at(at)).xzy())
+    .collect()
+});
+
 fn spawn_dragon(
-  mut commands: Commands,
-  mut meshes: ResMut<Assets<Mesh>>,
-  stuffs: Res<Stuffs>,
-  effects: Res<Effects>
+  commands: &mut Commands,
+  anatomy: &Anatomy,
+  stuffs: &Stuffs,
+  effects: &Effects,
+  lair: Option<Vec3>,
+  seed: u32
 ) {
+  let mut roll = crate::noise::Roll::new(seed);
+  let start = lair.map_or(Transform::from_xyz(0.0, -500.0, 0.0), |lair| {
+    Transform::from_translation(lair + Vec3::Y * STANCE)
+      .with_rotation(Quat::from_rotation_y(roll.range(0.0, TAU)))
+  });
   let dragon = commands
     .spawn((
       Name::new("Dragon"),
@@ -789,13 +857,13 @@ fn spawn_dragon(
       Fighter { reach: 7.5, damage: 26.0, swing_time: 1.1, cone: 0.6, girth: 3.0 },
       RigidBody::Kinematic,
       Collider::sphere(2.0),
-      Transform::from_xyz(0.0, -500.0, 0.0),
-      Visibility::Hidden
+      start,
+      lair.map_or(Visibility::Hidden, |_| Visibility::Inherited)
     ))
     .id();
-  let bones = build(&mut commands, &mut meshes, &stuffs, dragon);
+  let (bones, parts) = build(commands, anatomy, stuffs, dragon);
   commands.spawn((
-    Breath,
+    Breath(dragon),
     effects.emit(&effects.breath),
     EffectSpawner::new(&bevy_hanabi::SpawnerSettings::rate(420.0.into()))
       .with_active(false),
@@ -804,7 +872,14 @@ fn spawn_dragon(
     ChildOf(bones[Bone::Head as usize])
   ));
   commands.entity(dragon).insert(Dragon {
-    flight: Flight::Waiting,
+    flight: lair
+      .map(|_| {
+        roll
+          .chance(0.5)
+          .then(|| Flight::Roosting(roll.range(0.0, 60.0)))
+          .unwrap_or(Flight::Soaring(roll.range(0.0, 30.0)))
+      })
+      .unwrap_or(Flight::Waiting),
     bones,
     velocity: Vec3::ZERO,
     flap: 0.0,
@@ -815,8 +890,32 @@ fn spawn_dragon(
     passes: 0,
     scorch: 0.0,
     roared: false,
-    spent: false
+    spent: false,
+    awake: lair.is_none(),
+    lair,
+    parts,
+    streamed: 0,
+    absorbed: false
   });
+}
+
+fn spawn_dragons(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  stuffs: Res<Stuffs>,
+  effects: Res<Effects>
+) {
+  let anatomy = Anatomy(
+    anatomy()
+      .into_iter()
+      .map(|(bone, stuff, mesh)| (bone, stuff, meshes.add(mesh)))
+      .collect()
+  );
+  spawn_dragon(&mut commands, &anatomy, &stuffs, &effects, None, 0);
+  let lairs = opts().foe.as_deref().is_none_or(|foe| !foe.starts_with("dragon"));
+  for (index, &lair) in LAIR_SPOTS.iter().enumerate().filter(|_| lairs) {
+    spawn_dragon(&mut commands, &anatomy, &stuffs, &effects, Some(lair), index as u32 + 1)
+  }
 }
 
 const LATERAL_PULL: f32 = 9.0;
@@ -847,6 +946,7 @@ fn fly(
   ground: Res<Ground>,
   daylight: Res<Daylight>,
   view: Res<View>,
+  stealth: Res<crate::combat::Stealth>,
   mut sounds: MessageWriter<Sound>,
   mut struck: MessageWriter<Struck>,
   mut shake: ResMut<Shake>,
@@ -895,13 +995,76 @@ fn fly(
     dragon.bite_cooldown -= delta;
     dragon.breath = (dragon.breath - delta).max(0.0);
     let aloft = at.y - floor(at) > STANCE + 1.5;
+    let wake = stealth.sneaking.then_some(SNEAK_WAKE).unwrap_or(WAKE);
+    let stirred = exposed && distance < wake;
+    let strayed = dragon.lair.is_some_and(|lair| {
+      hero_dead || hidden || (target - lair).with_y(0.0).length() > LEASH
+    });
     let flight = match dragon.flight {
       Flight::Falling | Flight::Slain(_) => dragon.flight,
       _ if dead && aloft => Flight::Falling,
       _ if dead => Flight::Slain(0.0),
+      Flight::Arriving
+      | Flight::Circling(_)
+      | Flight::Strafing { .. }
+      | Flight::Landing(_)
+      | Flight::Grounded(_)
+        if strayed =>
+      {
+        dragon.awake = false;
+        matches!(dragon.flight, Flight::Grounded(_))
+          .then_some(Flight::Rising(0.0))
+          .unwrap_or(Flight::Homing)
+      }
       other => other
     };
+    let mut rouse = |dragon: &mut Dragon| {
+      dragon.awake = true;
+      dragon.roared = true;
+      sounds.write(Sound::here(Cue::DragonRoar, at));
+    };
     let next = match flight {
+      Flight::Roosting(_) if stirred => {
+        rouse(&mut dragon);
+        Flight::Rising(0.0)
+      }
+      Flight::Roosting(rested) => {
+        dragon.velocity = Vec3::ZERO;
+        (rested > 80.0)
+          .then_some(Flight::Rising(0.0))
+          .unwrap_or(Flight::Roosting(rested + delta))
+      }
+      Flight::Soaring(_) | Flight::Homing if stirred => {
+        rouse(&mut dragon);
+        Flight::Arriving
+      }
+      Flight::Soaring(soared) => {
+        let lair = dragon.lair.unwrap_or(at);
+        let bearing = f32::atan2(at.z - lair.z, at.x - lair.x) + 0.3;
+        let ahead = Vec3::new(bearing.cos(), 0.0, bearing.sin()) * SOAR_RADIUS + lair;
+        let goal = ahead.with_y(lair.y + SOAR_HEIGHT);
+        dragon.velocity =
+          steer_toward(dragon.velocity, goal, at, CRUISE * 0.9, 1.0, delta);
+        (soared > 50.0)
+          .then_some(Flight::Homing)
+          .unwrap_or(Flight::Soaring(soared + delta))
+      }
+      Flight::Homing => {
+        let lair = dragon.lair.unwrap_or(at);
+        let horizontal = (lair - at).with_y(0.0).length();
+        let goal = (horizontal > 12.0)
+          .then(|| lair + Vec3::Y * (STANCE + 14.0 + (horizontal * 0.15).min(60.0)))
+          .unwrap_or(lair + Vec3::Y * STANCE);
+        let speed = (horizontal * 0.8 + 4.0).min(CRUISE);
+        dragon.velocity = steer_toward(dragon.velocity, goal, at, speed, 1.5, delta);
+        let touched = at.y - (floor(at) + STANCE) < 0.6 && horizontal < 4.0;
+        touched
+          .then(|| {
+            dragon.velocity = Vec3::ZERO;
+            Flight::Roosting(0.0)
+          })
+          .unwrap_or(Flight::Homing)
+      }
       Flight::Waiting
         if let Some(rest) =
           opts().foe.as_deref().and_then(|foe| foe.strip_prefix("dragon"))
@@ -1052,7 +1215,9 @@ fn fly(
         dragon.velocity = Vec3::Y * 9.0
           + transform.forward().as_vec3().with_y(0.0).normalize_or_zero() * lifted * 6.0;
         (lifted > 2.5)
-          .then_some(Flight::Circling(0.0))
+          .then_some(
+            dragon.awake.then_some(Flight::Circling(0.0)).unwrap_or(Flight::Soaring(0.0))
+          )
           .unwrap_or(Flight::Rising(lifted + delta))
       }
       Flight::Falling => {
@@ -1074,7 +1239,10 @@ fn fly(
 
     let grounded = matches!(
       next,
-      Flight::Grounded(_) | Flight::Slain(_) | Flight::Posing { aloft: false }
+      Flight::Grounded(_)
+        | Flight::Roosting(_)
+        | Flight::Slain(_)
+        | Flight::Posing { aloft: false }
     );
     let moved = transform.translation + dragon.velocity * delta;
     let clamped = moved.clamp(
@@ -1096,7 +1264,16 @@ fn fly(
       Flight::Landing(spot) => (spot - at).with_y(0.0).length() < 12.0,
       _ => false
     };
-    let heading = if grounded || hovering {
+    let settling = match next {
+      Flight::Roosting(_) => true,
+      Flight::Homing => {
+        dragon.lair.is_some_and(|lair| (lair - at).with_y(0.0).length() < 12.0)
+      }
+      _ => false
+    };
+    let heading = if settling {
+      forward.with_y(0.0).normalize_or(Vec3::X)
+    } else if grounded || hovering {
       flat_gap.normalize_or(forward)
     } else if matches!(next, Flight::Rising(_)) {
       forward.with_y(0.0).normalize_or(Vec3::X).with_y(0.35).normalize()
@@ -1109,7 +1286,7 @@ fn fly(
         was.normalize().cross(now.normalize()).y.clamp(-1.0, 1.0).asin() / delta.max(1e-3)
       })
       .unwrap_or(0.0);
-    let bank = (!grounded && !hovering)
+    let bank = (!grounded && !hovering && !settling)
       .then(|| (yaw_rate * now.length() / GRAVITY).atan())
       .unwrap_or(0.0)
       .clamp(-0.9, 0.9);
@@ -1126,9 +1303,11 @@ fn fly(
     dragon.flap_rate = match next {
       Flight::Landing(_) | Flight::Rising(_) => 3.4,
       Flight::Grounded(_)
+      | Flight::Roosting(_)
       | Flight::Slain(_)
       | Flight::Waiting
       | Flight::Posing { aloft: false } => 0.0,
+      Flight::Homing if settling => 3.4,
       Flight::Falling => 5.0,
       _ => (dragon.velocity.y.max(0.0) * 0.3 + 1.4).min(3.0)
     };
@@ -1184,15 +1363,17 @@ fn fly(
 fn kindle(
   dragons: Query<(&Dragon, &Transform)>,
   heroes: Query<&Transform, (With<Player>, Without<Dragon>)>,
-  mut breaths: Query<
-    (&mut EffectSpawner, &mut EffectProperties, &GlobalTransform),
-    With<Breath>
-  >
+  mut breaths: Query<(
+    &Breath,
+    &mut EffectSpawner,
+    &mut EffectProperties,
+    &GlobalTransform
+  )>
 ) {
-  let breathing = dragons.iter().find(|(dragon, _)| {
-    dragon.breath > 0.0 && !matches!(dragon.flight, Flight::Slain(_) | Flight::Falling)
-  });
-  for (mut spawner, mut properties, mouth) in breaths.iter_mut() {
+  for (&Breath(owner), mut spawner, mut properties, mouth) in breaths.iter_mut() {
+    let breathing = dragons.get(owner).ok().filter(|(dragon, _)| {
+      dragon.breath > 0.0 && !matches!(dragon.flight, Flight::Slain(_) | Flight::Falling)
+    });
     spawner.active = breathing.is_some();
     if let Some((&Dragon { velocity, .. }, transform)) = breathing
       && let ahead = transform.forward().as_vec3().with_y(0.0).normalize_or(Vec3::NEG_Z)
@@ -1222,6 +1403,7 @@ fn pose(
     let flying = !matches!(
       dragon.flight,
       Flight::Grounded(_)
+        | Flight::Roosting(_)
         | Flight::Slain(_)
         | Flight::Waiting
         | Flight::Posing { aloft: false }
@@ -1334,39 +1516,40 @@ fn absorb(
   mut notices: MessageWriter<Notice>,
   mut commands: Commands,
   player: Single<Entity, With<Player>>,
-  dragons: Query<(&Dragon, &Transform)>,
-  mut parts: Query<&mut MeshMaterial3d<StandardMaterial>, With<DragonPart>>,
-  mut streamed: Local<u32>,
-  mut finished: Local<bool>
+  mut dragons: Query<(&mut Dragon, &Transform)>,
+  mut parts: Query<&mut MeshMaterial3d<StandardMaterial>>
 ) {
-  for (dragon, transform) in dragons.iter() {
+  for (index, (mut dragon, transform)) in dragons.iter_mut().enumerate() {
     if let Flight::Slain(since) = dragon.flight
-      && !*finished
+      && !dragon.absorbed
     {
       let flowing = (since - 2.0).clamp(0.0, 5.0);
       let due = (flowing * 40.0) as u32;
-      for index in *streamed..due {
-        let mut roll = crate::noise::Roll::new(index * 97 + 5);
+      let seed = index as u32 * 1000 + 999;
+      for wisp in dragon.streamed..due {
+        let mut roll = crate::noise::Roll::new(wisp * 97 + 5 + seed);
         let from = transform.transform_point(Vec3::new(
           roll.spread(1.5),
           roll.spread(1.0),
           roll.range(-3.0, 4.0)
         ));
-        shout::stream(&mut commands, &look, from, *player, index + 999, true);
+        shout::stream(&mut commands, &look, from, *player, wisp + seed, true);
       }
-      *streamed = due;
-      if since > 2.0 && since - time.delta_secs() <= 2.0 {
-        let embers = stuffs.of(Stuff::Cinder);
-        for mut material in parts.iter_mut() {
-          material.0 = embers.clone()
+      dragon.streamed = due;
+      let mut clad = |stuff: Stuff| {
+        let material = stuffs.of(stuff);
+        for &part in dragon.parts.iter() {
+          if let Ok(mut worn) = parts.get_mut(part) {
+            worn.0 = material.clone()
+          }
         }
+      };
+      if since > 2.0 && since - time.delta_secs() <= 2.0 {
+        clad(Stuff::Cinder);
       }
       if since > 7.5 {
-        let bone = stuffs.of(Stuff::Bone);
-        for mut material in parts.iter_mut() {
-          material.0 = bone.clone()
-        }
-        *finished = true;
+        clad(Stuff::Bone);
+        dragon.absorbed = true;
         shouts.cooldown = 0.0;
         sounds.write(Sound::flat(Cue::WordLearned));
         notices.write(Notice("Dragon Soul Absorbed".into()));
@@ -1377,7 +1560,7 @@ fn absorb(
 
 pub fn plugin(app: &mut App) {
   app
-    .add_systems(Startup, spawn_dragon)
+    .add_systems(Startup, spawn_dragons)
     .add_systems(Update, (fly, kindle, absorb).chain().after(crate::walker::Walking))
     .add_systems(PostUpdate, pose.before(TransformSystems::Propagate));
 }

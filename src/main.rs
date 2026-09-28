@@ -33,6 +33,7 @@ mod sky;
 mod stuff;
 mod terrain;
 mod texture;
+mod trail;
 mod walker;
 mod wolf;
 mod work;
@@ -130,6 +131,7 @@ fn press(
       "RMB" => Err(MouseButton::Right),
       "Space" => Ok(KeyCode::Space),
       "Shift" => Ok(KeyCode::ShiftLeft),
+      "Ctrl" => Ok(KeyCode::ControlLeft),
       "W" => Ok(KeyCode::KeyW),
       "E" => Ok(KeyCode::KeyE),
       "F" => Ok(KeyCode::KeyF),

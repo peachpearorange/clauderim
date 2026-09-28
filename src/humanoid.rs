@@ -155,7 +155,8 @@ pub struct Motion {
   pub airborne: f32,
   pub swim: f32,
   pub shout: f32,
-  pub breath: f32
+  pub breath: f32,
+  pub crouch: f32
 }
 
 fn relaxed(rig: &Rig) -> Pose {
@@ -285,6 +286,16 @@ fn swimming(base: Pose, motion: &Motion) -> Pose {
     .with(Joint::KneeR, Vec3::X * -0.25)
 }
 
+fn crouched(base: Pose) -> Pose {
+  Pose { drop: 0.3, lean: -0.12, ..base }
+    .add(Joint::Chest, Vec3::new(0.3, 0.0, 0.0))
+    .add(Joint::Head, Vec3::new(-0.35, 0.0, 0.0))
+    .add(Joint::LegL, Vec3::new(0.85, 0.0, -0.08))
+    .add(Joint::LegR, Vec3::new(0.6, 0.0, 0.08))
+    .add(Joint::KneeL, Vec3::new(-1.2, 0.0, 0.0))
+    .add(Joint::KneeR, Vec3::new(-1.0, 0.0, 0.0))
+}
+
 fn fallen(base: Pose) -> Pose {
   Pose { drop: 0.82, lean: -1.45, ..base }
     .with(Joint::ArmL, Vec3::new(2.4, 0.0, -0.9))
@@ -299,7 +310,8 @@ fn fallen(base: Pose) -> Pose {
 }
 
 pub fn posed(rig: &Rig, motion: &Motion) -> Pose {
-  let base = ready(rig).add(Joint::Chest, Vec3::X * (motion.breath.sin() * 0.025));
+  let upright = ready(rig).add(Joint::Chest, Vec3::X * (motion.breath.sin() * 0.025));
+  let base = upright.blend(&crouched(upright), motion.crouch);
   let walked = walking(base, motion);
   let airborne = walked
     .with(Joint::LegL, Vec3::new(0.6, 0.0, 0.0))

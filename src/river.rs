@@ -1,6 +1,6 @@
 use {crate::{model::{Piece, block},
              noise,
-             place::{self, Marker, ROADS},
+             place::{self, Marker},
              stuff::{Stuff, Stuffs},
              terrain::{self, smooth},
              texture},
@@ -525,7 +525,7 @@ impl Bridge {
 }
 
 pub static BRIDGES: LazyLock<Vec<Bridge>> = LazyLock::new(|| {
-  let crossings = ROADS.iter().flat_map(|road| {
+  let crossings = place::ways().flat_map(|road| {
     road.path.windows(2).filter_map(|pair| {
       let (from, to) = (pair[0], pair[1]);
       let road_line = to - from;

@@ -1,4 +1,4 @@
-use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
+use {crate::{combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
              fx::{Effects, Fleeting},
              humanoid::{self, Grip, MAN, Motion, Rig},
              inventory::{Inventory, Item, Loot},
@@ -7,6 +7,7 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Struck, Vitals},
              player::{Player, View},
              shout::Staggered,
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
+             sky::Daylight,
              stuff::{Stuff, Stuffs},
              terrain::Ground,
              walker::{Walker, Walking},
@@ -30,6 +31,9 @@ struct Breed {
 }
 
 const UNWATCHED: f32 = 200.0;
+const SNEAK_SENSE: f32 = 0.42;
+const SNEAK_WAKE: f32 = 2.8;
+const WAKE: f32 = 6.5;
 
 const fn breed(kind: FoeKind) -> Breed {
   match kind {
@@ -120,7 +124,8 @@ pub struct Foe {
   roll: Roll,
   looted: bool,
   voice: f32,
-  inhaling: Option<f32>
+  inhaling: Option<f32>,
+  suspicion: f32
 }
 
 impl Foe {
@@ -171,7 +176,8 @@ fn raise(
         roll: Roll::new(seed),
         looted: false,
         voice: 4.0,
-        inhaling: None
+        inhaling: None,
+        suspicion: 0.0
       },
       Walker::default(),
       Motion::default(),
@@ -277,28 +283,45 @@ fn alarm(kind: FoeKind) -> Cue {
 
 fn think(
   time: Res<Time>,
+  daylight: Res<Daylight>,
+  mut stealth: ResMut<Stealth>,
   mut struck: MessageReader<Struck>,
   mut sounds: MessageWriter<Sound>,
-  player: Single<(Entity, &Transform, Has<Dead>), With<Player>>,
+  player: Single<(Entity, &Transform, &Walker, Has<Dead>), With<Player>>,
   mut foes: Query<
     (Entity, &mut Foe, &Transform, &mut Walker, &mut Motion, &Fighter),
-    (Without<Dead>, Without<Specimen>)
+    (Without<Dead>, Without<Specimen>, Without<Player>)
   >
 ) {
-  let (hero, hero_at, hero_dead) = *player;
+  let (hero, hero_at, hero_walker, hero_dead) = *player;
   let target = hero_at.translation;
   let delta = time.delta_secs();
   let provoked: Vec<Entity> =
     struck.read().filter(|hit| hit.attacker == hero).map(|hit| hit.target).collect();
+  let sneaking = stealth.sneaking;
+  let stir = 0.6 + 0.4 * (hero_walker.wish.length() / crate::player::RUN_SPEED).min(1.0);
+  let gloom = 0.55 + 0.45 * daylight.level.clamp(0.0, 1.0) * (1.0 - daylight.shelter);
+  let mut noticed_most: f32 = 0.0;
   for (entity, mut foe, transform, mut walker, mut motion, fighter) in foes.iter_mut() {
     let stats = breed(foe.kind);
     let at = transform.translation;
     let gap = (target - at).with_y(0.0);
     let distance = gap.length();
-    let noticed = !hero_dead && (distance < stats.aggro || provoked.contains(&entity));
+    let behind = transform.forward().as_vec3().dot(gap.normalize_or_zero()) < -0.2;
+    let reach = sneaking
+      .then(|| {
+        stats.aggro * SNEAK_SENSE * stir * gloom * behind.then_some(0.6).unwrap_or(1.0)
+      })
+      .unwrap_or(stats.aggro);
+    let sense = (1.0 - distance / reach).max(0.0);
+    foe.suspicion = sneaking
+      .then(|| (foe.suspicion + (sense * 3.0 - 0.35) * delta).clamp(0.0, 1.0))
+      .unwrap_or((sense > 0.0) as u8 as f32);
+    let noticed = !hero_dead && (foe.suspicion >= 1.0 || provoked.contains(&entity));
+    let wake = sneaking.then_some(SNEAK_WAKE).unwrap_or(WAKE);
     foe.cooldown -= delta;
     let mind = match foe.mind {
-      Mind::Dormant if distance < 6.5 || provoked.contains(&entity) => {
+      Mind::Dormant if distance < wake || provoked.contains(&entity) => {
         sounds.write(Sound::here(Cue::DraugrWake, at));
         Mind::Hunt
       }
@@ -332,6 +355,11 @@ fn think(
       Mind::Return => Mind::Return
     };
     foe.mind = mind;
+    noticed_most = noticed_most.max(
+      (mind == Mind::Hunt)
+        .then_some(1.0)
+        .unwrap_or(foe.suspicion * (mind != Mind::Dormant) as u8 as f32)
+    );
     let toward = gap.normalize_or_zero();
     let strike_range = fighter.reach + 0.2;
     let busy = motion.swing.is_some() || motion.flinch > 0.4;
@@ -373,6 +401,7 @@ fn think(
       sounds.write(Sound::here(cue, at));
     }
   }
+  stealth.noticed = noticed_most;
 }
 
 const BELLOW_WINDUP: f32 = 0.45;

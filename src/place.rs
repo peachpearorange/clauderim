@@ -37,7 +37,7 @@ impl Spot {
   const fn rise(self, rise: f32) -> Self { Spot { rise, ..self } }
 }
 
-const NAMED: [Spot; 27] = [
+const NAMED: [Spot; 36] = [
   Spot::new("Hollowcrag Barrow", Vec2::new(-250.0, -170.0), Marker::Barrow, 36.0)
     .sunk(9.0),
   Spot::new("Fellhound Den", Vec2::new(302.8, -216.2), Marker::Cave, 24.0).sunk(6.0),
@@ -65,7 +65,16 @@ const NAMED: [Spot; 27] = [
   Spot::new("Birchmoor Farm", Vec2::new(-1750.0, -2150.0), Marker::Farm, 32.0),
   Spot::new("Lakeside Farm", Vec2::new(850.0, 2000.0), Marker::Farm, 32.0),
   Spot::new("Stonebrook Farm", Vec2::new(-1150.0, 350.0), Marker::Farm, 32.0),
-  Spot::new("Greyfell Farm", Vec2::new(2250.0, 1250.0), Marker::Farm, 34.0)
+  Spot::new("Greyfell Farm", Vec2::new(2250.0, 1250.0), Marker::Farm, 34.0),
+  Spot::new("Vinterholm", Vec2::new(1450.0, 1700.0), Marker::City, 96.0).rise(18.0),
+  Spot::new("Jarnvik", Vec2::new(-1250.0, -800.0), Marker::City, 96.0).rise(16.0),
+  Spot::new("Orravik", Vec2::new(-2550.0, 1650.0), Marker::Town, 56.0),
+  Spot::new("Dalvik", Vec2::new(150.0, 2650.0), Marker::Town, 56.0),
+  Spot::new("Brattholm", Vec2::new(-2330.0, -1650.0), Marker::Town, 56.0),
+  Spot::new("Skogby", Vec2::new(1420.0, 160.0), Marker::Town, 46.0),
+  Spot::new("Fjellstad", Vec2::new(2700.0, 1850.0), Marker::Town, 56.0),
+  Spot::new("Hrafnby", Vec2::new(-2800.0, 650.0), Marker::Town, 46.0),
+  Spot::new("Stenvik", Vec2::new(-1500.0, 2800.0), Marker::Town, 56.0)
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
@@ -99,6 +108,15 @@ impl Place {
   pub const LAKESIDE: Place = Place(24);
   pub const STONEBROOK: Place = Place(25);
   pub const GREYFELL: Place = Place(26);
+  pub const VINTERHOLM: Place = Place(27);
+  pub const JARNVIK: Place = Place(28);
+  pub const ORRAVIK: Place = Place(29);
+  pub const DALVIK: Place = Place(30);
+  pub const BRATTHOLM: Place = Place(31);
+  pub const SKOGBY: Place = Place(32);
+  pub const FJELLSTAD: Place = Place(33);
+  pub const HRAFNBY: Place = Place(34);
+  pub const STENVIK: Place = Place(35);
 
   fn info(self) -> &'static Spot {
     let index = usize::from(self.0);
@@ -181,6 +199,7 @@ pub const TRAIL: [Vec2; 6] = [
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Paving {
+  Trail,
   Dirt,
   Stone
 }
@@ -188,12 +207,14 @@ pub enum Paving {
 impl Paving {
   pub const fn half_width(self) -> f32 {
     match self {
+      Paving::Trail => 1.9,
       Paving::Dirt => 2.6,
       Paving::Stone => 3.4
     }
   }
 }
 
+#[derive(Clone)]
 pub struct Road {
   pub paving: Paving,
   pub path: Vec<Vec2>
@@ -237,17 +258,52 @@ const WEST_ROAD: [Vec2; 11] = [
   Vec2::new(-1950.0, -620.0)
 ];
 
-const GREYHELM_TRAIL: [Vec2; 5] = [
+const GREYHELM_TRAIL: [Vec2; 6] = [
   Vec2::new(-1050.0, -150.0),
   Vec2::new(-1130.0, -470.0),
-  Vec2::new(-1220.0, -870.0),
+  Vec2::new(-1060.0, -760.0),
+  Vec2::new(-1160.0, -1080.0),
   Vec2::new(-1290.0, -1270.0),
   Vec2::new(-1300.0, -1660.0)
 ];
 
+const JARNVIK_ROAD: [Vec2; 3] =
+  [Vec2::new(-1130.0, -470.0), Vec2::new(-1190.0, -620.0), Vec2::new(-1250.0, -800.0)];
+
+const VINTERHOLM_ROAD: [Vec2; 3] =
+  [Vec2::new(1300.0, 1860.0), Vec2::new(1380.0, 1780.0), Vec2::new(1450.0, 1700.0)];
+
+const ORRAVIK_ROAD: [Vec2; 4] = [
+  Vec2::new(-1900.0, 1250.0),
+  Vec2::new(-2150.0, 1420.0),
+  Vec2::new(-2380.0, 1560.0),
+  Vec2::new(-2550.0, 1650.0)
+];
+
+const DALVIK_ROAD: [Vec2; 4] = [
+  Vec2::new(700.0, 2250.0),
+  Vec2::new(480.0, 2420.0),
+  Vec2::new(300.0, 2560.0),
+  Vec2::new(150.0, 2650.0)
+];
+
+const FJELLSTAD_ROAD: [Vec2; 3] =
+  [Vec2::new(2240.0, 1600.0), Vec2::new(2450.0, 1720.0), Vec2::new(2700.0, 1850.0)];
+
+const STENVIK_ROAD: [Vec2; 5] = [
+  Vec2::new(-2550.0, 1650.0),
+  Vec2::new(-2250.0, 1900.0),
+  Vec2::new(-2000.0, 2250.0),
+  Vec2::new(-1750.0, 2550.0),
+  Vec2::new(-1500.0, 2800.0)
+];
+
+const HRAFNBY_ROAD: [Vec2; 3] =
+  [Vec2::new(-2150.0, 300.0), Vec2::new(-2450.0, 420.0), Vec2::new(-2800.0, 650.0)];
+
 const SKARN_TRAIL: [Vec2; 6] = [
   Vec2::new(1300.0, 470.0),
-  Vec2::new(1420.0, 150.0),
+  Vec2::new(1420.0, 160.0),
   Vec2::new(1560.0, -250.0),
   Vec2::new(1720.0, -650.0),
   Vec2::new(1850.0, -1000.0),
@@ -287,13 +343,14 @@ const MOSS_ROAD: [Vec2; 8] = [
   Vec2::new(-2250.0, 950.0)
 ];
 
-const NORTH_TRAIL: [Vec2; 8] = [
+const NORTH_TRAIL: [Vec2; 9] = [
   Vec2::new(-1950.0, -620.0),
   Vec2::new(-2150.0, -760.0),
   Vec2::new(-2350.0, -900.0),
   Vec2::new(-2500.0, -1050.0),
-  Vec2::new(-2380.0, -1450.0),
-  Vec2::new(-2230.0, -1850.0),
+  Vec2::new(-2420.0, -1380.0),
+  Vec2::new(-2330.0, -1650.0),
+  Vec2::new(-2230.0, -1880.0),
   Vec2::new(-2120.0, -2080.0),
   Vec2::new(-2050.0, -2250.0)
 ];
@@ -402,12 +459,55 @@ pub static ROADS: LazyLock<Vec<Road>> = LazyLock::new(|| {
     road(Paving::Dirt, &LAKESIDE_TRAIL),
     road(Paving::Dirt, &SUNHILL_TRAIL),
     road(Paving::Dirt, &STONEBROOK_TRAIL),
-    road(Paving::Dirt, &GREYFELL_TRAIL)
+    road(Paving::Dirt, &GREYFELL_TRAIL),
+    road(Paving::Stone, &JARNVIK_ROAD),
+    road(Paving::Stone, &VINTERHOLM_ROAD),
+    road(Paving::Dirt, &ORRAVIK_ROAD),
+    road(Paving::Dirt, &DALVIK_ROAD),
+    road(Paving::Dirt, &FJELLSTAD_ROAD),
+    road(Paving::Dirt, &HRAFNBY_ROAD),
+    road(Paving::Dirt, &STENVIK_ROAD)
   ]
   .into_iter()
   .chain(crate::settlement::streets())
   .collect()
 });
+
+const BARROW_UPLAND: f32 = 200.0;
+const TRAIL_REACH: f32 = 1500.0;
+const TRAIL_STEEPEST: f32 = 0.36;
+
+fn barrow_trail(barrow: &Spot) -> Option<Road> {
+  crate::trail::Climb { from: barrow.at, reach: TRAIL_REACH, steepest: TRAIL_STEEPEST }
+    .toward(|at| nearest_in(&MAIN.wide, at).distance - 2.0)
+    .map(|path| {
+      let joint = path.last().map(|&end| nearest_in(&MAIN.wide, end).point);
+      Road {
+        paving: Paving::Trail,
+        path: path
+          .into_iter()
+          .filter(|at| at.distance(barrow.at) > barrow.flat * 1.1)
+          .chain(joint)
+          .collect()
+      }
+    })
+    .filter(|road| {
+      road.path.windows(2).map(|pair| pair[0].distance(pair[1])).sum::<f32>() > 120.0
+    })
+}
+
+pub static TRAILS: LazyLock<Vec<Road>> = LazyLock::new(|| {
+  crate::site::SITES
+    .iter()
+    .filter(|spot| {
+      spot.marker == Marker::Barrow
+        && crate::terrain::natural_height(spot.at) > BARROW_UPLAND
+    })
+    .filter_map(barrow_trail)
+    .collect()
+});
+
+pub fn ways() -> impl Iterator<Item = &'static Road> { ROADS.iter().chain(TRAILS.iter()) }
 
 #[derive(Clone, Copy)]
 struct Segment {
@@ -451,9 +551,8 @@ fn binned(segments: &[Segment], reach: f32) -> HashMap<IVec2, Vec<Segment>> {
   })
 }
 
-static BINS: LazyLock<Bins> = LazyLock::new(|| {
-  let segments: Vec<Segment> = ROADS
-    .iter()
+fn bins<'a>(roads: impl Iterator<Item = &'a Road>) -> Bins {
+  let segments: Vec<Segment> = roads
     .flat_map(|road| {
       road.path.windows(2).map(|pair| Segment {
         from: pair[0],
@@ -463,7 +562,11 @@ static BINS: LazyLock<Bins> = LazyLock::new(|| {
     })
     .collect();
   Bins { near: binned(&segments, 24.0), wide: binned(&segments, REACH) }
-});
+}
+
+static MAIN: LazyLock<Bins> = LazyLock::new(|| bins(ROADS.iter()));
+
+static BINS: LazyLock<Bins> = LazyLock::new(|| bins(ways()));
 
 fn nearest_in(bins: &HashMap<IVec2, Vec<Segment>>, at: Vec2) -> Nearest {
   bins.get(&(at / BIN).floor().as_ivec2()).map_or(Nearest::NONE, |segments| {
@@ -486,3 +589,7 @@ pub fn road_distance(at: Vec2) -> f32 {
 }
 
 pub fn route_distance(at: Vec2) -> f32 { nearest_in(&BINS.wide, at).distance }
+
+pub fn nearest_main_road(at: Vec2) -> Nearest { nearest_in(&MAIN.near, at) }
+
+pub fn pass_distance(at: Vec2) -> f32 { nearest_in(&MAIN.wide, at).distance }

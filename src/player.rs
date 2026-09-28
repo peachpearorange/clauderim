@@ -15,6 +15,9 @@ use {crate::{humanoid::{self, Grip, Hidden1st, MAN, Motion},
 pub const RUN_SPEED: f32 = 5.2;
 pub const SPRINT_SPEED: f32 = 8.4;
 pub const WALK_SPEED: f32 = 2.2;
+pub const SNEAK_SPEED: f32 = 2.7;
+const SNEAK_CREEP: f32 = 1.5;
+const CROUCH_EYE: f32 = 0.5;
 const CAPSULE_RADIUS: f32 = 0.34;
 const CAPSULE_HEIGHT: f32 = 1.84;
 const EYE: f32 = 1.66;
@@ -169,6 +172,7 @@ fn steer(
   scroll: Res<AccumulatedMouseScroll>,
   time: Res<Time>,
   mut view: ResMut<View>,
+  mut stealth: ResMut<crate::combat::Stealth>,
   player: Single<(&mut Walker, &mut Motion, &crate::combat::Vitals), With<Player>>
 ) {
   let (mut walker, mut body, vitals) = player.into_inner();
@@ -178,6 +182,7 @@ fn steer(
     body.fallen = (pose == "dead") as u8 as f32;
     body.speed = (pose == "run").then_some(5.0).unwrap_or(0.0);
     body.stride = 1.0;
+    stealth.sneaking |= pose == "sneak";
   }
   if view.captured {
     view.yaw -= motion.delta.x * LOOK_SPEED;
@@ -214,14 +219,24 @@ fn steer(
   .filter(|&(key, _)| keys.pressed(key))
   .fold(Vec3::ZERO, |sum, (_, direction)| sum + direction)
   .normalize_or_zero();
-  let sprinting =
-    keys.pressed(KeyCode::ShiftLeft) && vitals.stamina > 1.0 && body.guard < 0.3;
-  let pace = if sprinting {
-    SPRINT_SPEED
-  } else if keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::CapsLock) {
-    WALK_SPEED
-  } else {
-    RUN_SPEED
+  let sprinting = keys.pressed(KeyCode::ShiftLeft)
+    && vitals.stamina > 1.0
+    && body.guard < 0.3
+    && heading != Vec3::ZERO;
+  let strolling = keys.pressed(KeyCode::AltLeft) || keys.pressed(KeyCode::CapsLock);
+  stealth.sneaking = alive
+    && !walker.swimming
+    && !sprinting
+    && (stealth.sneaking != keys.just_pressed(KeyCode::ControlLeft));
+  body.crouch = body
+    .crouch
+    .lerp(stealth.sneaking as u8 as f32, 1.0 - (-10.0 * time.delta_secs()).exp());
+  let pace = match (sprinting, stealth.sneaking, strolling) {
+    (true, ..) => SPRINT_SPEED,
+    (_, true, true) => SNEAK_CREEP,
+    (_, true, false) => SNEAK_SPEED,
+    (_, false, true) => WALK_SPEED,
+    _ => RUN_SPEED
   };
   let slowed = 1.0 - 0.55 * body.guard - 0.4 * body.swing.map_or(0.0, |_| 1.0);
   walker.wish = heading * pace * slowed * alive as u8 as f32;
@@ -240,13 +255,13 @@ fn follow(
   view: Res<View>,
   ground: Res<Ground>,
   spatial: SpatialQuery,
-  player: Single<(Entity, &Transform), With<Player>>,
+  player: Single<(Entity, &Transform, &Motion), With<Player>>,
   mut camera: Single<&mut Transform, (With<MainCamera>, Without<Player>)>,
   mut shown: Local<Option<f32>>,
   mut hidden: Query<&mut RenderLayers, With<Hidden1st>>
 ) {
-  let (entity, body) = *player;
-  let feet = body.translation - Vec3::Y * capsule_offset();
+  let (entity, body, &Motion { crouch, .. }) = *player;
+  let feet = body.translation - Vec3::Y * (capsule_offset() + crouch * CROUCH_EYE);
   let rotation = Quat::from_euler(EulerRot::YXZ, view.yaw, view.pitch, 0.0);
   let distance = shown.map_or(view.distance, |shown| {
     shown + (view.distance - shown) * (1.0 - (-time.delta_secs() * 12.0).exp())

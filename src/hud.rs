@@ -1,4 +1,4 @@
-use {crate::{combat::{Dead, Side, Struck, Vitals},
+use {crate::{combat::{Dead, Side, Stealth, Struck, Vitals},
              creature::Foe,
              opts::opts,
              place::{self, Marker, Place},
@@ -223,6 +223,15 @@ struct Crosshair;
 
 #[derive(Component)]
 struct Mourning;
+
+#[derive(Component)]
+struct SneakEye;
+
+#[derive(Component)]
+struct Lids;
+
+#[derive(Component)]
+struct Pupil;
 
 #[derive(Component)]
 struct Intro;
@@ -865,6 +874,53 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
     ));
 
     hud
+      .spawn((
+        SneakEye,
+        Fade(0.0),
+        Node { width: VMin(5.2), height: VMin(5.2), ..at(50.0, 44.0) },
+        centred()
+      ))
+      .with_children(|eye| {
+        eye
+          .spawn((
+            Lids,
+            Node { width: Percent(100.0), height: Percent(100.0), ..default() },
+            UiTransform::from_scale(Vec2::new(1.0, 0.3))
+          ))
+          .with_children(|lids| {
+            lids.spawn((
+              Node {
+                width: VMin(4.2),
+                height: VMin(4.2),
+                border: UiRect::all(VMin(0.3)),
+                ..at(50.0, 50.0)
+              },
+              BorderColor::all(INK),
+              BackgroundColor(GLOOM),
+              BoxShadow::new(
+                Color::srgba(0.0, 0.0, 0.0, 0.6),
+                Px(0.0),
+                Px(0.0),
+                Px(0.0),
+                Px(3.0)
+              ),
+              UiTransform { rotation: Rot2::degrees(45.0), ..centred() }
+            ));
+          });
+        eye.spawn((
+          Pupil,
+          Node {
+            width: VMin(1.3),
+            height: VMin(1.3),
+            border_radius: BorderRadius::MAX,
+            ..at(50.0, 50.0)
+          },
+          UiTransform { scale: Vec2::splat(0.2), ..centred() },
+          BackgroundColor(INK)
+        ));
+      });
+
+    hud
       .spawn(Node {
         position_type: PositionType::Absolute,
         bottom: VMin(4.9),
@@ -1261,6 +1317,21 @@ fn reticle(
   fade.0 = approach(fade.0, view.first_person as u8 as f32, time.delta_secs() * 6.0);
 }
 
+fn peer(
+  time: Res<Time>,
+  stealth: Res<Stealth>,
+  mut eye: Single<&mut Fade, With<SneakEye>>,
+  mut lids: Single<&mut UiTransform, (With<Lids>, Without<Pupil>)>,
+  mut pupil: Single<&mut UiTransform, (With<Pupil>, Without<Lids>)>,
+  mut open: Local<f32>
+) {
+  let step = time.delta_secs();
+  eye.0 = approach(eye.0, stealth.sneaking as u8 as f32, step * 5.0);
+  *open = approach(*open, stealth.noticed, step * 2.5);
+  lids.scale = Vec2::new(1.0, 0.34 + 0.4 * *open);
+  pupil.scale = Vec2::splat(0.2 + 0.8 * smoothstep(0.1, 0.9, *open));
+}
+
 fn mourn(
   time: Res<Time>,
   player: Single<Has<Dead>, With<Player>>,
@@ -1444,6 +1515,7 @@ pub fn plugin(app: &mut App) {
         ink,
         recharge,
         reticle,
+        peer,
         mourn,
         unveil,
         track,

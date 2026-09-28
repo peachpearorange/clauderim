@@ -1,11 +1,13 @@
-use {crate::{humanoid::Motion,
+use {crate::{creature::Foe,
+             humanoid::Motion,
              player::{self, Player, View},
-             signal::{Cue, Sound},
+             signal::{Cue, Notice, Sound},
              walker::{Walker, Walking}},
      bevy::prelude::*};
 
 const POWER_HOLD: f32 = 0.32;
 const STRIKE_AT: f32 = 0.5;
+const SNEAK_ATTACK: f32 = 3.0;
 
 #[derive(Component, Clone)]
 pub struct Vitals {
@@ -61,6 +63,12 @@ pub struct Struck {
 #[derive(Resource, Default)]
 pub struct Shake(pub f32);
 
+#[derive(Resource, Default)]
+pub struct Stealth {
+  pub sneaking: bool,
+  pub noticed: f32
+}
+
 fn player_attacks(
   mouse: Res<ButtonInput<MouseButton>>,
   time: Res<Time>,
@@ -94,15 +102,17 @@ fn player_attacks(
 
 fn swing(
   time: Res<Time>,
+  stealth: Res<Stealth>,
   mut bodies: Query<
-    (Entity, &Transform, &Fighter, &Side, &mut Motion),
+    (Entity, &Transform, &Fighter, &Side, &mut Motion, Option<&Foe>),
     (With<Vitals>, Without<Dead>)
   >,
-  mut struck: MessageWriter<Struck>
+  mut struck: MessageWriter<Struck>,
+  mut notices: MessageWriter<Notice>
 ) {
   let strikes: Vec<_> = bodies
     .iter_mut()
-    .filter_map(|(entity, transform, fighter, side, mut motion)| {
+    .filter_map(|(entity, transform, fighter, side, mut motion, _)| {
       let before = motion.swing?;
       let pace = motion.power.then_some(1.45).unwrap_or(1.0) * fighter.swing_time;
       let after = before + time.delta_secs() / pace;
@@ -116,7 +126,8 @@ fn swing(
       ))
     })
     .collect();
-  let hits: Vec<Struck> = strikes
+  let stealthy = stealth.sneaking;
+  let hits: Vec<(Struck, bool)> = strikes
     .into_iter()
     .flat_map(|(attacker, transform, fighter, side, power)| {
       let forward = transform.forward().as_vec3().with_y(0.0).normalize_or_zero();
@@ -125,7 +136,7 @@ fn swing(
         .filter(move |(target, _, _, their_side, ..)| {
           *target != attacker && **their_side != side
         })
-        .filter_map(move |(target, their, their_fighter, _, their_motion)| {
+        .filter_map(move |(target, their, their_fighter, _, their_motion, foe)| {
           let gap = their.translation - transform.translation;
           let flat = gap.with_y(0.0);
           let within =
@@ -135,22 +146,31 @@ fn swing(
             let facing_us =
               their.forward().as_vec3().dot(-flat.normalize_or_zero()) > 0.3;
             let blocked = their_motion.guard > 0.6 && facing_us;
+            let unaware =
+              side == Side::Hero && stealthy && foe.is_some_and(|foe| !foe.hunting());
             let damage = fighter.damage
               * power.then_some(2.2).unwrap_or(1.0)
-              * blocked.then_some(0.15).unwrap_or(1.0);
-            Struck {
-              target,
-              attacker,
-              damage,
-              power,
-              blocked,
-              at: transform.translation.lerp(their.translation, 0.7) + Vec3::Y * 0.4
-            }
+              * blocked.then_some(0.15).unwrap_or(1.0)
+              * unaware.then_some(SNEAK_ATTACK).unwrap_or(1.0);
+            (
+              Struck {
+                target,
+                attacker,
+                damage,
+                power,
+                blocked,
+                at: transform.translation.lerp(their.translation, 0.7) + Vec3::Y * 0.4
+              },
+              unaware
+            )
           })
         })
     })
     .collect();
-  for hit in hits {
+  for (hit, unaware) in hits {
+    if unaware {
+      notices.write(Notice(format!("Sneak attack for {SNEAK_ATTACK:.1}x damage")));
+    }
     struck.write(hit);
   }
 }
@@ -254,11 +274,15 @@ fn resound(
 pub struct Fighting;
 
 pub fn plugin(app: &mut App) {
-  app.add_message::<Struck>().init_resource::<Shake>().add_systems(
-    Update,
-    (player_attacks, swing, wound, recover, resound)
-      .chain()
-      .after(Walking)
-      .in_set(Fighting)
-  );
+  app
+    .add_message::<Struck>()
+    .init_resource::<Shake>()
+    .init_resource::<Stealth>()
+    .add_systems(
+      Update,
+      (player_attacks, swing, wound, recover, resound)
+        .chain()
+        .after(Walking)
+        .in_set(Fighting)
+    );
 }

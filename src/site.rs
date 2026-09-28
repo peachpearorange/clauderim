@@ -130,7 +130,7 @@ fn welcoming(at: Vec2, marker: Marker) -> bool {
   terrain::natural_height(at)
     < (marker == Marker::Barrow).then_some(PEAK).unwrap_or(SUMMIT)
     && place::named().all(|place| at.distance(place.spot()) > place.flat() * 2.5 + 110.0)
-    && place::nearest_road(at).edge() > room + 12.0
+    && place::nearest_main_road(at).edge() > room + 12.0
     && river::course_distance(at) > room + 30.0
     && river::lake_near(at, 2.3).is_none()
     && uncarved(at, room * 1.9)

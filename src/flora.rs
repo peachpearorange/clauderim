@@ -1191,9 +1191,10 @@ fn bluffs(patch: IVec2) -> Vec<Plant> {
         Some(plant)
       })
       .filter(|&Plant { place: Transform { translation, scale, .. }, .. }| {
-        place::all().all(|place| {
-          translation.xz().distance(place.spot()) > place.flat() * 1.9 + scale.x * 0.5
-        })
+        place::route_distance(translation.xz()) > scale.x * 0.7 + 6.0
+          && place::all().all(|place| {
+            translation.xz().distance(place.spot()) > place.flat() * 1.9 + scale.x * 0.5
+          })
       })
       .collect::<Vec<_>>()
   })
@@ -1281,7 +1282,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
       let size =
         if roll.chance(0.07) { roll.range(4.5, 8.0) } else { roll.range(1.0, 3.2) };
       let crowd = 2 + roll.below(5);
-      (site.open && site.road > 3.0 && roll.next() < chance)
+      (site.open && site.road > 3.0 + size * 0.8 && roll.next() < chance)
         .then(|| {
           let main = rock(&mut roll, &site, size);
           let satellites: Vec<Plant> = (0..crowd)
@@ -1290,7 +1291,8 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
               let near = at + Vec2::from_angle(angle) * size * roll.range(0.8, 1.8);
               let site = survey(ground, near);
               let small = size * roll.range(0.15, 0.5);
-              (site.open && site.road > 3.0).then(|| rock(&mut roll, &site, small))
+              (site.open && site.road > 3.0 + small * 0.8)
+                .then(|| rock(&mut roll, &site, small))
             })
             .collect();
           std::iter::once(main).chain(satellites).collect::<Vec<_>>()
@@ -1312,14 +1314,14 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
         && pick < 0.2 * steep)
         .then(|| {
           (0..crowd)
-            .map(|_| {
+            .filter_map(|_| {
               let site =
                 survey(ground, at + Vec2::new(roll.spread(size), roll.spread(size)));
               let big = size * roll.range(0.5, 1.0);
               let scale =
                 Vec3::new(big * roll.range(1.2, 1.8), big * roll.range(0.45, 0.7), big);
               let snowy = site.snow > 0.5;
-              Plant {
+              (site.road > 3.0 + scale.x * 0.6).then(|| Plant {
                 growth: if snowy { Growth::SnowyCrag } else { Growth::Crag },
                 variant: roll.below(6),
                 place: Transform::from_translation(
@@ -1332,7 +1334,7 @@ fn scatter(ground: &Ground, patch: IVec2) -> Vec<Plant> {
                   ) * Quat::from_rotation_y(-contour.to_angle() + roll.spread(0.3))
                 )
                 .with_scale(scale)
-              }
+              })
             })
             .collect::<Vec<_>>()
         })

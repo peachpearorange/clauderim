@@ -120,7 +120,7 @@ pub fn land(at: Vec2, pass: f32) -> f32 {
 }
 
 pub fn wild_height(at: Vec2) -> f32 {
-  land(at, smooth(55.0, 320.0, place::route_distance(at)))
+  land(at, smooth(55.0, 320.0, place::pass_distance(at)))
 }
 
 pub fn natural_height(at: Vec2) -> f32 {
@@ -181,7 +181,7 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
   let road = place::nearest_road(at);
   let edge = road.edge() + noise::fbm(at / 6.0, 2, 43) * 1.2;
   let (surface, paved) = match road.paving {
-    place::Paving::Dirt => (DIRT, smooth(0.8, -0.8, edge)),
+    place::Paving::Dirt | place::Paving::Trail => (DIRT, smooth(0.8, -0.8, edge)),
     place::Paving::Stone => (
       COBBLE.mix(&TRODDEN, 0.35 + 0.5 * crate::paving::decay(at)),
       smooth(0.6, -0.6, edge)
@@ -852,6 +852,19 @@ mod tests {
       })
     );
     println!("{} rivers", river::rivers());
+    println!(
+      "{} trails: {:?} m; lairs {:?}",
+      place::TRAILS.len(),
+      place::TRAILS
+        .iter()
+        .map(|trail| trail
+          .path
+          .windows(2)
+          .map(|pair| pair[0].distance(pair[1]))
+          .sum::<f32>() as i32)
+        .collect::<Vec<_>>(),
+      crate::dragon::LAIR_SPOTS.iter().map(|lair| lair.as_ivec3()).collect::<Vec<_>>()
+    );
     map_image("screenshots/map.png", |at| {
       place::named()
         .filter(|&place| settled(place))
