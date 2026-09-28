@@ -5,7 +5,8 @@ use {crate::{combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
              noise::Roll,
              place::Place,
              player::{Player, View},
-             shout::Staggered,
+             ragdoll::Knocked,
+             shout::{GETTING_UP, Staggered},
              signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound},
              sky::Daylight,
              stuff::{Stuff, Stuffs},
@@ -406,7 +407,8 @@ fn think(
 
 const BELLOW_WINDUP: f32 = 0.45;
 const BELLOW_REACH: f32 = 11.0;
-const BELLOW_FORCE: f32 = 15.0;
+const BELLOW_FORCE: f32 = 7.0;
+const BELLOW_LIMP: f32 = 1.6;
 const BELLOW_DAMAGE: f32 = 16.0;
 
 fn bellow(
@@ -416,7 +418,7 @@ fn bellow(
   mut sounds: MessageWriter<Sound>,
   mut commands: Commands,
   player: Single<
-    (Entity, &Transform, &mut Walker, &mut Vitals),
+    (Entity, &Transform, &mut Vitals),
     (With<Player>, Without<Dead>, Without<Foe>)
   >,
   mut foes: Query<
@@ -425,7 +427,7 @@ fn bellow(
   >
 ) {
   let delta = time.delta_secs();
-  let (hero, hero_at, mut hero_walker, mut vitals) = player.into_inner();
+  let (hero, hero_at, mut vitals) = player.into_inner();
   for (mut foe, transform, mut walker, mut motion) in
     foes.iter_mut().filter(|(foe, ..)| foe.kind == FoeKind::DraugrOverlord)
   {
@@ -447,10 +449,15 @@ fn bellow(
         ));
         if in_reach && aimed {
           let falloff = 1.0 - flat.length() / BELLOW_REACH * 0.5;
-          hero_walker.shove += (toward + Vec3::Y * 0.35) * BELLOW_FORCE * falloff;
           vitals.health -= BELLOW_DAMAGE;
           shake.0 = shake.0.max(0.7);
-          commands.entity(hero).insert(Staggered(1.1));
+          commands.entity(hero).insert((
+            Knocked {
+              left: BELLOW_LIMP,
+              fling: (toward + Vec3::Y * 0.35) * BELLOW_FORCE * falloff
+            },
+            Staggered(BELLOW_LIMP + GETTING_UP)
+          ));
           if vitals.health <= 0.0 {
             commands.entity(hero).insert(Dead);
           }
