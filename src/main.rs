@@ -34,6 +34,7 @@ mod stuff;
 mod terrain;
 mod texture;
 mod trail;
+mod trail_cells;
 mod walker;
 mod wolf;
 mod work;

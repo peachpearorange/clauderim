@@ -796,7 +796,9 @@ fn build(
 }
 
 const LAIRS: usize = 7;
+#[cfg(test)]
 const LAIR_APART: f32 = 1300.0;
+#[cfg(test)]
 const LAIR_CLEAR_OF_START: f32 = 900.0;
 const WAKE: f32 = 260.0;
 const SNEAK_WAKE: f32 = 130.0;

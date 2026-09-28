@@ -473,37 +473,50 @@ pub static ROADS: LazyLock<Vec<Road>> = LazyLock::new(|| {
   .collect()
 });
 
+#[cfg(test)]
 const BARROW_UPLAND: f32 = 200.0;
+#[cfg(test)]
 const TRAIL_REACH: f32 = 1500.0;
+#[cfg(test)]
 const TRAIL_STEEPEST: f32 = 0.36;
 
-fn barrow_trail(barrow: &Spot) -> Option<Road> {
-  crate::trail::Climb { from: barrow.at, reach: TRAIL_REACH, steepest: TRAIL_STEEPEST }
-    .toward(|at| nearest_in(&MAIN.wide, at).distance - 2.0)
-    .map(|path| {
-      let joint = path.last().map(|&end| nearest_in(&MAIN.wide, end).point);
-      Road {
-        paving: Paving::Trail,
-        path: path
-          .into_iter()
-          .filter(|at| at.distance(barrow.at) > barrow.flat * 1.1)
-          .chain(joint)
-          .collect()
-      }
-    })
-    .filter(|road| {
-      road.path.windows(2).map(|pair| pair[0].distance(pair[1])).sum::<f32>() > 120.0
-    })
-}
-
-pub static TRAILS: LazyLock<Vec<Road>> = LazyLock::new(|| {
+#[cfg(test)]
+pub fn surveyed_trails() -> Vec<Vec<[i16; 2]>> {
   crate::site::SITES
     .iter()
     .filter(|spot| {
       spot.marker == Marker::Barrow
         && crate::terrain::natural_height(spot.at) > BARROW_UPLAND
     })
-    .filter_map(barrow_trail)
+    .filter_map(|barrow| {
+      crate::trail::survey::Climb {
+        from: barrow.at,
+        reach: TRAIL_REACH,
+        steepest: TRAIL_STEEPEST
+      }
+      .toward(|at| nearest_in(&MAIN.wide, at).distance - 2.0)
+      .map(|cells| {
+        cells
+          .into_iter()
+          .filter(|&cell| {
+            crate::trail::spot(cell).distance(barrow.at) > barrow.flat * 1.1
+          })
+          .map(|cell| [cell.x as i16, cell.y as i16])
+          .collect::<Vec<_>>()
+      })
+    })
+    .filter(|cells| cells.len() as f32 * crate::trail::CELL > 120.0)
+    .collect()
+}
+
+pub static TRAILS: LazyLock<Vec<Road>> = LazyLock::new(|| {
+  crate::trail_cells::CELLS
+    .iter()
+    .map(|cells| {
+      let path = crate::trail::laid(cells);
+      let joint = path.last().map(|&end| nearest_in(&MAIN.wide, end).point);
+      Road { paving: Paving::Trail, path: path.into_iter().chain(joint).collect() }
+    })
     .collect()
 });
 
