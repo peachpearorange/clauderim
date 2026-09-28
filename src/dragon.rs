@@ -754,13 +754,7 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
   }
   parts
     .into_iter()
-    .map(|(bone, stuff, pieces)| {
-      let mesh = model::merge(pieces);
-      let mesh = (stuff == Stuff::Scales)
-        .then(|| mesh.clone().with_generated_tangents().expect("dragon hide has uvs"))
-        .unwrap_or(mesh);
-      (bone, stuff, mesh)
-    })
+    .map(|(bone, stuff, pieces)| (bone, stuff, stuff.fitted(model::merge(pieces))))
     .collect()
 }
 

@@ -33,6 +33,8 @@ pub enum Stuff {
   Wood,
   #[assoc(roughness = 0.95, grain = Grain::Bark, tiling = 1.0)]
   Bark,
+  #[assoc(roughness = 0.7, grain = Grain::Birch, tiling = 1.0)]
+  Birch,
   #[assoc(roughness = 0.9, grain = Grain::Needles, tiling = 2.0, two_sided = true)]
   Needles,
   #[assoc(roughness = 0.88, grain = Grain::Rock, tiling = 1.0)]
@@ -62,7 +64,30 @@ pub enum Stuff {
 }
 
 impl Stuff {
-  pub const ALL: [Stuff; 23] = [
+  pub const fn bumpy(self) -> bool {
+    matches!(
+      self.grain(),
+      Grain::Wood
+        | Grain::Bark
+        | Grain::Birch
+        | Grain::Rock
+        | Grain::Cliff
+        | Grain::Scales
+        | Grain::Thatch
+        | Grain::Shingles
+        | Grain::Masonry
+        | Grain::Planks
+    )
+  }
+
+  pub fn fitted(self, mut mesh: Mesh) -> Mesh {
+    if self.bumpy() {
+      mesh.generate_tangents().ok();
+    }
+    mesh
+  }
+
+  pub const ALL: [Stuff; 24] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -73,6 +98,7 @@ impl Stuff {
     Stuff::Bone,
     Stuff::Wood,
     Stuff::Bark,
+    Stuff::Birch,
     Stuff::Needles,
     Stuff::Stone,
     Stuff::Cliff,
@@ -97,6 +123,7 @@ pub enum Grain {
   Metal,
   Wood,
   Bark,
+  Birch,
   Needles,
   Rock,
   Cliff,
@@ -127,33 +154,36 @@ fn prepare(
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>
 ) {
+  let plain = |image: Image| (image, None);
+  let relieved = |texture::Textured { tone, relief }| (tone, Some(relief));
   let grains = [
-    (Grain::Fur, texture::fur()),
-    (Grain::Leather, texture::leather()),
-    (Grain::Metal, texture::metal()),
-    (Grain::Wood, texture::wood()),
-    (Grain::Bark, texture::bark()),
-    (Grain::Needles, texture::needles()),
-    (Grain::Rock, texture::rock()),
-    (Grain::Cliff, texture::cliff()),
-    (Grain::Cracks, texture::cracks()),
-    (Grain::Scales, texture::scales()),
-    (Grain::Thatch, texture::thatch()),
-    (Grain::Shingles, texture::shingles()),
-    (Grain::Masonry, texture::masonry()),
-    (Grain::Planks, texture::planks())
+    (Grain::Fur, plain(texture::fur())),
+    (Grain::Leather, plain(texture::leather())),
+    (Grain::Metal, plain(texture::metal())),
+    (Grain::Wood, relieved(texture::wood())),
+    (Grain::Bark, relieved(texture::bark())),
+    (Grain::Birch, relieved(texture::birch())),
+    (Grain::Needles, plain(texture::needles())),
+    (Grain::Rock, relieved(texture::rock())),
+    (Grain::Cliff, (texture::cliff(), Some(texture::cliff_bumps()))),
+    (Grain::Cracks, plain(texture::cracks())),
+    (Grain::Scales, (texture::scales(), Some(texture::scale_bumps()))),
+    (Grain::Thatch, relieved(texture::thatch())),
+    (Grain::Shingles, (texture::shingles(), Some(texture::shingle_bumps()))),
+    (Grain::Masonry, relieved(texture::masonry())),
+    (Grain::Planks, relieved(texture::planks()))
   ]
-  .map(|(grain, image)| (grain, images.add(image)));
-  let scale_bumps = images.add(texture::scale_bumps());
-  let masonry_bumps = images.add(texture::masonry_bumps());
-  let shingle_bumps = images.add(texture::shingle_bumps());
-  let cliff_bumps = images.add(texture::cliff_bumps());
+  .map(|(grain, (tone, relief))| {
+    (grain, images.add(tone), relief.map(|relief| images.add(relief)))
+  });
   let made = Stuff::ALL
     .into_iter()
     .map(|stuff| {
       let grain = stuff.grain();
-      let texture =
-        grains.iter().find(|(each, _)| *each == grain).map(|(_, handle)| handle.clone());
+      let (texture, relief) = grains
+        .iter()
+        .find(|(each, ..)| *each == grain)
+        .map_or((None, None), |(_, tone, relief)| (Some(tone.clone()), relief.clone()));
       (
         stuff,
         materials.add(StandardMaterial {
@@ -164,13 +194,7 @@ fn prepare(
           metallic: stuff.metallic(),
           reflectance: stuff.reflectance(),
           emissive: stuff.glow(),
-          normal_map_texture: match grain {
-            Grain::Scales => Some(scale_bumps.clone()),
-            Grain::Masonry => Some(masonry_bumps.clone()),
-            Grain::Shingles => Some(shingle_bumps.clone()),
-            Grain::Cliff => Some(cliff_bumps.clone()),
-            _ => None
-          },
+          normal_map_texture: relief,
           diffuse_transmission: stuff.translucency(),
           double_sided: stuff.two_sided(),
           cull_mode: (!stuff.two_sided())

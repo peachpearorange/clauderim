@@ -113,6 +113,10 @@ fn wood_piece(mesh: Mesh, base: LinearRgba) -> Piece {
   Piece::new(mesh, Srgba::WHITE).shaded(move |point, _| bark_tone(point, base))
 }
 
+fn barked(piece: Piece, girth: f32, length: f32) -> Piece {
+  piece.tiled(Vec2::new((TAU * girth / 0.9).round().max(1.0), length / 1.3))
+}
+
 fn trunk_collider(radius: f32, height: f32) -> Collider {
   Collider::compound(vec![(
     Vec3::Y * height / 2.0,
@@ -465,6 +469,7 @@ fn pine(seed: u32, snowy: bool, coarse: bool) -> Tree {
     ),
     PINE_BARK
   );
+  let trunk = barked(trunk, girth * 1.3, height + 0.8);
   let stubs = (0..if coarse { 0 } else { 4 + roll.below(5) }).map(|_| {
     let angle = roll.range(0.0, TAU);
     let start = Vec3::Y * roll.range(1.8, base.max(2.2));
@@ -533,7 +538,8 @@ fn gnarl(seed: u32) -> Tree {
       girth * (0.75 + 0.9 * smooth(0.25, 0.0, t) - 0.2 * t)
     })
     .collect();
-  let trunk = wood_piece(model::tube(&path, &radii, 8), GNARL_BARK);
+  let trunk =
+    barked(wood_piece(model::tube(&path, &radii, 8), GNARL_BARK), girth, height * 0.5);
   let fork = path[steps];
   let heading = (fork - path[steps - 1]).normalize();
   let (limbs, tips) = (0..2 + roll.below(2))
@@ -637,6 +643,7 @@ fn birch(seed: u32) -> Tree {
   );
   let trunk =
     Piece::new(model::tube(&path, &model::taper(8, girth, 0.03), 7), Srgba::WHITE)
+      .tiled(Vec2::new(1.0, (height + 0.5) / 1.2))
       .shaded(|point, _| {
         let angle = point.z.atan2(point.x);
         let scar =
@@ -705,6 +712,7 @@ fn snag(seed: u32) -> (Mesh, Collider) {
     ),
     DEAD_WOOD
   );
+  let trunk = barked(trunk, girth, height + 0.6);
   let stubs: Vec<Piece> = (0..5 + roll.below(5))
     .map(|_| {
       let angle = roll.range(0.0, TAU);
@@ -721,19 +729,23 @@ fn stump(seed: u32) -> (Mesh, Collider) {
   let mut roll = Roll::new(seed);
   let girth = roll.range(0.3, 0.45);
   let height = roll.range(0.35, 0.9);
-  let mesh = Piece::new(
-    model::lathe(
-      &[
-        Vec2::new(girth * 1.6, -0.3),
-        Vec2::new(girth * 1.25, 0.1),
-        Vec2::new(girth * 1.05, 0.35),
-        Vec2::new(girth, height),
-        Vec2::new(girth * 0.9, height + 0.03),
-        Vec2::new(0.0, height + 0.06)
-      ],
-      10
+  let mesh = barked(
+    Piece::new(
+      model::lathe(
+        &[
+          Vec2::new(girth * 1.6, -0.3),
+          Vec2::new(girth * 1.25, 0.1),
+          Vec2::new(girth * 1.05, 0.35),
+          Vec2::new(girth, height),
+          Vec2::new(girth * 0.9, height + 0.03),
+          Vec2::new(0.0, height + 0.06)
+        ],
+        10
+      ),
+      Srgba::WHITE
     ),
-    Srgba::WHITE
+    girth,
+    height + 0.4
   )
   .shaded(|point, normal| {
     let rings = (point.xz().length() * 30.0).sin() * 0.5 + 0.5;
@@ -747,20 +759,24 @@ fn log(seed: u32) -> (Mesh, Collider) {
   let mut roll = Roll::new(seed);
   let girth = roll.range(0.26, 0.42);
   let length = roll.range(4.5, 8.0);
-  let body = Piece::new(
-    model::lathe(
-      &[
-        Vec2::new(0.0, 0.0),
-        Vec2::new(girth * 0.95, 0.02),
-        Vec2::new(girth, 0.3),
-        Vec2::new(girth * 0.92, length * 0.5),
-        Vec2::new(girth * 0.8, length - 0.3),
-        Vec2::new(girth * 0.75, length),
-        Vec2::new(0.0, length + 0.02)
-      ],
-      10
+  let body = barked(
+    Piece::new(
+      model::lathe(
+        &[
+          Vec2::new(0.0, 0.0),
+          Vec2::new(girth * 0.95, 0.02),
+          Vec2::new(girth, 0.3),
+          Vec2::new(girth * 0.92, length * 0.5),
+          Vec2::new(girth * 0.8, length - 0.3),
+          Vec2::new(girth * 0.75, length),
+          Vec2::new(0.0, length + 0.02)
+        ],
+        10
+      ),
+      Srgba::WHITE
     ),
-    Srgba::WHITE
+    girth,
+    length
   )
   .at(Vec3::Y * -length / 2.0)
   .rolled(FRAC_PI_2)
@@ -824,12 +840,9 @@ fn rock_shape(
   let hulls: Vec<(Vec3, Quat, Collider)> =
     lods.last().into_iter().flatten().filter_map(hull).collect();
   let mut coats = lods.into_iter().map(|meshes| {
-    let mut mesh = Piece::new(model::merge(meshes.into_iter().map(Piece)), Srgba::WHITE)
+    let mesh = Piece::new(model::merge(meshes.into_iter().map(Piece)), Srgba::WHITE)
       .shaded(|point, normal| stone_tone(point, normal, snowy, seed))
       .0;
-    if stuff == Stuff::Cliff {
-      mesh.generate_tangents().expect("rock tangents");
-    }
     (Coat::Plain(stuff), mesh)
   });
   Shape {
@@ -961,7 +974,7 @@ fn shape(growth: Growth, variant: usize) -> Shape {
       let Tree { wood, crown, height, girth } = birch(seed);
       Shape {
         parts: vec![
-          (Coat::Plain(Stuff::Bark), wood),
+          (Coat::Plain(Stuff::Birch), wood),
           (Coat::Plain(Stuff::Needles), crown),
         ],
         far: vec![],
@@ -1458,7 +1471,24 @@ fn shapes() -> Vec<((Growth, usize), Shape)> {
     Growth::ALL
       .into_iter()
       .flat_map(|growth| (0..growth.variants()).map(move |variant| (growth, variant)))
-      .map(|key| (key, scope.spawn(move || shape(key.0, key.1))))
+      .map(|key| {
+        (
+          key,
+          scope.spawn(move || {
+            let fit = |coats: Vec<(Coat, Mesh)>| {
+              coats
+                .into_iter()
+                .map(|(coat, mesh)| match coat {
+                  Coat::Plain(stuff) => (coat, stuff.fitted(mesh)),
+                  Coat::Fronds => (coat, mesh)
+                })
+                .collect()
+            };
+            let Shape { parts, far, collider, reach } = shape(key.0, key.1);
+            Shape { parts: fit(parts), far: fit(far), collider, reach }
+          })
+        )
+      })
       .collect::<Vec<_>>()
       .into_iter()
       .map(|(key, handle)| (key, handle.join().expect("flora shape")))

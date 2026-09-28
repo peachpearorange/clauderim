@@ -6,11 +6,14 @@ use {crate::{noise,
              texture,
              work::{self, Job, Work}},
      avian3d::prelude::*,
-     bevy::{asset::RenderAssetUsages,
+     bevy::{asset::{RenderAssetUsages, embedded_asset},
             color::Mix,
             mesh::{Indices, PrimitiveTopology},
+            pbr::{ExtendedMaterial, MaterialExtension},
             platform::collections::{HashMap, HashSet},
-            prelude::*},
+            prelude::*,
+            render::render_resource::AsBindGroup,
+            shader::ShaderRef},
      std::sync::{Arc, RwLock}};
 
 pub const WORLD: f32 = 3072.0;
@@ -26,7 +29,6 @@ const SPLIT: f32 = 1.25;
 const ANCHOR_STEP: f32 = 64.0;
 const SOLID_REACH: f32 = 340.0;
 const SOLID_NOW: f32 = 40.0;
-const GRAIN_TILE: f32 = 7.0;
 const THROAT: Vec2 = Vec2::new(900.0, -2600.0);
 const THROAT_REACH: f32 = 1700.0;
 const THROAT_RISE: f32 = 1000.0;
@@ -52,6 +54,42 @@ const RUST_ROCK: LinearRgba = srgb(0.42, 0.37, 0.32);
 const CRAG: LinearRgba = srgb(0.29, 0.29, 0.31);
 const SNOW: LinearRgba = srgb(0.93, 0.95, 1.0);
 const SEABED: LinearRgba = srgb(0.24, 0.24, 0.20);
+
+#[derive(Clone, Copy)]
+enum Layer {
+  Grass,
+  Litter,
+  Dirt,
+  Gravel,
+  Rock,
+  Snow
+}
+
+#[derive(Clone, Copy)]
+struct Cover {
+  tone: LinearRgba,
+  layers: [f32; 6]
+}
+
+impl Cover {
+  fn of(tone: LinearRgba, layer: Layer) -> Self {
+    Cover {
+      tone,
+      layers: std::array::from_fn(|index| (index == layer as usize) as u8 as f32)
+    }
+  }
+
+  fn mix(self, other: Cover, share: f32) -> Cover {
+    Cover {
+      tone: self.tone.mix(&other.tone, share),
+      layers: std::array::from_fn(|index| {
+        self.layers[index].lerp(other.layers[index], share)
+      })
+    }
+  }
+
+  fn tinted(self, tone: LinearRgba) -> Cover { Cover { tone, ..self } }
+}
 
 pub fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -175,15 +213,19 @@ pub fn forest(at: Vec2) -> f32 {
   (smooth(-0.1 + lowland_woods, 0.35, noise::fbm(at / 160.0, 4, 31)) - clearing).max(0.0)
 }
 
-fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
+fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> Cover {
   let patch = smooth(-0.3, 0.4, noise::fbm(at / 120.0, 4, 41));
-  let grass = MEADOW.mix(&TUNDRA, patch).mix(&FOREST_FLOOR, forest(at) * 0.8);
+  let grass = Cover::of(MEADOW.mix(&TUNDRA, patch), Layer::Grass)
+    .mix(Cover::of(FOREST_FLOOR, Layer::Litter), forest(at) * 0.8);
   let road = place::nearest_road(at);
   let edge = road.edge() + noise::fbm(at / 6.0, 2, 43) * 1.2;
   let (surface, paved) = match road.paving {
-    place::Paving::Dirt | place::Paving::Trail => (DIRT, smooth(0.8, -0.8, edge)),
+    place::Paving::Dirt | place::Paving::Trail => {
+      (Cover::of(DIRT, Layer::Dirt), smooth(0.8, -0.8, edge))
+    }
     place::Paving::Stone => (
-      COBBLE.mix(&TRODDEN, 0.35 + 0.5 * crate::paving::decay(at)),
+      Cover::of(COBBLE, Layer::Gravel)
+        .mix(Cover::of(TRODDEN, Layer::Dirt), 0.35 + 0.5 * crate::paving::decay(at)),
       smooth(0.6, -0.6, edge)
     )
   };
@@ -216,14 +258,15 @@ fn paint(at: Vec2, height: f32, normal: Vec3, hollow: f32) -> LinearRgba {
     .mix(&PALE_ROCK, smooth(0.3, 0.9, strata) * 0.6)
     .mix(&RUST_ROCK, smooth(0.4, 0.9, noise::fbm(at / 90.0, 3, 57)) * 0.3)
     .mix(&CRAG, face * (0.5 + 0.5 * smooth(0.0, -0.4, gully)));
+  let trodden = Cover::of(TRODDEN, Layer::Dirt);
   grass
-    .mix(&TRODDEN, worn.max(verge))
-    .mix(&settlement::SOIL, soil)
-    .mix(&surface, paved * 0.9)
-    .mix(&PEBBLES, shore.max(river::bank(at) * 0.85))
-    .mix(&SEABED, drowned)
-    .mix(&stone, cliff.max(alpine) * (1.0 - paved * 0.8))
-    .mix(&SNOW, snow)
+    .mix(trodden, worn.max(verge))
+    .mix(trodden.tinted(settlement::SOIL), soil)
+    .mix(surface, paved * 0.9)
+    .mix(Cover::of(PEBBLES, Layer::Gravel), shore.max(river::bank(at) * 0.85))
+    .mix(Cover::of(SEABED, Layer::Gravel), drowned)
+    .mix(Cover::of(stone, Layer::Rock), cliff.max(alpine) * (1.0 - paved * 0.8))
+    .mix(Cover::of(SNOW, Layer::Snow), snow)
 }
 
 type Chunks = HashMap<IVec2, Arc<[f32]>>;
@@ -307,12 +350,8 @@ pub fn in_parallel<Item: Sync, Made: Send>(
   })
 }
 
-fn surface(corners: usize, rows: Vec<Vec<(Vec3, Vec3, [f32; 4])>>) -> Mesh {
-  let (positions, (normals, colors)): (Vec<Vec3>, (Vec<Vec3>, Vec<[f32; 4]>)) = rows
-    .into_iter()
-    .flatten()
-    .map(|(position, normal, color)| (position, (normal, color)))
-    .unzip();
+fn surface(corners: usize, rows: Vec<Vec<(Vec3, Vec3, Cover)>>) -> Mesh {
+  let points: Vec<(Vec3, Vec3, Cover)> = rows.into_iter().flatten().collect();
   let span = corners as u32;
   let indices = (0..span - 1)
     .flat_map(|row| {
@@ -322,17 +361,35 @@ fn surface(corners: usize, rows: Vec<Vec<(Vec3, Vec3, [f32; 4])>>) -> Mesh {
       })
     })
     .collect();
+  let layer = |layer: Layer| move |cover: &Cover| cover.layers[layer as usize];
+  let pairs = |first: Layer, second: Layer| {
+    points
+      .iter()
+      .map(|(_, _, cover)| [layer(first)(cover), layer(second)(cover)])
+      .collect::<Vec<_>>()
+  };
   Mesh::new(PrimitiveTopology::TriangleList, RenderAssetUsages::RENDER_WORLD)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, pairs(Layer::Litter, Layer::Dirt))
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_1, pairs(Layer::Gravel, Layer::Rock))
     .with_inserted_attribute(
-      Mesh::ATTRIBUTE_UV_0,
-      positions.iter().map(|position| position.xz() / GRAIN_TILE).collect::<Vec<_>>()
+      Mesh::ATTRIBUTE_COLOR,
+      points
+        .iter()
+        .map(|(_, _, cover)| {
+          let [red, green, blue, _] = cover.tone.to_f32_array();
+          [red, green, blue, layer(Layer::Snow)(cover)]
+        })
+        .collect::<Vec<_>>()
     )
-    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
-    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+    .with_inserted_attribute(
+      Mesh::ATTRIBUTE_POSITION,
+      points.iter().map(|&(position, ..)| position).collect::<Vec<_>>()
+    )
+    .with_inserted_attribute(
+      Mesh::ATTRIBUTE_NORMAL,
+      points.iter().map(|&(_, normal, _)| normal).collect::<Vec<_>>()
+    )
     .with_inserted_indices(Indices::U32(indices))
-    .with_generated_tangents()
-    .expect("terrain tangents")
 }
 
 fn hollowness(around: f32, height: f32, reach: f32) -> f32 {
@@ -459,7 +516,7 @@ fn tiling(leaf: Leaf) -> Work<Mesh> {
           .normalize();
           let hollow = hollowness(around, raw(x, z), pad as f32 * spacing);
           let position = spot.extend(lift).xzy();
-          (position, normal, paint(spot, lift, normal, hollow).to_f32_array())
+          (position, normal, paint(spot, lift, normal, hollow))
         })
         .collect::<Vec<_>>()
     })
@@ -467,10 +524,26 @@ fn tiling(leaf: Leaf) -> Work<Mesh> {
   .map(move |rows| surface(cells + 3, rows))
 }
 
+#[derive(Asset, TypePath, AsBindGroup, Clone)]
+pub struct Layers {
+  #[texture(100, dimension = "2d_array")]
+  #[sampler(101)]
+  tones: Handle<Image>,
+  #[texture(102, dimension = "2d_array")]
+  #[sampler(103)]
+  relief: Handle<Image>
+}
+
+impl MaterialExtension for Layers {
+  fn fragment_shader() -> ShaderRef { "embedded://skyrim2/terrain.wgsl".into() }
+}
+
+type Land = ExtendedMaterial<StandardMaterial, Layers>;
+
 #[derive(Resource)]
 pub struct Surfaces {
   pub rock: Handle<StandardMaterial>,
-  land: Handle<StandardMaterial>
+  land: Handle<Land>
 }
 
 #[derive(Resource, Default)]
@@ -724,29 +797,35 @@ fn settle_footing(mut footing: ResMut<Footing>) {
 fn prepare_terrain(
   mut commands: Commands,
   mut materials: ResMut<Assets<StandardMaterial>>,
+  mut lands: ResMut<Assets<Land>>,
   mut images: ResMut<Assets<Image>>
 ) {
+  let texture::Textured { tone, relief } = texture::land();
+  let rock = texture::rock();
   commands.insert_resource(Surfaces {
     rock: materials.add(StandardMaterial {
-      base_color_texture: Some(images.add(texture::rock())),
-      normal_map_texture: Some(images.add(texture::rock_bumps())),
+      base_color_texture: Some(images.add(rock.tone)),
+      normal_map_texture: Some(images.add(rock.relief)),
       perceptual_roughness: 0.9,
       reflectance: 0.25,
       ..default()
     }),
-    land: materials.add(StandardMaterial {
-      base_color_texture: Some(images.add(texture::ground())),
-      normal_map_texture: Some(images.add(texture::ground_bumps())),
-      perceptual_roughness: 0.93,
-      reflectance: 0.2,
-      ..default()
+    land: lands.add(ExtendedMaterial {
+      base: StandardMaterial {
+        perceptual_roughness: 0.93,
+        reflectance: 0.2,
+        ..default()
+      },
+      extension: Layers { tones: images.add(tone), relief: images.add(relief) }
     })
   });
   commands.insert_resource(Ground::default());
 }
 
 pub fn plugin(app: &mut App) {
+  embedded_asset!(app, "terrain.wgsl");
   app
+    .add_plugins(MaterialPlugin::<Land>::default())
     .init_resource::<Lands>()
     .init_resource::<Footing>()
     .add_systems(PreStartup, prepare_terrain)
@@ -917,7 +996,7 @@ pub fn map_image(path: &str, mark: impl Fn(Vec2) -> Option<LinearRgba> + Sync) {
     let at = spot(index);
     let ground = height(x, z);
     let gridline = (at + WORLD).rem_euclid(Vec2::splat(500.0)).min_element() < step;
-    let land = paint(at, ground, normal, 0.0) * light;
+    let land = paint(at, ground, normal, 0.0).tone * light;
     let wet = river::water_level(at)
       .filter(|&level| level > ground)
       .map_or(land, |_| LinearRgba::rgb(0.05, 0.14, 0.4));

@@ -47,7 +47,7 @@ fn spawn_static(
     ))
     .id();
   for (stuff, pieces) in parts.into_iter().filter(|(_, pieces)| !pieces.is_empty()) {
-    let mesh = model::merge(pieces);
+    let mesh = stuff.fitted(model::merge(pieces));
     let mut part = commands.spawn((
       Mesh3d(meshes.add(mesh.clone())),
       MeshMaterial3d(stuffs.of(stuff)),

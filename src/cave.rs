@@ -1628,7 +1628,7 @@ fn grouped(parts: Parts) -> Vec<(Stuff, Mesh)> {
       groups
     })
     .into_iter()
-    .map(|(stuff, pieces)| (stuff, model::merge(pieces)))
+    .map(|(stuff, pieces)| (stuff, stuff.fitted(model::merge(pieces))))
     .collect()
 }
 

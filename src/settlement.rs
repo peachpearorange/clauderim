@@ -3232,16 +3232,7 @@ fn merged(parts: Vec<(Stuff, Piece)>) -> Vec<(Stuff, Mesh)> {
       groups
     })
     .into_iter()
-    .map(|(stuff, pieces)| {
-      let mesh = crate::model::merge(pieces);
-      let mesh = matches!(
-        stuff.grain(),
-        crate::stuff::Grain::Masonry | crate::stuff::Grain::Shingles
-      )
-      .then(|| mesh.clone().with_generated_tangents().expect("building uvs"))
-      .unwrap_or(mesh);
-      (stuff, mesh)
-    })
+    .map(|(stuff, pieces)| (stuff, stuff.fitted(crate::model::merge(pieces))))
     .collect()
 }
 

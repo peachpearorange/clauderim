@@ -570,10 +570,7 @@ pub fn tailor(Kit(pieces): Kit, frame: &Frame) -> Vec<(usize, Stuff, Mesh)> {
     )
     .into_iter()
     .map(|(anchor, stuff, list)| {
-      let mut mesh = model::merge(list);
-      if stuff.grain() == crate::stuff::Grain::Scales {
-        mesh.generate_tangents().ok();
-      }
+      let mut mesh = stuff.fitted(model::merge(list));
       mesh.generate_skinned_mesh_bounds().ok();
       (anchor as usize, stuff, mesh)
     })
