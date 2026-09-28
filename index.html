@@ -27,9 +27,43 @@
     <style>
       html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
       canvas { display: block; width: 100%; height: 100%; outline: none; }
+      #loading {
+        position: fixed; inset: 0; z-index: 1; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 3vmin; background: #000;
+        color: #efeee8; font: 300 2.2vmin Georgia, "Times New Roman", serif;
+        letter-spacing: 0.3em; text-transform: uppercase; text-align: center;
+      }
+      #loading h1 { margin: 0; font-weight: 400; font-size: 5vmin; letter-spacing: 0.12em; }
+      #loading .ring {
+        width: 5vmin; height: 5vmin; border-radius: 50%;
+        border: 0.3vmin solid rgba(239, 238, 232, 0.15); border-top-color: #efeee8;
+        animation: turn 1.4s linear infinite;
+      }
+      #loading .status { opacity: 0.75; animation: breathe 2.4s ease-in-out infinite; }
+      #loading.failed .ring { display: none; }
+      #loading.failed .status { animation: none; letter-spacing: 0.1em; text-transform: none; }
+      @keyframes turn { to { transform: rotate(1turn); } }
+      @keyframes breathe { 50% { opacity: 0.35; } }
     </style>
   </head>
   <body>
+    <div id="loading">
+      <h1>The Vibe Scrolls V: Clauderim</h1>
+      <div class="ring"></div>
+      <div class="status">Loading</div>
+    </div>
+    <script>
+      if (!navigator.gpu) {
+        document.getElementById("loading").classList.add("failed");
+        document.querySelector("#loading .status").textContent =
+          "This game needs WebGPU. Try a recent Chrome or Edge.";
+      }
+      addEventListener("error", () => {
+        const loading = document.getElementById("loading");
+        loading && loading.classList.add("failed");
+        loading && (loading.querySelector(".status").textContent = "The game failed to start.");
+      });
+    </script>
     <script>
       document.addEventListener("click", () => {
         if (!document.fullscreenElement) document.documentElement.requestFullscreen().catch(() => {});

@@ -158,6 +158,17 @@ fn press(
   }
 }
 
+#[cfg(target_arch = "wasm32")]
+fn unveil() {
+  web_sys::window()
+    .and_then(|window| window.document())
+    .and_then(|document| document.get_element_by_id("loading"))
+    .map(|loading| loading.remove());
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn unveil() {}
+
 fn main() {
   App::new()
     .add_plugins((
@@ -221,6 +232,10 @@ fn main() {
     ))
     .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)
+    .add_systems(
+      Last,
+      unveil.run_if(|frames: Res<bevy::diagnostic::FrameCount>| frames.0 == 3)
+    )
     .add_systems(
       PreUpdate,
       press.after(bevy::input::InputSystems).before(inventory::browse)

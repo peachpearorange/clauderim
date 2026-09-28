@@ -203,6 +203,15 @@ pub struct Dragon {
   absorbed: bool
 }
 
+impl Dragon {
+  pub fn roost(&self) -> Option<Vec2> {
+    self
+      .lair
+      .filter(|_| !matches!(self.flight, Flight::Falling | Flight::Slain(_)))
+      .map(|lair| lair.xz())
+  }
+}
+
 #[derive(Component)]
 struct Breath(Entity);
 

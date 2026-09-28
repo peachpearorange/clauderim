@@ -1,5 +1,6 @@
 use {crate::{combat::{Dead, Side, Stealth, Struck, Vitals},
              creature::Foe,
+             dragon::{Dragon, LAIR_SPOTS},
              opts::opts,
              place::{self, Marker, Place},
              player::{Player, View},
@@ -14,6 +15,7 @@ use {crate::{combat::{Dead, Side, Stealth, Struck, Vitals},
            f32::consts::{FRAC_PI_2, PI, TAU}}};
 
 const PLACE_RANGE: f32 = 380.0;
+const ROOST_RANGE: f32 = 1200.0;
 const HOSTILE_RANGE: f32 = 40.0;
 const DOTS: usize = 6;
 const REACH: f32 = 2.2;
@@ -96,6 +98,7 @@ struct Tracking(f32);
 enum Heading {
   Fixed(f32),
   Toward(Place),
+  Roost(usize),
   Hostile(usize)
 }
 
@@ -637,6 +640,39 @@ fn icon(mark: &mut ChildSpawnerCommands, place: Place) {
     });
 }
 
+fn roost_icon(mark: &mut ChildSpawnerCommands) {
+  mark
+    .spawn((
+      Node { width: VMin(1.9), height: VMin(1.9), ..default() },
+      UiTransform::from_scale(Vec2::splat(2.2))
+    ))
+    .with_children(|glyph| {
+      for (left, lean) in [(27.0, -58.0), (73.0, 58.0)] {
+        glyph.spawn((
+          Node { width: VMin(0.24), height: VMin(1.2), ..at(left, 40.0) },
+          UiTransform { rotation: Rot2::degrees(lean), ..centred() },
+          BackgroundColor(INK)
+        ));
+      }
+      glyph.spawn((
+        Node { width: VMin(0.3), height: VMin(1.3), ..at(50.0, 58.0) },
+        centred(),
+        BackgroundColor(INK)
+      ));
+      glyph.spawn((
+        Node {
+          width: VMin(0.6),
+          height: VMin(0.6),
+          border: UiRect::all(VMin(0.14)),
+          ..at(50.0, 18.0)
+        },
+        UiTransform { rotation: Rot2::degrees(45.0), ..centred() },
+        BackgroundColor(HOSTILE),
+        BorderColor::all(INK)
+      ));
+    });
+}
+
 fn heading(heading: Heading, top: f32) -> impl Bundle {
   (
     heading,
@@ -718,6 +754,9 @@ fn compass(parent: &mut ChildSpawnerCommands, fonts: &Fonts) {
             bar
               .spawn(heading(Heading::Toward(place), 50.0))
               .with_children(|mark| icon(mark, place));
+          }
+          for index in 0..LAIR_SPOTS.len() {
+            bar.spawn(heading(Heading::Roost(index), 50.0)).with_children(roost_icon);
           }
           for index in 0..DOTS {
             bar.spawn(heading(Heading::Hostile(index), 50.0)).with_children(|mark| {
@@ -1206,6 +1245,7 @@ fn swing_compass(
   contact: Res<Contact>,
   player: Single<&Transform, With<Player>>,
   foes: Query<(Entity, &Transform, &Side, Option<&Foe>), Without<Dead>>,
+  dragons: Query<&Dragon>,
   mut marks: Query<(&Heading, &mut Node, &mut Fade)>
 ) {
   let here = player.translation;
@@ -1223,12 +1263,21 @@ fn swing_compass(
     .map(|(_, transform, ..)| transform.translation)
     .take(DOTS)
     .collect();
+  let roosts: Vec<Vec2> = dragons.iter().filter_map(Dragon::roost).collect();
   for (&heading, mut node, mut fade) in marks.iter_mut() {
     let target = match heading {
       Heading::Fixed(angle) => Some(angle),
       Heading::Toward(place) => {
         let gap = place.spot() - here.xz();
         (gap.length() < PLACE_RANGE && gap.length() > 1.0).then(|| bearing(gap))
+      }
+      Heading::Roost(index) => {
+        let spot = LAIR_SPOTS[index];
+        let gap = spot - here.xz();
+        (gap.length() < ROOST_RANGE
+          && gap.length() > 1.0
+          && roosts.iter().any(|roost| roost.distance(spot) < 1.0))
+        .then(|| bearing(gap))
       }
       Heading::Hostile(index) => hostiles.get(index).map(|at| bearing((*at - here).xz()))
     };
