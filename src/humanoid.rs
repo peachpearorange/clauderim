@@ -1082,7 +1082,13 @@ fn torso(
     );
 }
 
-fn skirt(kit: &mut Kit, build: &Build, leather: Srgba, cloth: Srgba) {
+fn skirt(
+  kit: &mut Kit,
+  build: &Build,
+  leather: Srgba,
+  cloth: Srgba,
+  studs: Option<Srgba>
+) {
   kit.add(
     Joint::Pelvis,
     Stuff::Cloth,
@@ -1099,14 +1105,34 @@ fn skirt(kit: &mut Kit, build: &Build, leather: Srgba, cloth: Srgba) {
   .into_iter()
   {
     let outward = Vec3::new((angle as f32).sin(), 0.0, depth);
-    kit.add(
-      Joint::Pelvis,
-      Stuff::Leather,
-      Piece::new(block(width, 0.34, 0.015), leather)
+    let hang = |piece: Piece| {
+      piece
         .pitched(-0.12 * depth.signum())
         .yawed(angle * 1.2)
         .at(outward * Vec3::new(0.18, 0.0, 0.13) * build.waist + Vec3::Y * -0.14)
+    };
+    kit.add(
+      Joint::Pelvis,
+      Stuff::Leather,
+      hang(Piece::new(block(width, 0.34, 0.015), leather))
     );
+    if let Some(iron) = studs {
+      for row in 0..5 {
+        for column in 0..3 {
+          for face in [-0.0095, 0.0095] {
+            kit.add(
+              Joint::Pelvis,
+              Stuff::Iron,
+              hang(Piece::new(ball(0.008), iron).at_xyz(
+                (column as f32 - 1.0) * width * 0.3,
+                0.12 - row as f32 * 0.065,
+                face
+              ))
+            );
+          }
+        }
+      }
+    }
   }
 }
 
@@ -1248,13 +1274,16 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
   let mask = Piece::new(loft(&face, TRUNK_SIDES * 4), iron)
     .trimmed(|at| {
       let chin = 0.1 - 0.075 * smoothstep(0.035, 0.07, at.x.abs());
-      at.z < 0.02 && at.y > chin && at.y < 0.19
+      let across = (at.x.abs() - 0.043) / 0.03;
+      let down = (at.y - 0.157 + 0.1 * (at.x.abs() - 0.043)) / 0.015;
+      at.z < 0.02 && at.y > chin && at.y < 0.19 && across * across + down * down > 1.0
     })
-    .shaded(|at, _| {
-      let across = (at.x.abs() - 0.044) / 0.034;
-      let down = (at.y - 0.158 + 0.12 * (at.x.abs() - 0.044)) / 0.014;
-      metal * (1.0 - 0.92 * (1.0 - smoothstep(0.6, 1.0, across * across + down * down)))
-    });
+    .shaded(|at, _| metal * (0.75 + 0.25 * smoothstep(0.1, 0.13, at.y)));
+  let rivets: Vec<Piece> = ring(hoop_at(&face, 0.18), 28)
+    .into_iter()
+    .filter(|at| at.z < -0.04)
+    .map(|at| Piece::new(ball(0.0042), iron * 1.8).at(at * Vec3::new(1.03, 1.0, 1.03)))
+    .collect();
   let nape = [
     Hoop::new(-0.05, 0.125, 0.11, 0.135),
     Hoop::new(0.06, 0.108, 0.11, 0.12),
@@ -1293,6 +1322,7 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
       Piece::new(block(0.018, 0.105, 0.014), iron * 1.1).at_xyz(0.0, 0.15, -0.122)
     ),
     (Stuff::Iron, mask),
+    (Stuff::Iron, Piece(model::merge(rivets))),
     (Stuff::Iron, guard)
   ]
   .into_iter()
@@ -1302,82 +1332,88 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
   kit.both(Joint::Head, Stuff::Bone, bulk(Piece::new(horn_mesh, horn)));
 }
 
-fn cuirass(kit: &mut Kit, build: &Build, skin: Srgba, iron: Srgba, belt: Srgba) {
+fn ring(hoop: Hoop, count: usize) -> Vec<Vec3> {
+  (0..=count)
+    .map(|step| {
+      let (sin, cos) = (step as f32 / count as f32 * 2.0 * PI).sin_cos();
+      let depth = (sin < 0.0).then_some(hoop.front).unwrap_or(hoop.back);
+      hoop.at + Vec3::new(hoop.wide * cos, 0.0, depth * sin)
+    })
+    .collect()
+}
+
+fn boss(radius: f32, iron: Srgba) -> Vec<Piece> {
+  let circle =
+    |size: f32| tube(&ring(Hoop::new(0.0, size, size, size), 24), &[radius * 0.1], 6);
+  vec![
+    Piece::new(rod(radius, 0.014), iron).pitched(FRAC_PI_2),
+    Piece::new(circle(radius * 0.7), iron * 1.5)
+      .pitched(FRAC_PI_2)
+      .at_xyz(0.0, 0.0, -0.009),
+    Piece::new(circle(radius * 0.35), iron * 1.5)
+      .pitched(FRAC_PI_2)
+      .at_xyz(0.0, 0.0, -0.009),
+  ]
+}
+
+fn jerkin(
+  kit: &mut Kit,
+  build: &Build,
+  skin: Srgba,
+  leather: Srgba,
+  sash: Srgba,
+  iron: Srgba
+) {
   let hoops = chest_hoops(build);
   let front = |y: f32| hoop_at(&hoops, y).front;
-  let studs = (0..18).map(|stud| {
-    let angle = stud as f32 / 18.0 * 2.0 * PI;
-    let Hoop { wide, front, back, .. } = hoop_at(&hoops, 0.02).scaled(1.16);
-    let (sin, cos) = angle.sin_cos();
-    Vec3::new(wide * cos, 0.02, (sin < 0.0).then_some(front).unwrap_or(back) * sin)
-  });
-  let gorget =
-    shell(&[(0.125, 0.455), (0.108, 0.495), (0.1, 0.52), (0.104, 0.53)], TRUNK_SIDES);
+  let belt_hoop = hoop_at(&hoops, 0.015).scaled(1.16);
   kit
     .add(Joint::Chest, Stuff::Skin, Piece::new(loft(&hoops, TRUNK_SIDES), skin))
     .add(
       Joint::Chest,
-      Stuff::Iron,
-      Piece::new(gorget, iron * 1.1).sized(Vec3::new(1.0, 1.0, 1.1))
-    )
-    .add(Joint::Chest, Stuff::Iron, Piece::new(sheath(&hoops, -0.02, 0.49, 1.1), iron))
-    .add(
-      Joint::Chest,
-      Stuff::Iron,
-      Piece::new(sheath(&hoops, 0.47, 0.51, 1.3), iron * 1.15)
-    )
-    .add(
-      Joint::Chest,
-      Stuff::Iron,
-      Piece::new(block(0.014, 0.3, 0.014), iron * 1.2).at_xyz(
-        0.0,
-        0.17,
-        -front(0.2) * 1.09
-      )
-    )
-    .add(
-      Joint::Chest,
-      Stuff::Iron,
-      Piece::new(rod(0.07, 0.016), iron * 1.3).pitched(FRAC_PI_2).at_xyz(
-        0.0,
-        0.31,
-        -front(0.31) * 1.1
-      )
-    )
-    .add(
-      Joint::Chest,
-      Stuff::Iron,
-      Piece::new(
-        tube(
-          &(0..=24)
-            .map(|step| {
-              let angle = step as f32 / 24.0 * 2.0 * PI;
-              Vec3::new(angle.cos() * 0.045, angle.sin() * 0.045, 0.0)
-            })
-            .collect::<Vec<_>>(),
-          &[0.007],
-          6
-        ),
-        iron * 1.6
-      )
-      .at_xyz(0.0, 0.35, -front(0.35) * 1.12 - 0.009)
+      Stuff::Leather,
+      hide(sheath(&hoops, -0.02, 0.47, 1.1), leather, 11)
     )
     .add(
       Joint::Chest,
       Stuff::Leather,
-      Piece::new(sheath(&hoops, -0.035, 0.065, 1.14), belt)
+      hide(sheath(&hoops, 0.43, 0.5, 1.24), leather * 1.35, 12)
     )
     .add(
       Joint::Chest,
-      Stuff::Iron,
-      Piece::new(rod(0.046, 0.014), iron * 1.4).pitched(FRAC_PI_2).at_xyz(
-        0.0,
-        0.015,
-        -front(0.015) * 1.14 - 0.006
+      Stuff::Leather,
+      hide(sheath(&hoops, -0.035, 0.055, 1.14), leather * 1.2, 13)
+    );
+  for x in [-0.075, 0.075] {
+    kit.add(
+      Joint::Chest,
+      Stuff::Leather,
+      Piece::new(block(0.009, 0.3, 0.008), leather * 0.6).at_xyz(
+        x,
+        0.25,
+        -front(0.25) * 1.1
       )
     );
-  for stud in studs {
-    kit.add(Joint::Chest, Stuff::Iron, Piece::new(ball(0.009), iron * 1.5).at(stud));
+  }
+  for y in [0.078, -0.05] {
+    kit.add(
+      Joint::Chest,
+      Stuff::Cloth,
+      Piece::new(tube(&ring(hoop_at(&hoops, y).scaled(1.15), 48), &[0.015], 8), sash)
+    );
+  }
+  for piece in boss(0.075, iron) {
+    kit.add(Joint::Chest, Stuff::Iron, piece.at_xyz(0.0, 0.34, -front(0.34) * 1.12));
+  }
+  for piece in boss(0.05, iron) {
+    kit.add(
+      Joint::Chest,
+      Stuff::Iron,
+      piece.at_xyz(0.0, 0.01, -front(0.01) * 1.16 - 0.006)
+    );
+  }
+  for stud in ring(belt_hoop, 20).into_iter().skip(1) {
+    kit.add(Joint::Chest, Stuff::Iron, Piece::new(ball(0.01), iron * 1.4).at(stud));
   }
 }
 
@@ -1423,8 +1459,8 @@ pub fn dragonborn() -> Kit {
   };
   face::head(&mut kit, &person, &build);
   closed_helm(&mut kit, &build, iron, srgb(0.5, 0.42, 0.3));
-  cuirass(&mut kit, &build, skin, iron, leather);
-  skirt(&mut kit, &build, leather, srgb(0.22, 0.18, 0.14));
+  jerkin(&mut kit, &build, skin, srgb(0.16, 0.12, 0.09), srgb(0.42, 0.4, 0.31), iron);
+  skirt(&mut kit, &build, srgb(0.3, 0.2, 0.13), srgb(0.22, 0.18, 0.14), Some(iron * 1.5));
   let limb = |hoops: &[Hoop]| loft(&limb_hoops(hoops, &build), LIMB_SIDES);
   kit
     .both(Joint::ArmR, Stuff::Skin, Piece::new(limb(&UPPER_ARM), skin))
@@ -1470,7 +1506,7 @@ pub fn draugr(seed: u32) -> Kit {
     rags,
     srgb(0.18, 0.15, 0.12)
   );
-  skirt(&mut kit, &build, rags, rags * 0.8);
+  skirt(&mut kit, &build, rags, rags * 0.8, None);
   arms(
     &mut kit,
     &build,
@@ -1493,7 +1529,7 @@ pub fn bandit(seed: u32) -> Kit {
   let person = Person::roll(Race::of(seed), false, seed);
   face::head(&mut kit, &person, &build);
   torso(&mut kit, &build, (Stuff::Cloth, srgb(0.36, 0.3, 0.22)), None, fur, leather);
-  skirt(&mut kit, &build, leather, srgb(0.3, 0.25, 0.2));
+  skirt(&mut kit, &build, leather, srgb(0.3, 0.25, 0.2), None);
   arms(
     &mut kit,
     &build,
@@ -2068,7 +2104,7 @@ pub fn villager(calling: Calling, person: &Person) -> Kit {
         Piece::new(sheath(&hip_hoops(&build), 0.07, -0.02, 1.2), srgb(0.46, 0.4, 0.3))
           .creased(0.014, Vec3::new(50.0, 20.0, 50.0), seed)
       );
-      skirt(&mut kit, &build, srgb(0.32, 0.24, 0.16), srgb(0.14, 0.12, 0.1));
+      skirt(&mut kit, &build, srgb(0.32, 0.24, 0.16), srgb(0.14, 0.12, 0.1), None);
       kit
         .both(
           Joint::LegR,
