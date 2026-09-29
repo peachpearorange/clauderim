@@ -1,0 +1,7 @@
+{
+  "image": "ref images/dragonborn front.jpg",
+  "crop": [0.2, 0.0, 0.8, 0.33],
+  "pose": "ready",
+  "joints": {},
+  "camera": {"at": [0, 1.4, 0], "pin": [0.52, 1.18], "distance": 1.9, "fov": 13.2, "pitch": -6}
+}

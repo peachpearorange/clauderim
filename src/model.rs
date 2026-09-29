@@ -81,6 +81,23 @@ impl Piece {
     self
   }
 
+  pub fn trimmed(mut self, keep: impl Fn(Vec3) -> bool) -> Self {
+    let positions = points(&self.0, Mesh::ATTRIBUTE_POSITION);
+    if let Some(Indices::U32(indices)) = self.0.indices_mut() {
+      *indices = indices
+        .chunks_exact(3)
+        .filter(|triangle| {
+          keep(
+            triangle.iter().map(|&index| positions[index as usize]).sum::<Vec3>() / 3.0
+          )
+        })
+        .flatten()
+        .copied()
+        .collect()
+    }
+    self
+  }
+
   pub fn planar(mut self, tile: f32) -> Self {
     let positions = points(&self.0, Mesh::ATTRIBUTE_POSITION);
     let normals = points(&self.0, Mesh::ATTRIBUTE_NORMAL);
