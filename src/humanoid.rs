@@ -1900,3 +1900,140 @@ pub fn villager(calling: Calling, person: &Person) -> Kit {
 pub fn plugin(app: &mut App) {
   app.add_systems(PostUpdate, animate.before(TransformSystems::Propagate));
 }
+
+#[cfg(test)]
+mod tests {
+  use {super::*, crate::face::tests::dump, bevy::mesh::VertexAttributeValues,
+       serde::Deserialize, std::collections::HashMap};
+
+  #[derive(Deserialize)]
+  struct Fit {
+    #[serde(default)]
+    pose: String,
+    #[serde(default)]
+    joints: HashMap<String, [f32; 3]>,
+    #[serde(default)]
+    lean: f32,
+    #[serde(default)]
+    drop: f32
+  }
+
+  impl Fit {
+    fn stance(&self) -> Pose {
+      let relaxed = self.pose == "relaxed";
+      let rig = Rig {
+        bones: [Entity::PLACEHOLDER; JOINTS],
+        frame: MAN,
+        grip: relaxed.then_some(Grip::Bare).unwrap_or(Grip::Blade),
+        hunch: 0.0
+      };
+      let full = |name: &str| (self.pose == name).then_some(1.0).unwrap_or(0.0);
+      let motion = Motion {
+        swing: self
+          .pose
+          .strip_prefix("swing")
+          .and_then(|progress| progress.trim().parse().ok()),
+        guard: full("guard"),
+        shout: full("shout"),
+        crouch: full("crouch"),
+        ..default()
+      };
+      let pose =
+        self.joints.iter().fold(posed(&rig, &motion), |pose, (name, &angles)| {
+          Joint::ALL
+            .into_iter()
+            .find(|joint| format!("{joint:?}") == *name)
+            .map(|joint| pose.add(joint, Vec3::from(angles)))
+            .unwrap_or_else(|| panic!("no joint {name}"))
+        });
+      Pose { lean: pose.lean + self.lean, drop: pose.drop + self.drop, ..pose }
+    }
+  }
+
+  fn skin(frame: &Frame, pose: &Pose) -> [Mat4; JOINTS] {
+    let bind = frame.bind();
+    let placed =
+      Joint::ALL.iter().fold([Mat4::IDENTITY; JOINTS], |mut placed, &joint| {
+        let Vec3 { x, y, z } = pose.angles[joint as usize];
+        let turn = Quat::from_euler(EulerRot::YXZ, y, x, z);
+        let (turn, at) = match joint {
+          Joint::Pelvis => {
+            (Quat::from_rotation_x(pose.lean) * turn, Vec3::Y * (frame.hip - pose.drop))
+          }
+          _ => (turn, frame.rest(joint))
+        };
+        placed[joint as usize] =
+          joint.parent().map_or(Mat4::IDENTITY, |parent| placed[parent as usize])
+            * Mat4::from_rotation_translation(turn, at);
+        placed
+      });
+    std::array::from_fn(|index| placed[index] * Mat4::from_translation(-bind[index]))
+  }
+
+  fn skinned(mesh: Mesh, skin: &[Mat4; JOINTS]) -> Mesh {
+    let points = |attribute| match mesh.attribute(attribute) {
+      Some(VertexAttributeValues::Float32x3(values)) => values.clone(),
+      _ => Vec::new()
+    };
+    let blends: Vec<Mat4> = match (
+      mesh.attribute(Mesh::ATTRIBUTE_JOINT_INDEX),
+      mesh.attribute(Mesh::ATTRIBUTE_JOINT_WEIGHT)
+    ) {
+      (
+        Some(VertexAttributeValues::Uint16x4(indices)),
+        Some(VertexAttributeValues::Float32x4(weights))
+      ) => indices
+        .iter()
+        .zip(weights)
+        .map(|(indices, weights)| {
+          indices.iter().zip(weights).fold(Mat4::ZERO, |sum, (&index, &weight)| {
+            sum + skin[index as usize] * weight
+          })
+        })
+        .collect(),
+      _ => Vec::new()
+    };
+    let moved = |attribute, map: fn(&Mat4, Vec3) -> Vec3| {
+      points(attribute)
+        .into_iter()
+        .zip(&blends)
+        .map(|(point, blend)| map(blend, Vec3::from(point)).to_array())
+        .collect::<Vec<_>>()
+    };
+    let positions =
+      moved(Mesh::ATTRIBUTE_POSITION, |blend, at| blend.transform_point3(at));
+    let normals = moved(Mesh::ATTRIBUTE_NORMAL, |blend, normal| {
+      blend.transform_vector3(normal).normalize_or_zero()
+    });
+    mesh
+      .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+      .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+  }
+
+  #[test]
+  #[ignore]
+  fn fit() {
+    let only = std::env::var("FIT").unwrap_or_default();
+    let body = tailor(dragonborn(), &MAN);
+    let mut fits: Vec<_> = std::fs::read_dir("tools/fits")
+      .unwrap()
+      .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+      .filter(|path| {
+        path.extension().is_some_and(|extension| extension == "json")
+          && path.file_stem().is_some_and(|stem| stem.to_string_lossy().contains(&only))
+      })
+      .collect();
+    fits.sort();
+    for path in fits {
+      let fit: Fit = json5::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+      let skin = skin(&MAN, &fit.stance());
+      dump(
+        &format!("screenshots/fit/{}.bin", path.file_stem().unwrap().to_string_lossy()),
+        body
+          .iter()
+          .map(|(anchor, stuff, mesh)| (*anchor, *stuff, skinned(mesh.clone(), &skin)))
+          .collect()
+      );
+    }
+  }
+}

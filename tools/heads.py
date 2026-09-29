@@ -7,7 +7,7 @@ import numpy as np
 from PIL import Image
 
 STUFFS = ["Skin", "Fur", "Leather", "Cloth", "Iron", "Steel", "Gold", "Bone", "Wood", "Bark",
-          "Needles", "Stone", "Cliff", "Frost", "Ember", "Gloss", "Membrane", "Scales", "Cinder",
+          "Birch", "Needles", "Stone", "Cliff", "Frost", "Ember", "Gloss", "Membrane", "Scales", "Cinder",
           "Thatch", "Shingle", "Masonry", "Planks"]
 
 

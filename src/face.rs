@@ -1210,13 +1210,13 @@ fn crest(kit: &mut Kit, person: &Person, skull: &Skull) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
   use {super::*,
        crate::humanoid::{self, Build, Calling, MAN, WOMAN},
        bevy::mesh::VertexAttributeValues,
-       std::io::Write};
+       std::{io::Write, path::Path}};
 
-  fn dump(name: &str, parts: Vec<(usize, Stuff, Mesh)>) {
+  pub(crate) fn dump(path: &str, parts: Vec<(usize, Stuff, Mesh)>) {
     let floats = |mesh: &Mesh, attribute| match mesh.attribute(attribute) {
       Some(VertexAttributeValues::Float32x3(values)) => values.concat(),
       Some(VertexAttributeValues::Float32x4(values)) => values.concat(),
@@ -1241,11 +1241,8 @@ mod tests {
       }
       bytes.extend(indices.iter().flat_map(|index| index.to_le_bytes()));
     }
-    std::fs::create_dir_all("screenshots/heads").unwrap();
-    std::fs::File::create(format!("screenshots/heads/{name}.bin"))
-      .unwrap()
-      .write_all(&bytes)
-      .unwrap();
+    Path::new(path).parent().map(|folder| std::fs::create_dir_all(folder).unwrap());
+    std::fs::File::create(path).unwrap().write_all(&bytes).unwrap();
   }
 
   #[test]
@@ -1262,15 +1259,18 @@ mod tests {
           head(&mut kit, &person, &Build::HALE);
           let frame = woman.then_some(WOMAN).unwrap_or(MAN);
           dump(
-            &format!("{race:?}-{}-{seed}", woman.then_some("f").unwrap_or("m")),
+            &format!(
+              "screenshots/heads/{race:?}-{}-{seed}.bin",
+              woman.then_some("f").unwrap_or("m")
+            ),
             humanoid::tailor(kit, &frame)
           );
         }
       }
     }
     let draugr = humanoid::draugr(1);
-    dump("draugr", humanoid::tailor(draugr, &MAN));
+    dump("screenshots/heads/draugr.bin", humanoid::tailor(draugr, &MAN));
     let farmer = humanoid::villager(Calling::Farmer, &Person::roll(Race::Nord, false, 3));
-    dump("farmer", humanoid::tailor(farmer, &MAN));
+    dump("screenshots/heads/farmer.bin", humanoid::tailor(farmer, &MAN));
   }
 }

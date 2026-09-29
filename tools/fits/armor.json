@@ -1,0 +1,6 @@
+{
+  "image": "ref images/iron armor front.png",
+  "pose": "relaxed",
+  "joints": {},
+  "camera": {"at": [0, 0.8, 0], "pin": [0.5, 0.5], "distance": 18, "fov": 5}
+}
