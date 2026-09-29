@@ -1,4 +1,7 @@
+#![recursion_limit = "256"]
+
 mod audio;
+mod blur;
 mod cave;
 mod cloud;
 mod combat;
@@ -202,6 +205,7 @@ fn main() {
       terrain::plugin,
       flora::plugin,
       sky::plugin,
+      blur::plugin,
       cloud::plugin,
       mist::plugin,
       stuff::plugin,

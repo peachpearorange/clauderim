@@ -2321,6 +2321,8 @@ struct Sway {}
 
 impl MaterialExtension for Sway {
   fn vertex_shader() -> ShaderRef { "shaders/sway.wgsl".into() }
+
+  fn enable_prepass() -> bool { false }
 }
 
 type SwayMaterial = ExtendedMaterial<StandardMaterial, Sway>;

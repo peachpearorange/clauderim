@@ -1,5 +1,5 @@
 use {crate::opts::opts,
-     bevy::{anti_alias::smaa::{Smaa, SmaaPreset},
+     bevy::{anti_alias::taa::TemporalAntiAliasing,
             camera::Exposure,
             core_pipeline::tonemapping::Tonemapping,
             light::{AtmosphereEnvironmentMapLight, CascadeShadowConfigBuilder,
@@ -73,6 +73,10 @@ fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   t * t * (3.0 - 2.0 * t)
 }
 
+const BLUR_FROM: f32 = 250.0;
+const BLUR_TO: f32 = 2400.0;
+const BLUR_SPREAD: f32 = 2.2;
+
 const MIRROR_SIZE: u32 = 256;
 const MIRROR_REFRESH: f32 = 0.5;
 const MIRROR_WARMUP: f32 = 3.0;
@@ -109,7 +113,8 @@ pub fn lens() -> impl Bundle {
       ..default()
     },
     Msaa::Off,
-    Smaa { preset: SmaaPreset::High }
+    TemporalAntiAliasing::default(),
+    crate::blur::DistanceBlur { from: BLUR_FROM, to: BLUR_TO, spread: BLUR_SPREAD }
   )
 }
 
@@ -169,7 +174,8 @@ fn cycle_day(
     &mut Exposure,
     &mut DistanceFog,
     &mut ColorGrading,
-    Option<&mut EnvironmentMapLight>
+    Option<&mut EnvironmentMapLight>,
+    Option<&mut TemporalAntiAliasing>
   )>
 ) {
   let passed = clock.hour + clock.hours_per_second * time.delta_secs();
@@ -205,7 +211,12 @@ fn cycle_day(
   let adapting = *adapted && daylight.snap == 0;
   *adapted = !lenses.is_empty();
   daylight.snap = daylight.snap.saturating_sub(1);
-  for (mut exposure, mut fog, mut grading, ambient) in lenses.iter_mut() {
+  for (mut exposure, mut fog, mut grading, ambient, history) in lenses.iter_mut() {
+    if let Some(mut history) = history
+      && !adapting
+    {
+      history.reset = true;
+    }
     let rate = (settled > exposure.ev100).then_some(BRIGHTENING).unwrap_or(DARKENING);
     exposure.ev100 = adapting
       .then(|| exposure.ev100.lerp(settled, 1.0 - (-rate * time.delta_secs()).exp()))
