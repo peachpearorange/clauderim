@@ -25,8 +25,9 @@ struct Varying {
 @vertex
 fn vertex(in: Vertex) -> Varying {
   let center = (get_world_from_local(in.instance_index) * vec4(in.center, 1.0)).xyz;
-  let right = normalize(view.world_from_view[0].xyz);
-  let up = normalize(view.world_from_view[1].xyz);
+  let toward_eye = normalize(view.world_position - center);
+  let right = normalize(cross(vec3(0.0, 1.0, 0.0), toward_eye) + vec3(1e-4, 0.0, 0.0));
+  let up = cross(toward_eye, right);
   let world = center + (right * in.corner.x * 1.3 + up * in.corner.y * 0.75) * in.shape.x;
   var out: Varying;
   out.clip = position_world_to_clip(world);
