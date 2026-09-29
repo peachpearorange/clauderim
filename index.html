@@ -5,6 +5,74 @@
     <title>The Vibe Scrolls V: Clauderim</title>
     <script>
       (() => {
+        const shown = new Map();
+        const limit = 40;
+        const formatted = (args) => {
+          const [first, ...rest] = args;
+          const text = typeof first === "string"
+            ? first.replace(/%[csdifoO]/g, (spec) => {
+                const arg = rest.shift();
+                return spec === "%c" ? "" : String(arg);
+              })
+            : describe(first);
+          return [text, ...rest.map(describe)].join(" ");
+        };
+        const describe = (value) =>
+          value instanceof Error ? value.stack || String(value)
+          : typeof value === "object" && value !== null ? (() => {
+              try { return JSON.stringify(value); } catch { return String(value); }
+            })()
+          : String(value);
+        const panel = () => document.getElementById("console-errors") || (() => {
+          const box = document.createElement("div");
+          box.id = "console-errors";
+          const head = document.createElement("div");
+          head.className = "head";
+          head.textContent = "Errors";
+          const close = document.createElement("button");
+          close.textContent = "×";
+          close.title = "Hide";
+          close.addEventListener("click", (event) => {
+            event.stopPropagation();
+            box.hidden = true;
+          });
+          head.append(close);
+          const list = document.createElement("ol");
+          box.append(head, list);
+          document.body.append(box);
+          return box;
+        })();
+        const report = (text) => {
+          const known = shown.get(text);
+          known ? (known.count += 1, known.item.dataset.count = `×${known.count}`)
+          : shown.size < limit && document.body && (() => {
+              const box = panel();
+              const item = document.createElement("li");
+              item.textContent = text;
+              box.querySelector("ol").append(item);
+              box.hidden = false;
+              item.scrollIntoView({ block: "nearest" });
+              shown.set(text, { item, count: 1 });
+            })();
+        };
+        const queued = [];
+        const note = (text) =>
+          document.body ? report(text) : queued.push(text);
+        document.addEventListener("DOMContentLoaded", () => queued.splice(0).forEach(report));
+        const error = console.error.bind(console);
+        console.error = (...args) => {
+          error(...args);
+          note(formatted(args));
+        };
+        addEventListener("error", (event) =>
+          note(event.error ? describe(event.error)
+            : `${event.message} (${event.filename}:${event.lineno})`));
+        addEventListener("unhandledrejection", (event) =>
+          note(`Unhandled rejection: ${describe(event.reason)}`));
+      })();
+    </script>
+    <script>
+      (() => {
         const contexts = [];
         const gestures = ["click", "mousedown", "pointerup", "touchend", "keydown"];
         self.AudioContext = new Proxy(self.AudioContext, {
@@ -42,6 +110,23 @@
       #loading .status { opacity: 0.75; animation: breathe 2.4s ease-in-out infinite; }
       #loading.failed .ring { display: none; }
       #loading.failed .status { animation: none; letter-spacing: 0.1em; text-transform: none; }
+      #console-errors {
+        position: fixed; left: 1vmin; right: 1vmin; bottom: 1vmin; z-index: 2;
+        max-height: 35vh; display: flex; flex-direction: column;
+        background: rgba(20, 6, 6, 0.9); border: 1px solid #a33; border-radius: 4px;
+        color: #f3d6d0; font: 12px/1.4 ui-monospace, Menlo, Consolas, monospace;
+      }
+      #console-errors[hidden] { display: none; }
+      #console-errors .head {
+        display: flex; justify-content: space-between; align-items: center;
+        padding: 4px 8px; color: #ff8a7a; font-weight: bold; border-bottom: 1px solid #5a2020;
+      }
+      #console-errors button {
+        background: none; border: 0; color: inherit; font: inherit; font-size: 16px; cursor: pointer;
+      }
+      #console-errors ol { margin: 0; padding: 4px 8px 6px 2.5em; overflow: auto; }
+      #console-errors li { white-space: pre-wrap; word-break: break-word; margin: 2px 0; }
+      #console-errors li[data-count]::after { content: " " attr(data-count); color: #ff8a7a; }
       @keyframes turn { to { transform: rotate(1turn); } }
       @keyframes breathe { 50% { opacity: 0.35; } }
     </style>
