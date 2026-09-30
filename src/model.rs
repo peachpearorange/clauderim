@@ -98,6 +98,25 @@ impl Piece {
     self
   }
 
+  pub fn doubled(self) -> Self {
+    let mut back = self.0.clone();
+    if let Some(VertexAttributeValues::Float32x3(normals)) =
+      back.attribute_mut(Mesh::ATTRIBUTE_NORMAL)
+    {
+      for normal in normals.iter_mut() {
+        *normal = normal.map(|component| -component)
+      }
+    }
+    if let Some(Indices::U32(indices)) = back.indices_mut() {
+      for triangle in indices.chunks_exact_mut(3) {
+        triangle.swap(1, 2)
+      }
+    }
+    let Piece(mut mesh) = self;
+    mesh.merge(&back).expect("a mesh shares its own attributes");
+    Self(mesh)
+  }
+
   pub fn planar(mut self, tile: f32) -> Self {
     let positions = points(&self.0, Mesh::ATTRIBUTE_POSITION);
     let normals = points(&self.0, Mesh::ATTRIBUTE_NORMAL);

@@ -1301,7 +1301,7 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
     ],
     12
   );
-  let ridged: Vec<f32> = taper(horn_path.len() - 1, 0.052, 0.007)
+  let ridged: Vec<f32> = taper(horn_path.len() - 1, 0.052, 0.002)
     .into_iter()
     .enumerate()
     .map(|(index, radius)| radius * (1.0 + 0.05 * (index as f32 * 1.9).sin()))
@@ -1311,7 +1311,7 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
     piece.at_xyz(0.0, -0.15, 0.0).sized(Vec3::splat(1.18)).at_xyz(0.0, 0.15, 0.0)
   };
   [
-    (Stuff::Iron, Piece::new(dome, iron).sized(stretch)),
+    (Stuff::Iron, Piece::new(dome, iron).sized(stretch).doubled()),
     (
       Stuff::Iron,
       Piece::new(rod(0.099, 0.026), iron * 0.8).sized(stretch).at_xyz(0.0, 0.185, 0.0)
@@ -1321,9 +1321,9 @@ fn closed_helm(kit: &mut Kit, build: &Build, iron: Srgba, horn: Srgba) {
       Stuff::Iron,
       Piece::new(block(0.018, 0.105, 0.014), iron * 1.1).at_xyz(0.0, 0.15, -0.122)
     ),
-    (Stuff::Iron, mask),
+    (Stuff::Iron, mask.doubled()),
     (Stuff::Iron, Piece(model::merge(rivets))),
-    (Stuff::Iron, guard)
+    (Stuff::Iron, guard.doubled())
   ]
   .into_iter()
   .for_each(|(stuff, piece)| {
@@ -1372,17 +1372,17 @@ fn jerkin(
     .add(
       Joint::Chest,
       Stuff::Leather,
-      hide(sheath(&hoops, -0.02, 0.47, 1.1), leather, 11)
+      hide(sheath(&hoops, -0.02, 0.47, 1.1), leather, 11).doubled()
     )
     .add(
       Joint::Chest,
       Stuff::Leather,
-      hide(sheath(&hoops, 0.43, 0.5, 1.24), leather * 1.35, 12)
+      hide(sheath(&hoops, 0.43, 0.5, 1.24), leather * 1.35, 12).doubled()
     )
     .add(
       Joint::Chest,
       Stuff::Leather,
-      hide(sheath(&hoops, -0.035, 0.055, 1.14), leather * 1.2, 13)
+      hide(sheath(&hoops, -0.035, 0.055, 1.14), leather * 1.2, 13).doubled()
     );
   for x in [-0.075, 0.075] {
     kit.add(
@@ -1425,16 +1425,28 @@ fn pauldron(kit: &mut Kit, joint: Joint, iron: Srgba) {
     Piece::new(cap.clone(), iron)
       .sized(Vec3::new(1.5, 1.0, 1.4))
       .rolled(-0.45)
-      .at_xyz(0.03, 0.02, 0.0),
+      .at_xyz(0.03, 0.02, 0.0)
+      .doubled(),
     Piece::new(cap.clone(), iron * 0.9)
       .sized(Vec3::new(1.3, 0.85, 1.25))
       .rolled(-0.7)
-      .at_xyz(0.075, -0.085, 0.0),
+      .at_xyz(0.075, -0.085, 0.0)
+      .doubled(),
     Piece::new(cap, iron * 0.8)
       .sized(Vec3::new(1.1, 0.7, 1.1))
       .rolled(-0.9)
-      .at_xyz(0.11, -0.16, 0.0),
-    Piece::new(model::cone(0.022, 0.14), iron * 1.2).rolled(-1.1).at_xyz(0.16, 0.06, 0.0)
+      .at_xyz(0.11, -0.16, 0.0)
+      .doubled(),
+    Piece::new(
+      tube(
+        &curve(Vec3::Y * -0.07, Vec3::ZERO, Vec3::Y * 0.07, 6),
+        &taper(6, 0.022, 0.001),
+        10
+      ),
+      iron * 1.2
+    )
+    .rolled(-1.1)
+    .at_xyz(0.16, 0.06, 0.0)
   ];
   for plate in plates {
     kit.add(joint, Stuff::Iron, (side < 0.0).then(|| plate.mirrored()).unwrap_or(plate));
