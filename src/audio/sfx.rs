@@ -267,49 +267,67 @@ fn shout(seed: u64) -> Wave {
 }
 
 fn roar(seed: u64) -> Wave {
-  let beast = |phone: Phone, pitch: f32, voice: f32, hiss: f32, at: f32| {
-    phone.sized(0.55).pitched(pitch).voiced(voice, hiss).at(at)
-  };
-  let screech = |phone: Phone, pitch: f32, voice: f32, hiss: f32, at: f32| {
-    phone.sized(1.2).pitched(pitch).voiced(voice, hiss).at(at)
-  };
-  let low = speak(
-    &[
-      beast(Phone::UH, 38.0, 0.0, 0.0, 0.0),
-      beast(Phone::A, 48.0, 1.0, 0.7, 0.35),
-      beast(Phone::A, 56.0, 1.0, 0.8, 1.2),
-      beast(Phone::O, 44.0, 1.0, 0.8, 2.2),
-      beast(Phone::U, 34.0, 0.3, 0.6, 2.9),
-      beast(Phone::U, 32.0, 0.0, 0.0, 3.3)
-    ],
-    1.0,
-    seed
-  );
-  let high = speak(
-    &[
-      screech(Phone::EH, 260.0, 0.0, 0.0, 0.2),
-      screech(Phone::A, 320.0, 0.8, 0.9, 0.5),
-      screech(Phone::A, 360.0, 0.8, 1.0, 1.4),
-      screech(Phone::O, 250.0, 0.5, 0.8, 2.4),
-      screech(Phone::O, 230.0, 0.0, 0.0, 3.0)
-    ],
-    1.0,
-    seed + 1
-  );
-  let mut rumble = Lag::new(90.0);
-  let mut mellow = Svf::new(2600.0, 0.6);
+  let dur = 3.4;
   let mut rng = Rng::new(seed);
-  let dry: Vec<f32> = (0..len(5.0))
+  let (mut throat, mut twin, mut under) = (Osc::default(), Osc(0.3), Osc(0.6));
+  let (mut rattle, mut drift, mut gust) = (Osc::default(), Lag::new(6.0), Lag::new(14.0));
+  let mut mouth = [Svf::default(); 3];
+  let (mut breath, mut bite) = (Svf::new(1100.0, 0.8), Svf::new(2900.0, 3.0));
+  let (mut chest, mut floor, mut top) =
+    (Lag::new(80.0), Svf::new(70.0, 0.7), Lag::new(6500.0));
+  let dry: Vec<f32> = (0..len(dur))
     .map(|index| {
       let t = time(index);
-      let layer = |wave: &Vec<f32>| wave.get(index).copied().unwrap_or(0.0);
-      let ground = rumble.step(rng.signed())
-        * 10.0
-        * curve(t, &[(0.0, 0.0), (0.5, 1.0), (2.8, 0.6), (3.6, 0.0)]);
-      mellow.step(drive(layer(&low) * 1.2 + layer(&high) * 0.2 + ground, 1.8)).low
+      let x = rng.signed();
+      let swell = curve(t, &[
+        (0.0, 0.0),
+        (0.12, 0.7),
+        (0.4, 1.0),
+        (1.9, 0.9),
+        (2.7, 0.5),
+        (dur, 0.0)
+      ]);
+      let open = curve(t, &[(0.0, 0.0), (0.35, 1.0), (1.8, 0.85), (3.0, 0.1)]);
+      let pitch =
+        curve(t, &[(0.0, 70.0), (0.35, 118.0), (1.1, 132.0), (2.1, 104.0), (dur, 58.0)])
+          * (1.0 + 0.06 * drift.step(rng.signed() * 4.0));
+      let rasp =
+        1.0 - 0.7 * (0.5 + 0.5 * rattle.sine(31.0 + 9.0 * gust.step(rng.signed() * 3.0)));
+      let fold =
+        throat.saw(pitch) + 0.8 * twin.saw(pitch * 1.013) + 0.9 * under.saw(pitch * 0.5);
+      let excite = drive(fold * rasp * 1.5 + x * 0.06, 3.0);
+      let bellow = mouth
+        .iter_mut()
+        .zip([
+          (380.0, 720.0, 6.0, 1.0),
+          (850.0, 1250.0, 7.0, 0.7),
+          (1900.0, 2500.0, 9.0, 0.45)
+        ])
+        .map(|(filter, (shut, wide, q, gain))| {
+          let hz = shut + (wide - shut) * open;
+          filter.tune(hz, q);
+          filter.step(excite).band * gain
+        })
+        .sum::<f32>();
+      let hiss = breath.step(x).band * (0.3 + 0.7 * rasp) * 0.5;
+      let snarl = bite.step(excite).band * open * 0.35;
+      let weight = chest.step(x) * 2.5 + fold * 0.15;
+      let voice = drive((bellow * 1.3 + hiss + snarl + weight) * swell, 2.2);
+      top.step(voice - floor.step(voice).low)
     })
     .collect();
-  Hall::new(0.9, 0.4, 1.4).apply(&Wave::mono(dry), 0.7, false)
+  let echoes = [(0.62, 0.32), (1.35, 0.16)];
+  let mut far = Lag::new(1800.0);
+  let echoed: Vec<f32> = (0..len(dur + 1.6))
+    .map(|index| {
+      let heard = |delay: f32| {
+        index.checked_sub(len(delay)).and_then(|at| dry.get(at)).copied().unwrap_or(0.0)
+      };
+      heard(0.0)
+        + far.step(echoes.iter().map(|&(delay, gain)| heard(delay) * gain).sum::<f32>())
+    })
+    .collect();
+  Hall::new(0.9, 0.45, 1.5).apply(&Wave::mono(echoed), 0.6, false)
 }
 
 fn fire_breath(seed: u64) -> Wave {

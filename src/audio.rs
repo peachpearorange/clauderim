@@ -106,7 +106,7 @@ fn loudness(cue: Cue) -> (f32, f32) {
     Cue::WordWall => (0.5, 10.0),
     Cue::WordLearned => (1.0, 10.0),
     Cue::Shout => (0.9, 30.0),
-    Cue::DragonRoar => (1.0, 80.0),
+    Cue::DragonRoar => (1.0, 240.0),
     Cue::FireBreath => (0.75, 40.0),
     Cue::Wingbeat => (0.7, 40.0),
     Cue::LevelUp => (0.4, 10.0),
