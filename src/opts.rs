@@ -27,7 +27,8 @@ pub struct Opts {
   pub delve: Option<String>,
   pub race: Option<String>,
   pub seed: Option<u32>,
-  pub gap: Option<f32>
+  pub gap: Option<f32>,
+  pub pilot: bool
 }
 
 impl Default for Opts {
@@ -55,7 +56,8 @@ impl Default for Opts {
       delve: None,
       race: None,
       seed: None,
-      gap: None
+      gap: None,
+      pilot: false
     }
   }
 }

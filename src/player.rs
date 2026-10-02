@@ -34,6 +34,9 @@ pub struct Player;
 #[derive(Component)]
 pub struct MainCamera;
 
+#[derive(Component)]
+pub struct Seated;
+
 #[derive(Resource)]
 pub struct View {
   pub yaw: f32,
@@ -173,7 +176,10 @@ fn steer(
   time: Res<Time>,
   mut view: ResMut<View>,
   mut stealth: ResMut<crate::combat::Stealth>,
-  player: Single<(&mut Walker, &mut Motion, &crate::combat::Vitals), With<Player>>
+  player: Single<
+    (&mut Walker, &mut Motion, &crate::combat::Vitals),
+    (With<Player>, Without<Seated>)
+  >
 ) {
   let (mut walker, mut body, vitals) = player.into_inner();
   if let Some(pose) = opts().pose.as_deref() {
@@ -249,7 +255,7 @@ fn steer(
 
 pub fn sprinting(walker: &Walker) -> bool { walker.wish.length() > RUN_SPEED + 0.5 }
 
-fn follow(
+pub fn follow(
   time: Res<Time>,
   mut shake: ResMut<crate::combat::Shake>,
   view: Res<View>,

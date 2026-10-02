@@ -1105,6 +1105,7 @@ fn survey(ground: &Ground, at: Vec2) -> Site {
       && crate::river::water_level(at).is_none_or(|level| height > level + 0.8)
       && crate::river::course_distance(at) > 11.0
       && at.distance(START) > 6.0
+      && at.distance(crate::heli::PAD.at) > 18.0
       && place::around(at).iter().all(|place| {
         at.distance(place.spot()) > place.flat() * place.clearance()
           && at.distance(place.spot() + Vec2::Y * (place.flat() * 1.6 + 6.0)) > 7.0
@@ -2243,6 +2244,7 @@ fn swarding(ground: Ground, cell: IVec2) -> Work<Option<(Vec3, Mesh)>> {
           * (1.0 - crate::river::bank(at))
           * (0.25 + 0.75 * clump)
           * f32::from(u8::from(at.abs().max_element() < BOUND))
+          * f32::from(u8::from(!crate::heli::PAD.covers(at, 0.6)))
           * f32::from(u8::from(place::around(at).iter().all(|place| {
             place.sunk() <= 0.0 || at.distance(place.spot()) > place.flat() * 0.95
           })));

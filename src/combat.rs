@@ -74,7 +74,10 @@ fn player_attacks(
   time: Res<Time>,
   mut view: ResMut<View>,
   mut held: Local<Option<f32>>,
-  player: Single<(&mut Motion, &mut Vitals), (With<Player>, Without<Dead>)>
+  player: Single<
+    (&mut Motion, &mut Vitals),
+    (With<Player>, Without<Dead>, Without<crate::player::Seated>)
+  >
 ) {
   let (mut motion, mut vitals) = player.into_inner();
   let guarding = mouse.pressed(MouseButton::Right) && view.captured;

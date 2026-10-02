@@ -12,6 +12,7 @@ mod dragon;
 mod face;
 mod flora;
 mod fx;
+mod heli;
 mod horse;
 mod hud;
 mod humanoid;
@@ -238,7 +239,8 @@ fn main() {
       ragdoll::plugin,
       robot::plugin,
       patrol::plugin,
-      spider::plugin
+      spider::plugin,
+      heli::plugin
     ))
     .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)
