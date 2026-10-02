@@ -1,6 +1,7 @@
 #![recursion_limit = "256"]
 
 mod audio;
+mod blocky;
 mod blur;
 mod cave;
 mod cloud;
@@ -22,6 +23,7 @@ mod noise;
 mod npc;
 mod opts;
 mod par;
+mod patrol;
 mod paving;
 mod place;
 mod player;
@@ -34,6 +36,7 @@ mod shout;
 mod signal;
 mod site;
 mod sky;
+mod spider;
 mod stuff;
 mod terrain;
 mod texture;
@@ -233,7 +236,9 @@ fn main() {
       river::plugin,
       npc::plugin,
       ragdoll::plugin,
-      robot::plugin
+      robot::plugin,
+      patrol::plugin,
+      spider::plugin
     ))
     .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)
