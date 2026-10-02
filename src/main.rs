@@ -27,6 +27,7 @@ mod place;
 mod player;
 mod ragdoll;
 mod river;
+mod robot;
 mod sdf;
 mod settlement;
 mod shout;
@@ -231,7 +232,8 @@ fn main() {
       settlement::plugin,
       river::plugin,
       npc::plugin,
-      ragdoll::plugin
+      ragdoll::plugin,
+      robot::plugin
     ))
     .add_plugins((audio::plugin, work::plugin, watch_compiling))
     .add_systems(Update, snapshot)
