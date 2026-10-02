@@ -421,7 +421,7 @@ fn pad_bones(depth: f32) -> Vec<Bone<Part, Skin>> {
       Shape::block(Vec3::new(side - 4.0, depth, side - 4.0), Skin::Plinth)
         .at(Vec3::Y * (-3.0 - depth / 2.0)),
       Shape::rod(pole, pole + Vec3::Y * 40.0, 1.0, Skin::Iron),
-      sideways(Shape::frustum(Vec2::splat(6.0), Vec2::splat(3.5), 18.0, Skin::Sock))
+      sideways(Shape::prism(8, 3.0, 1.8, 18.0, Skin::Sock))
         .at(pole + Vec3::new(9.5, 37.0, 0.0))
     ]
     .into_iter()
