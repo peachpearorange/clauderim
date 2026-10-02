@@ -520,6 +520,45 @@ fn draugr_die(seed: u64) -> Vec<f32> {
   dry
 }
 
+fn gunshot(seed: u64) -> Vec<f32> {
+  let mut rng = Rng::new(seed);
+  let (mut crack, mut body, mut thump) =
+    (Svf::new(rng.range(1800.0, 2600.0), 0.9), Lag::new(900.0), Osc::default());
+  (0..len(0.3))
+    .map(|index| {
+      let t = time(index);
+      let x = rng.signed();
+      drive(
+        crack.step(x).band * perc(t, 0.0003, 0.012) * 2.0
+          + body.step(x) * 4.0 * perc(t, 0.001, 0.07)
+          + thump.sine(60.0 + 140.0 * (-t / 0.015).exp()) * perc(t, 0.001, 0.05),
+        3.0
+      )
+    })
+    .collect()
+}
+
+fn explosion(seed: u64) -> Vec<f32> {
+  let mut rng = Rng::new(seed);
+  let (mut rumble, mut roar, mut debris, mut boom) =
+    (Lag::new(120.0), Lag::new(500.0), Svf::new(3000.0, 1.5), Osc::default());
+  (0..len(3.5))
+    .map(|index| {
+      let t = time(index);
+      let x = rng.signed();
+      let crackle = (rng.unit() < 0.004 * (-t / 1.2).exp()) as u8 as f32 * rng.signed();
+      drive(
+        rumble.step(x) * 14.0 * perc(t, 0.004, 1.1)
+          + roar.step(x) * 5.0 * perc(t, 0.002, 0.35)
+          + boom.sine(30.0 + 70.0 * (-t / 0.12).exp()) * perc(t, 0.002, 0.6) * 1.2
+          + debris.step(crackle).band * 6.0
+          + x * perc(t, 0.0005, 0.02),
+        2.5
+      )
+    })
+    .collect()
+}
+
 pub fn variants(cue: Cue) -> u64 {
   match cue {
     Cue::Footstep => 6,
@@ -530,6 +569,7 @@ pub fn variants(cue: Cue) -> u64 {
     | Cue::BanditShout
     | Cue::Wingbeat
     | Cue::PowerSwing => 2,
+    Cue::Gunshot => 4,
     _ => 1
   }
 }
@@ -595,7 +635,9 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::FireBreath => fire_breath(seed),
     Cue::Wingbeat => Wave::mono(wingbeat(seed)),
     Cue::LevelUp => level_up(seed),
-    Cue::Coins => Wave::mono(coins(seed))
+    Cue::Coins => Wave::mono(coins(seed)),
+    Cue::Gunshot => Wave::mono(gunshot(seed)),
+    Cue::Explosion => Wave::mono(explosion(seed))
   };
   wave.trimmed().normalized(0.9)
 }

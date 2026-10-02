@@ -52,6 +52,14 @@ fn dust_colors() -> Gradient<Vec4> {
   ])
 }
 
+fn smoke_colors() -> Gradient<Vec4> {
+  Gradient::from_keys([
+    (0.0, Vec4::new(0.08, 0.07, 0.06, 0.0)),
+    (0.15, Vec4::new(0.07, 0.065, 0.06, 0.7)),
+    (1.0, Vec4::new(0.12, 0.12, 0.12, 0.0))
+  ])
+}
+
 fn build(plume: Plume, spawner: SpawnerSettings, colors: Gradient<Vec4>) -> EffectAsset {
   let writer = ExprWriter::new();
   let drift = (writer.rand(VectorType::VEC3F) * writer.lit(2.0) - writer.lit(1.0))
@@ -105,6 +113,8 @@ pub struct Effects {
   pub blood: Handle<EffectAsset>,
   pub sparks: Handle<EffectAsset>,
   pub gust: Handle<EffectAsset>,
+  pub blast: Handle<EffectAsset>,
+  pub smoke: Handle<EffectAsset>,
   pub puff: Handle<Image>
 }
 
@@ -226,6 +236,35 @@ fn prepare(
       },
       SpawnerSettings::once(420.0.into()),
       dust_colors()
+    )),
+    blast: effects.add(build(
+      Plume {
+        thrust: Vec3::Y * 3.0,
+        spread: 9.0,
+        source: 1.5,
+        girth: 3.2,
+        life: 1.3,
+        lift: 2.0,
+        drag: 2.5,
+        ..flame
+      },
+      SpawnerSettings::once(500.0.into()),
+      fire_colors()
+    )),
+    smoke: effects.add(build(
+      Plume {
+        thrust: Vec3::Y * 2.5,
+        spread: 0.8,
+        source: 0.8,
+        girth: 3.5,
+        life: 6.0,
+        lift: 0.6,
+        drag: 0.4,
+        blend: Blending::Blend,
+        ..flame
+      },
+      SpawnerSettings::rate(14.0.into()),
+      smoke_colors()
     )),
     puff: images.add(alpha_puff)
   });

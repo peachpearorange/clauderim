@@ -51,7 +51,9 @@ pub enum Cue {
   FireBreath,
   Wingbeat,
   LevelUp,
-  Coins
+  Coins,
+  Gunshot,
+  Explosion
 }
 
 #[derive(Message, Clone, Copy)]

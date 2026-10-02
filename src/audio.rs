@@ -17,7 +17,7 @@ use {crate::{humanoid::Motion,
      synth::{Rng, Wave},
      web_time::Instant};
 
-const CUES: [Cue; 24] = [
+const CUES: [Cue; 26] = [
   Cue::Swing,
   Cue::PowerSwing,
   Cue::Hit,
@@ -41,7 +41,9 @@ const CUES: [Cue; 24] = [
   Cue::FireBreath,
   Cue::Wingbeat,
   Cue::LevelUp,
-  Cue::Coins
+  Cue::Coins,
+  Cue::Gunshot,
+  Cue::Explosion
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -108,7 +110,9 @@ fn loudness(cue: Cue) -> (f32, f32) {
     Cue::FireBreath => (0.75, 40.0),
     Cue::Wingbeat => (0.7, 40.0),
     Cue::LevelUp => (0.4, 10.0),
-    Cue::Coins => (0.4, 5.0)
+    Cue::Coins => (0.4, 5.0),
+    Cue::Gunshot => (0.5, 30.0),
+    Cue::Explosion => (1.0, 120.0)
   }
 }
 

@@ -1,14 +1,18 @@
-use {crate::{blocky::{self, Bone, Facet, Pixel, Shape, Texel},
-             combat::{Dead, Shake},
+use {crate::{blocky::{self, Bone, Facet, Pixel, Shape, Texel, srgb},
+             combat::{Dead, Shake, Struck, Vitals},
+             fx::{Effects, Fleeting},
+             humanoid::Motion,
+             noise::hash,
              opts::opts,
              place,
              player::{MainCamera, Player, Seated, View, capsule_offset},
+             ragdoll::Knocked,
              river,
              signal::{Cue, Notice, Prompt, Prompting, Sound},
              terrain::{self, BOUND, smooth},
              walker::{Layer, Walker, Walking}},
      avian3d::{math::AdjustPrecision, prelude::*},
-     bevy::{input::mouse::AccumulatedMouseMotion, prelude::*},
+     bevy::{input::mouse::AccumulatedMouseMotion, light::NotShadowCaster, prelude::*},
      std::{f32::consts::{FRAC_PI_2, PI, TAU},
            sync::LazyLock}};
 
@@ -47,8 +51,19 @@ const HARD_LANDING: f32 = 4.0;
 const CHASE: f32 = 5.0;
 const LOOK_SPEED: f32 = 0.0025;
 const PITCH_LIMIT: f32 = 1.35;
-const SEAT: Vec3 = Vec3::new(4.5 * PX, 10.0 * PX, -10.0 * PX);
-const SEAT_EYE: Vec3 = Vec3::new(4.5 * PX, 18.0 * PX, -11.0 * PX);
+const SEAT: Vec3 = Vec3::new(4.5 * PX, 0.745, -10.0 * PX);
+const SEAT_EYE: Vec3 = Vec3::new(4.5 * PX, 2.42, -10.6 * PX);
+const CRASH: f32 = 9.0;
+const TIPPED: f32 = 0.55;
+const BLAST: f32 = 70.0;
+const WRECKED_FOR: f32 = 30.0;
+const GUN_RATE: f32 = 12.0;
+const ROUND_DAMAGE: f32 = 14.0;
+const ROUND_SPEED: f32 = 500.0;
+const TRACER_LIFE: f32 = 0.08;
+const GUN_RANGE: f32 = 900.0;
+const GUN_SPREAD: f32 = 0.006;
+const GUN_HUB: Vec3 = Vec3::new(12.5, 5.0, -14.0);
 const DOOR: Vec3 = Vec3::new(-2.6, 0.0, -0.8);
 const ROTOR_HUB: Vec3 = Vec3::new(0.0, 31.5, 0.0);
 const TAIL_HUB: Vec3 = Vec3::new(2.2, 24.5, 61.0);
@@ -254,7 +269,9 @@ enum Part {
   Pad,
   Body,
   Rotor,
-  Tail
+  Tail,
+  Glass,
+  Gun
 }
 
 fn paint(skin: Skin, pixel: Pixel) -> Texel {
@@ -262,13 +279,18 @@ fn paint(skin: Skin, pixel: Pixel) -> Texel {
   let concrete = [0x55524d, 0x8d8982, 0x9d9992, 0x7b766f];
   let worn = |hex: u32| if pixel.speck() < 0.12 { pixel.shade(concrete) } else { hex };
   match skin {
-    Skin::Hull if pixel.side() && h >= 8 && (y == h / 3 || y == h / 3 + 1) => {
+    Skin::Hull if pixel.side() && h == 4 && (1..3).contains(&y) => {
       Texel::flat(pixel.shade([0x6a6048, 0xe8dcb8, 0xfff4d8, 0xcfc3a0]))
     }
     Skin::Hull => Texel::flat(pixel.shade([0x3a1012, 0x8e2226, 0xc44a46, 0x7a1c20])),
-    Skin::Glass if pixel.edge() => Texel::flat(0x1a1a1e),
-    Skin::Glass if (x + y) % 11 < 2 => Texel::flat(0x5a7890),
-    Skin::Glass => Texel::flat(0x1b2a38),
+    Skin::Glass => {
+      let (hex, alpha) = match () {
+        _ if pixel.edge() => (0x1a1a1e, 0.95),
+        _ if (x + y) % 11 < 2 => (0x9ab8d0, 0.4),
+        _ => (0x2a4058, 0.22)
+      };
+      Texel { tone: srgb(hex).with_alpha(alpha), glow: Srgba::NONE }
+    }
     Skin::Iron => Texel::flat(pixel.shade([0x1a1c22, 0x4a4e57, 0x80868f, 0x34373e])),
     Skin::Barrel if facet == Facet::Cap => Texel::flat(0x08080a),
     Skin::Barrel => Texel::flat(pixel.shade([0x101014, 0x2a2c32, 0x5a5e66, 0x202228])),
@@ -337,15 +359,25 @@ fn airframe() -> Vec<Shape<Skin>> {
     ))
   };
   let lamp = |skin, at: Vec3, size: f32| Shape::block(Vec3::splat(size), skin).at(at);
+  let wall = |side: f32| {
+    let panel = |size: Vec3, at: Vec3| {
+      Shape::block(size, Skin::Hull).at(Vec3::new(side * at.x, at.y, at.z))
+    };
+    [
+      panel(Vec3::new(1.0, 4.0, 34.0), Vec3::new(9.5, 12.0, 0.0)),
+      panel(Vec3::new(1.0, 5.0, 8.0), Vec3::new(9.5, 16.5, 13.0)),
+      panel(Vec3::new(1.0, 5.0, 1.5), Vec3::new(9.5, 16.5, -3.0)),
+      panel(Vec3::new(1.0, 5.0, 1.5), Vec3::new(9.5, 16.5, -16.2))
+    ]
+  };
   [
-    Shape::frustum(Vec2::new(20.0, 34.0), Vec2::new(17.0, 28.0), 14.0, Skin::Hull)
-      .at(Vec3::Y * 14.0),
+    Shape::block(Vec3::new(20.0, 3.0, 34.0), Skin::Hull).at(Vec3::Y * 8.5),
+    Shape::block(Vec3::new(20.0, 2.0, 36.0), Skin::Hull).at(Vec3::new(0.0, 20.0, -1.0)),
+    Shape::block(Vec3::new(18.0, 9.0, 1.0), Skin::Hull).at(Vec3::new(0.0, 14.5, 16.5)),
     Shape::frustum(Vec2::new(18.0, 10.0), Vec2::new(17.0, 9.0), 6.0, Skin::Hull)
       .at(Vec3::new(0.0, 10.0, -21.0)),
-    Shape::frustum(Vec2::new(17.0, 9.0), Vec2::new(11.0, 3.0), 8.0, Skin::Glass)
-      .at(Vec3::new(0.0, 17.0, -20.0)),
-    Shape::block(Vec3::new(18.8, 6.0, 9.0), Skin::Glass).at(Vec3::new(0.0, 17.0, -9.0)),
-    Shape::block(Vec3::new(18.6, 5.0, 6.0), Skin::Glass).at(Vec3::new(0.0, 17.0, 3.0)),
+    Shape::rod(Vec3::new(9.5, 7.0, -11.0), GUN_HUB + Vec3::Z * 3.0, 1.2, Skin::Iron),
+    Shape::block(Vec3::new(3.2, 3.2, 6.0), Skin::Iron).at(GUN_HUB + Vec3::Z * 3.0),
     Shape::block(Vec3::new(12.0, 5.0, 18.0), Skin::Hull).at(Vec3::new(0.0, 23.5, 3.0)),
     Shape::block(Vec3::new(12.6, 3.0, 4.0), Skin::Grille).at(Vec3::new(0.0, 23.5, -3.0)),
     Shape::prism(6, 1.3, 1.3, 5.0, Skin::Iron).at(Vec3::new(0.0, 28.5, 0.0)),
@@ -366,9 +398,37 @@ fn airframe() -> Vec<Shape<Skin>> {
     exhaust(1.0)
   ]
   .into_iter()
+  .chain(wall(-1.0))
+  .chain(wall(1.0))
   .chain(skid(-1.0))
   .chain(skid(1.0))
   .collect()
+}
+
+fn glazing() -> Vec<Bone<Part, Skin>> {
+  let pane = |side: f32, length: f32, z: f32| {
+    Shape::block(Vec3::new(0.5, 5.0, length), Skin::Glass).at(Vec3::new(
+      side * 9.6,
+      16.5,
+      z
+    ))
+  };
+  vec![Bone {
+    part: Part::Glass,
+    parent: None,
+    pivot: Vec3::ZERO,
+    shapes: [-1.0, 1.0]
+      .into_iter()
+      .flat_map(|side| [pane(side, 11.7, -9.6), pane(side, 11.25, 3.4)])
+      .chain([Shape::frustum(
+        Vec2::new(17.0, 9.0),
+        Vec2::new(11.0, 3.0),
+        8.0,
+        Skin::Glass
+      )
+      .at(Vec3::new(0.0, 17.0, -20.0))])
+      .collect()
+  }]
 }
 
 fn heli_bones() -> Vec<Bone<Part, Skin>> {
@@ -396,6 +456,21 @@ fn heli_bones() -> Vec<Bone<Part, Skin>> {
         Shape::block(Vec3::new(0.5, 2.0, 16.0), Skin::Blade)
           .at(TAIL_HUB + Vec3::X * 0.65),
       ]
+    },
+    Bone {
+      part: Part::Gun,
+      parent: Some(Part::Body),
+      pivot: GUN_HUB,
+      shapes: (0..3)
+        .map(|barrel| {
+          let angle = barrel as f32 * TAU / 3.0;
+          aft(Shape::prism(6, 0.6, 0.6, 10.0, Skin::Barrel))
+            .at(GUN_HUB + Vec3::new(angle.cos(), angle.sin(), -5.0))
+        })
+        .chain([
+          aft(Shape::prism(8, 1.6, 1.6, 1.0, Skin::Iron)).at(GUN_HUB - Vec3::Z * 8.0)
+        ])
+        .collect()
     },
   ]
 }
@@ -439,15 +514,41 @@ fn hull() -> Collider {
   ])
 }
 
+struct Wreck {
+  left: f32,
+  fires: Entity
+}
+
 #[derive(Component)]
 struct Helicopter {
   airframe: Airframe,
   crewed: bool,
   landed: bool,
-  blades: Vec2,
+  crashed: bool,
+  wreck: Option<Wreck>,
+  blades: Vec3,
+  reload: f32,
+  rounds: u32,
   rotor: (Entity, Vec3),
-  tail: (Entity, Vec3)
+  tail: (Entity, Vec3),
+  gun: (Entity, Vec3),
+  paint: Handle<StandardMaterial>
 }
+
+#[derive(Resource)]
+struct Rounds {
+  mesh: Handle<Mesh>,
+  material: Handle<StandardMaterial>
+}
+
+#[derive(Component)]
+struct Tracer {
+  velocity: Vec3,
+  left: f32
+}
+
+#[derive(Component)]
+struct Crosshair;
 
 fn build(
   mut commands: Commands,
@@ -462,8 +563,35 @@ fn build(
     blocky::kits(bones, PX, [paint], 3.0, &mut meshes, &mut images, &mut materials)
       .remove(0)
   };
-  let (pad_kit, heli_kit) =
-    (kit(&pad_bones((top - base) / PX - 3.0)), kit(&heli_bones()));
+  let (pad_kit, heli_kit, glass_kit) =
+    (kit(&pad_bones((top - base) / PX - 3.0)), kit(&heli_bones()), kit(&glazing()));
+  if let Some(mut glass) = materials.get_mut(&glass_kit.material) {
+    glass.alpha_mode = AlphaMode::Blend;
+    glass.perceptual_roughness = 0.15;
+    glass.reflectance = 0.6;
+  }
+  commands.insert_resource(Rounds {
+    mesh: meshes.add(Cuboid::new(0.08, 0.08, 4.0)),
+    material: materials.add(StandardMaterial {
+      base_color: Color::srgb(1.0, 0.75, 0.35),
+      emissive: LinearRgba::rgb(40.0, 18.0, 4.0),
+      ..default()
+    })
+  });
+  commands.spawn((
+    Crosshair,
+    Visibility::Hidden,
+    BackgroundColor(Color::srgba(1.0, 1.0, 1.0, 0.8)),
+    Node {
+      position_type: PositionType::Absolute,
+      left: percent(50.0),
+      top: percent(50.0),
+      width: px(4.0),
+      height: px(4.0),
+      margin: UiRect::all(px(-2.0)),
+      ..default()
+    }
+  ));
   let deck = at.extend(top).xzy();
   pad_kit.spawn(&mut commands, Transform::from_translation(deck).with_rotation(turn));
   commands.spawn((
@@ -480,6 +608,11 @@ fn build(
       .map(|&(_, entity, rest)| (entity, rest))
       .expect("helicopter part")
   };
+  let (glazed, panes) = glass_kit.spawn(&mut commands, Transform::IDENTITY);
+  commands.entity(glazed).insert(ChildOf(root));
+  for &(_, pane, _) in &panes {
+    commands.entity(pane).insert(NotShadowCaster);
+  }
   let crewed = opts().pilot;
   commands.entity(root).insert((
     Name::new("Helicopter"),
@@ -489,13 +622,19 @@ fn build(
       airframe: Airframe { yaw, rotor: crewed as u8 as f32, ..default() },
       crewed,
       landed: true,
-      blades: Vec2::ZERO,
+      crashed: false,
+      wreck: None,
+      blades: Vec3::ZERO,
+      reload: 0.0,
+      rounds: 0,
       rotor: joint(Part::Rotor),
-      tail: joint(Part::Tail)
+      tail: joint(Part::Tail),
+      gun: joint(Part::Gun),
+      paint: heli_kit.material.clone()
     }
   ));
   if crewed {
-    commands.entity(*player).insert((Seated, Visibility::Hidden, ColliderDisabled));
+    commands.entity(*player).insert((Seated, ColliderDisabled));
   }
 }
 
@@ -505,14 +644,18 @@ fn board(
   mut prompt: ResMut<Prompt>,
   mut notices: MessageWriter<Notice>,
   mut commands: Commands,
-  player: Single<(Entity, &mut Transform, Has<Seated>, Has<Dead>), With<Player>>,
+  player: Single<
+    (Entity, &mut Transform, &mut Motion, Has<Seated>, Has<Dead>),
+    With<Player>
+  >,
   mut helis: Query<(&Transform, &mut Helicopter), Without<Player>>
 ) {
-  let (entity, mut body, seated, dead) = player.into_inner();
+  let (entity, mut body, mut motion, seated, dead) = player.into_inner();
   for (craft, mut heli) in helis.iter_mut() {
     let gap = (craft.translation - body.translation).with_y(0.0);
     let near = !seated
       && !dead
+      && heli.wreck.is_none()
       && gap.length() < BOARD_REACH
       && view.flat_forward().dot(gap.normalize_or_zero()) > 0.3;
     let parked = heli.crewed && heli.landed && heli.airframe.velocity.length() < PARKED;
@@ -526,15 +669,17 @@ fn board(
         if seated {
           let door = craft.transform_point(DOOR).xz();
           body.translation = door.extend(floor(door) + capsule_offset() + 0.3).xzy();
-          commands
-            .entity(entity)
-            .remove::<(Seated, ColliderDisabled)>()
-            .insert(Visibility::Inherited);
+          body.rotation = Quat::from_rotation_y(heli.airframe.yaw);
+          motion.seated = 0.0;
+          commands.entity(entity).remove::<(Seated, ColliderDisabled)>();
         } else {
-          commands.entity(entity).insert((Seated, Visibility::Hidden, ColliderDisabled));
-          notices.write(Notice(
-            "W/S pitch, A/D bank, mouse steers, Space climbs, Ctrl descends".into()
-          ));
+          commands.entity(entity).insert((Seated, ColliderDisabled));
+          notices.write_batch([
+            Notice(
+              "W/S pitch, A/D bank, mouse steers, Space climbs, Ctrl descends".into()
+            ),
+            Notice("Left mouse fires the gun".into())
+          ]);
         }
       }
     }
@@ -553,7 +698,7 @@ fn fly(
   mut helis: Query<(Entity, &Collider, &mut Transform, &mut Helicopter), Without<Player>>,
   mut parts: Query<&mut Transform, (Without<Helicopter>, Without<Player>)>
 ) {
-  let (dt, now) = (time.delta_secs().min(0.05), time.elapsed_secs());
+  let (dt, now) = (time.delta_secs().min(0.25), time.elapsed_secs());
   for (entity, collider, mut transform, mut heli) in helis.iter_mut() {
     if heli.crewed {
       if view.captured {
@@ -626,6 +771,8 @@ fn fly(
     } else {
       projected_velocity
     };
+    heli.crashed =
+      heli.crewed && (impact > CRASH || (landed && (turned * Vec3::Y).y < TIPPED));
     if impact > HARD_LANDING {
       shake.0 = shake.0.max((impact * 0.08).min(1.0));
       sounds.write(Sound::here(Cue::Block, position));
@@ -636,11 +783,12 @@ fn fly(
     transform.rotation = turned;
     heli.airframe = Airframe { velocity, ..airframe };
     heli.landed = landed;
-    heli.blades += Vec2::new(1.0, 5.0) * ROTOR_RATE * airframe.rotor * dt;
-    let Vec2 { x: main, y: tail } = heli.blades;
+    heli.blades += Vec3::new(1.0, 5.0, 0.0) * ROTOR_RATE * airframe.rotor * dt;
+    let Vec3 { x: main, y: tail, z: gun } = heli.blades;
     let spins = [
       (heli.rotor, Quat::from_rotation_y(main)),
-      (heli.tail, Quat::from_rotation_x(tail))
+      (heli.tail, Quat::from_rotation_x(tail)),
+      (heli.gun, Quat::from_rotation_z(gun))
     ];
     for ((part, rest), turn) in spins {
       if let Ok(mut pose) = parts.get_mut(part) {
@@ -653,16 +801,200 @@ fn fly(
 fn ride(
   helis: Query<(&Transform, &Helicopter), Without<Player>>,
   player: Single<
-    (&mut Transform, &mut Walker, &mut LinearVelocity),
+    (&mut Transform, &mut Walker, &mut LinearVelocity, &mut Motion),
     (With<Player>, With<Seated>)
   >
 ) {
-  let (mut body, mut walker, mut velocity) = player.into_inner();
+  let (mut body, mut walker, mut velocity, mut motion) = player.into_inner();
   if let Some((craft, _)) = helis.iter().find(|(_, heli)| heli.crewed) {
-    body.translation = craft.transform_point(SEAT) + Vec3::Y * capsule_offset();
-    body.rotation = Quat::from_rotation_y(craft.rotation.to_euler(EulerRot::YXZ).0);
+    body.translation = craft.transform_point(SEAT + Vec3::Y * capsule_offset());
+    body.rotation = craft.rotation;
     *walker = Walker { grounded: true, ..default() };
     velocity.0 = Vec3::ZERO;
+    motion.seated = 1.0;
+  }
+}
+
+fn shoot(
+  time: Res<Time>,
+  mouse: Res<ButtonInput<MouseButton>>,
+  view: Res<View>,
+  rounds: Res<Rounds>,
+  effects: Res<Effects>,
+  spatial: SpatialQuery,
+  mut commands: Commands,
+  mut struck: MessageWriter<Struck>,
+  mut sounds: MessageWriter<Sound>,
+  player: Single<Entity, With<Player>>,
+  camera: Single<&GlobalTransform, With<MainCamera>>,
+  mut crosshair: Single<&mut Visibility, With<Crosshair>>,
+  mut helis: Query<(Entity, &Transform, &mut Helicopter)>,
+  targets: Query<(), With<Vitals>>
+) {
+  let dt = time.delta_secs();
+  let crewed = helis.iter().any(|(_, _, heli)| heli.crewed);
+  crosshair.set_if_neq(if crewed { Visibility::Inherited } else { Visibility::Hidden });
+  for (entity, craft, mut heli) in helis.iter_mut().filter(|(_, _, heli)| heli.crewed) {
+    let firing = view.captured && mouse.pressed(MouseButton::Left);
+    heli.reload = (heli.reload - dt).max(0.0);
+    heli.blades.z += firing as u8 as f32 * 40.0 * dt;
+    if firing && heli.reload <= 0.0 {
+      heli.reload = 1.0 / GUN_RATE;
+      heli.rounds += 1;
+      let round = heli.rounds as i32;
+      let scatter = Vec2::new(hash(round, 0, 61), hash(round, 1, 61)) * 2.0 - 1.0;
+      let eye = camera.translation();
+      let aim = (camera.forward().as_vec3()
+        + (camera.right().as_vec3() * scatter.x + camera.up().as_vec3() * scatter.y)
+          * GUN_SPREAD)
+        .normalize();
+      let hit = spatial.cast_ray(
+        eye,
+        Dir3::new(aim).unwrap_or(Dir3::NEG_Z),
+        GUN_RANGE,
+        true,
+        &SpatialQueryFilter::from_mask([Layer::World, Layer::Walker])
+          .with_excluded_entities([entity, *player])
+      );
+      let target = eye + aim * hit.map_or(GUN_RANGE, |hit| hit.distance);
+      let muzzle = craft.transform_point((GUN_HUB - Vec3::Z * 10.0) * PX);
+      let path = target - muzzle;
+      let flight = (path.length() / ROUND_SPEED).max(TRACER_LIFE);
+      commands.spawn((
+        Tracer { velocity: path / flight, left: flight },
+        Mesh3d(rounds.mesh.clone()),
+        MeshMaterial3d(rounds.material.clone()),
+        NotShadowCaster,
+        Transform::from_translation(muzzle).looking_to(path, Vec3::Y)
+      ));
+      sounds.write(Sound::here(Cue::Gunshot, muzzle));
+      if let Some(hit) = hit {
+        if targets.contains(hit.entity) {
+          struck.write(Struck {
+            target: hit.entity,
+            attacker: *player,
+            damage: ROUND_DAMAGE,
+            power: false,
+            blocked: false,
+            at: target
+          });
+        } else {
+          commands.spawn((
+            effects.emit(&effects.sparks),
+            Fleeting(1.0),
+            Transform::from_translation(target)
+          ));
+        }
+      }
+    }
+  }
+}
+
+fn streak(
+  time: Res<Time>,
+  mut commands: Commands,
+  mut tracers: Query<(Entity, &mut Transform, &mut Tracer)>
+) {
+  let dt = time.delta_secs();
+  for (entity, mut transform, mut tracer) in tracers.iter_mut() {
+    if tracer.left <= 0.0 {
+      commands.entity(entity).despawn();
+    } else {
+      transform.translation += tracer.velocity * dt.min(tracer.left);
+      tracer.left -= dt;
+    }
+  }
+}
+
+fn explode(
+  mut commands: Commands,
+  effects: Res<Effects>,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut shake: ResMut<Shake>,
+  mut sounds: MessageWriter<Sound>,
+  mut notices: MessageWriter<Notice>,
+  mut helis: Query<(Entity, &Transform, &mut Helicopter), Without<Player>>,
+  player: Single<
+    (Entity, &mut Transform, &mut Walker, &mut Vitals, &mut Motion),
+    With<Player>
+  >
+) {
+  let (hero, mut body, mut walker, mut vitals, mut motion) = player.into_inner();
+  for (entity, craft, mut heli) in helis.iter_mut().filter(|(_, _, heli)| heli.crashed) {
+    let at = craft.transform_point(Vec3::Y * 1.8);
+    sounds.write(Sound::here(Cue::Explosion, at));
+    shake.0 = 1.0;
+    commands.spawn((
+      effects.emit(&effects.blast),
+      Fleeting(3.0),
+      Transform::from_translation(at)
+    ));
+    commands.spawn((
+      PointLight {
+        color: Color::srgb(1.0, 0.55, 0.2),
+        intensity: 4.0e7,
+        range: 150.0,
+        ..default()
+      },
+      Fleeting(0.4),
+      Transform::from_translation(at)
+    ));
+    let fires = commands
+      .spawn((
+        effects.emit(&effects.campfire),
+        Transform::from_translation(Vec3::Y * 2.0),
+        ChildOf(entity)
+      ))
+      .with_child((effects.emit(&effects.smoke), Transform::from_translation(Vec3::Y)))
+      .id();
+    if let Some(mut paint) = materials.get_mut(&heli.paint) {
+      paint.base_color = Color::srgb(0.16, 0.14, 0.13);
+    }
+    let door = craft.transform_point(DOOR).xz();
+    let fling = heli.airframe.velocity * 0.5
+      + Vec3::Y * 6.0
+      + (craft.rotation * Vec3::NEG_X).with_y(0.0).normalize_or_zero() * 5.0;
+    body.translation = door
+      .extend((craft.translation.y + 1.5).max(floor(door) + 1.0) + capsule_offset())
+      .xzy();
+    body.rotation = Quat::from_rotation_y(heli.airframe.yaw);
+    motion.seated = 0.0;
+    vitals.health -= BLAST;
+    commands.entity(hero).remove::<(Seated, ColliderDisabled)>();
+    if vitals.health <= 0.0 {
+      walker.shove = fling;
+      commands.entity(hero).insert(Dead);
+    } else {
+      commands.entity(hero).insert(Knocked { left: 3.0, fling });
+    }
+    notices.write(Notice("The helicopter is destroyed".into()));
+    heli.crewed = false;
+    heli.crashed = false;
+    heli.wreck = Some(Wreck { left: WRECKED_FOR, fires });
+    heli.airframe = Airframe { rotor: 0.0, lever: 0.0, ..heli.airframe };
+  }
+}
+
+fn salvage(
+  time: Res<Time>,
+  mut commands: Commands,
+  mut materials: ResMut<Assets<StandardMaterial>>,
+  mut helis: Query<(&mut Transform, &mut Helicopter)>
+) {
+  for (mut transform, mut heli) in helis.iter_mut() {
+    if let Some(Wreck { left, fires }) = heli.wreck.as_mut() {
+      *left -= time.delta_secs();
+      if *left <= 0.0 {
+        commands.entity(*fires).despawn();
+        if let Some(mut paint) = materials.get_mut(&heli.paint) {
+          paint.base_color = Color::WHITE;
+        }
+        *transform = Transform::from_translation(PAD.at.extend(PAD.top).xzy())
+          .with_rotation(Quat::from_rotation_y(PAD.yaw));
+        heli.airframe = Airframe { yaw: PAD.yaw, ..default() };
+        heli.wreck = None;
+      }
+    }
   }
 }
 
@@ -718,7 +1050,11 @@ fn chase(
 pub fn plugin(app: &mut App) {
   app
     .add_systems(PostStartup, build)
-    .add_systems(Update, (board, fly, ride).chain().after(Walking))
+    .add_systems(
+      Update,
+      (board, shoot, fly, explode, salvage, ride).chain().after(Walking)
+    )
+    .add_systems(Update, streak)
     .add_systems(
       PostUpdate,
       chase.after(crate::player::follow).before(TransformSystems::Propagate)

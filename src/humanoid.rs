@@ -156,7 +156,8 @@ pub struct Motion {
   pub swim: f32,
   pub shout: f32,
   pub breath: f32,
-  pub crouch: f32
+  pub crouch: f32,
+  pub seated: f32
 }
 
 fn relaxed(rig: &Rig) -> Pose {
@@ -309,6 +310,20 @@ fn fallen(base: Pose) -> Pose {
     .with(Joint::KneeR, Vec3::new(-0.1, 0.0, 0.0))
 }
 
+fn seated(base: Pose) -> Pose {
+  Pose { drop: 0.0, lean: 0.0, ..base }
+    .with(Joint::Chest, Vec3::new(0.08, 0.0, 0.0))
+    .with(Joint::Head, Vec3::new(-0.05, 0.0, 0.0))
+    .with(Joint::LegL, Vec3::new(1.45, 0.0, -0.1))
+    .with(Joint::LegR, Vec3::new(1.45, 0.0, 0.1))
+    .with(Joint::KneeL, Vec3::new(-1.35, 0.0, 0.0))
+    .with(Joint::KneeR, Vec3::new(-1.35, 0.0, 0.0))
+    .with(Joint::ArmL, Vec3::new(0.45, 0.0, -0.15))
+    .with(Joint::ElbowL, Vec3::new(1.0, 0.0, 0.0))
+    .with(Joint::ArmR, Vec3::new(0.55, 0.0, 0.15))
+    .with(Joint::ElbowR, Vec3::new(0.8, 0.0, 0.0))
+}
+
 pub fn posed(rig: &Rig, motion: &Motion) -> Pose {
   let upright = ready(rig).add(Joint::Chest, Vec3::X * (motion.breath.sin() * 0.025));
   let base = upright.blend(&crouched(upright), motion.crouch);
@@ -330,7 +345,8 @@ pub fn posed(rig: &Rig, motion: &Motion) -> Pose {
   let flinched = shouted
     .add(Joint::Chest, Vec3::new(-0.4, 0.2, 0.0) * motion.flinch)
     .add(Joint::Head, Vec3::new(-0.4, 0.0, 0.0) * motion.flinch);
-  flinched.blend(&fallen(flinched), motion.fallen)
+  let sat = flinched.blend(&seated(flinched), motion.seated);
+  sat.blend(&fallen(sat), motion.fallen)
 }
 
 fn animate(

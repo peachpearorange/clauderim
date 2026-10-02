@@ -132,9 +132,10 @@ fn press(
   mut buttons: ResMut<ButtonInput<MouseButton>>
 ) {
   let (now, before) = (time.elapsed_secs(), time.elapsed_secs() - time.delta_secs());
-  for &(at, ref name) in opts::opts().press.iter() {
-    let (start, stop) =
-      (before < at && at <= now, before < at + 0.15 && at + 0.15 <= now);
+  let taps = opts::opts().press.iter().map(|&(at, ref name)| (at, at + 0.15, name));
+  let holds = opts::opts().hold.iter().map(|&(from, to, ref name)| (from, to, name));
+  for (from, to, name) in taps.chain(holds) {
+    let (start, stop) = (before < from && from <= now, before < to && to <= now);
     let key = match name.as_str() {
       "LMB" => Err(MouseButton::Left),
       "RMB" => Err(MouseButton::Right),
