@@ -2,7 +2,7 @@
 
 struct Blurring {
     near: f32,
-    from: f32,
+    onset: f32,
     to: f32,
     spread: f32,
 }
@@ -19,7 +19,7 @@ const REFERENCE_HEIGHT: f32 = 1080.0;
 fn softness(pixel: vec2<f32>, size: vec2<f32>) -> f32 {
     let raw = textureLoad(depth, vec2<i32>(clamp(pixel, vec2(0.0), size - 1.0)), 0);
     let distance = blurring.near / max(raw, 1e-9);
-    return smoothstep(blurring.from, blurring.to, distance);
+    return smoothstep(blurring.onset, blurring.to, distance);
 }
 
 @fragment

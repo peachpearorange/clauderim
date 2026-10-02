@@ -38,7 +38,7 @@ pub struct DistanceBlur {
 #[derive(Component, ShaderType, Clone, Copy)]
 pub struct Blurring {
   near: f32,
-  from: f32,
+  onset: f32,
   to: f32,
   spread: f32
 }
@@ -60,7 +60,7 @@ impl ExtractComponent for DistanceBlur {
   ) -> Option<Blurring> {
     match projection {
       &Projection::Perspective(PerspectiveProjection { near, .. }) => {
-        Some(Blurring { near, from, to, spread })
+        Some(Blurring { near, onset: from, to, spread })
       }
       _ => None
     }
