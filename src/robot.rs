@@ -1,4 +1,10 @@
-use {crate::{noise::hash, player::Player, terrain::Ground},
+use {crate::{inventory::{Inventory, Item, Loot},
+             noise::hash,
+             place,
+             player::{Player, View},
+             signal::{Cue, Notice, Prompt, Prompting, Sound},
+             terrain::Ground},
+     avian3d::prelude::*,
      bevy::{asset::RenderAssetUsages,
             image::ImageSampler,
             mesh::{Indices, PrimitiveTopology},
@@ -634,7 +640,7 @@ fn spawn_robot(
   images: &mut Assets<Image>,
   materials: &mut Assets<StandardMaterial>,
   placed: Transform
-) {
+) -> Entity {
   let bones = robot();
   let cubes: Vec<Cube> = bones.iter().flat_map(|bone| bone.cubes.clone()).collect();
   let (spots, height) = pack(&cubes.iter().map(Cube::net).collect::<Vec<_>>());
@@ -677,6 +683,7 @@ fn spawn_robot(
     entities.push((bone.part, entity));
     (first + count, entities)
   });
+  root
 }
 
 fn idle(time: Res<Time>, mut bones: Query<(&Idle, &mut Transform, &mut Visibility)>) {
@@ -709,29 +716,157 @@ fn idle(time: Res<Time>, mut bones: Query<(&Idle, &mut Transform, &mut Visibilit
   }
 }
 
-fn specimen(
+const NAME: &str = "Brasswick";
+const PELTS: u32 = 3;
+
+#[derive(Component)]
+struct Questgiver;
+
+#[derive(Resource, Default, Clone, Copy, PartialEq)]
+enum Errand {
+  #[default]
+  Unasked,
+  Asked {
+    carried: u32
+  },
+  Done
+}
+
+fn stand(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
   mut images: ResMut<Assets<Image>>,
   mut materials: ResMut<Assets<StandardMaterial>>,
-  ground: Res<Ground>,
-  player: Single<&Transform, Added<Player>>
+  ground: Res<Ground>
 ) {
-  if crate::opts::opts().foe.as_deref() == Some("robot") {
-    let gap = crate::opts::opts().gap.unwrap_or(5.0);
-    let ahead = player.translation + player.forward().as_vec3() * gap;
-    let toward = (player.translation - ahead).with_y(0.0).normalize_or(Vec3::Z);
-    spawn_robot(
-      &mut commands,
-      &mut meshes,
-      &mut images,
-      &mut materials,
-      Transform::from_translation(ground.surface(ahead.xz()))
-        .with_rotation(Quat::from_rotation_arc(Vec3::Z, toward))
-    );
+  let facing = place::START_FACING.normalize();
+  let spot = place::START + facing * 5.0 + facing.perp() * 1.5;
+  let toward = (place::START - spot).normalize().extend(0.0).xzy();
+  let at = ground.surface(spot);
+  let robot = spawn_robot(
+    &mut commands,
+    &mut meshes,
+    &mut images,
+    &mut materials,
+    Transform::from_translation(at)
+      .with_rotation(Quat::from_rotation_arc(Vec3::Z, toward))
+  );
+  commands.entity(robot).insert((Name::new(NAME), Questgiver));
+  commands.spawn((
+    RigidBody::Static,
+    Collider::cylinder(0.75, 3.6),
+    Transform::from_translation(at + Vec3::Y * 1.8)
+  ));
+}
+
+fn heed(
+  time: Res<Time>,
+  player: Single<&Transform, (With<Player>, Without<Questgiver>)>,
+  mut robots: Query<&mut Transform, With<Questgiver>>
+) {
+  for mut robot in robots.iter_mut() {
+    let gap = (player.translation - robot.translation).with_y(0.0);
+    if gap.length() < 12.0
+      && let Ok(toward) = Dir3::new(gap)
+    {
+      let goal = Quat::from_rotation_arc(Vec3::Z, toward.as_vec3());
+      robot.rotation = robot.rotation.slerp(goal, (time.delta_secs() * 2.0).min(1.0))
+    }
+  }
+}
+
+fn tally(
+  mut errand: ResMut<Errand>,
+  mut notices: MessageWriter<Notice>,
+  inventory: Single<&Inventory, With<Player>>
+) {
+  let held = inventory.holding(Item::WolfPelt).min(PELTS);
+  if let Errand::Asked { carried } = *errand
+    && held != carried
+  {
+    *errand = Errand::Asked { carried: held };
+    let progress = match held {
+      PELTS => format!("Return the wolf pelts to {NAME}"),
+      _ => format!("Wolf pelts gathered: {held}/{PELTS}")
+    };
+    (held > carried).then(|| notices.write(Notice(progress)));
+  }
+}
+
+fn converse(
+  keys: Res<ButtonInput<KeyCode>>,
+  view: Res<View>,
+  mut prompt: ResMut<Prompt>,
+  mut errand: ResMut<Errand>,
+  mut notices: MessageWriter<Notice>,
+  mut sounds: MessageWriter<Sound>,
+  mut player: Single<(&Transform, &mut Inventory), With<Player>>,
+  robots: Query<&Transform, With<Questgiver>>
+) {
+  let at = player.0.translation;
+  let near = robots.iter().find(|robot| {
+    let gap = (robot.translation - at).with_y(0.0);
+    gap.length() < 5.5 && view.flat_forward().dot(gap.normalize_or_zero()) > 0.4
+  });
+  if prompt.0.is_none()
+    && let Some(robot) = near
+  {
+    prompt.0 = Some(Prompting { verb: "Talk".into(), noun: NAME.into() });
+    if keys.just_pressed(KeyCode::KeyE) {
+      let say = |line: &str| Notice(format!("{NAME}: \"{line}\""));
+      let held = player.1.holding(Item::WolfPelt);
+      let (lines, next): (Vec<Notice>, Errand) = match *errand {
+        Errand::Unasked => (
+          vec![
+            say("BZZT. Greetings, flesh-traveller! I am Brasswick, keeper of the lamps."),
+            say(
+              "The northern wind chills my ember core. Bring me three wolf pelts to line my cage."
+            ),
+            Notice("Quest started: Fur for the Furnace".into()),
+          ],
+          Errand::Asked { carried: held.min(PELTS) }
+        ),
+        Errand::Asked { .. } if held >= PELTS => {
+          (0..PELTS).for_each(|_| {
+            player.1.spend(Item::WolfPelt);
+          });
+          [Loot::Gold(150), Loot::one(Item::Amethyst)]
+            .into_iter()
+            .for_each(|loot| player.1.take(loot));
+          sounds.write(Sound::here(Cue::Coins, robot.translation));
+          (
+            vec![
+              say("Warmth! Glorious warmth! My core burns bright once more."),
+              say("Take this, with the gratitude of a grateful machine."),
+              Notice("Quest completed: Fur for the Furnace".into()),
+              Notice("Gold (150) added".into()),
+              Notice("Amethyst added".into()),
+            ],
+            Errand::Done
+          )
+        }
+        Errand::Asked { carried } => (
+          vec![say(&format!(
+            "Wolf pelts: {held}/{PELTS}. The wolves prowl the woods around this valley. Whirr."
+          ))],
+          Errand::Asked { carried }
+        ),
+        Errand::Done => (
+          vec![say(
+            "My core is warm and my lamps are lit. Safe travels, flesh-traveller."
+          )],
+          Errand::Done
+        )
+      };
+      *errand = next;
+      notices.write_batch(lines);
+    }
   }
 }
 
 pub fn plugin(app: &mut App) {
-  app.add_systems(PostStartup, specimen).add_systems(Update, idle);
+  app
+    .init_resource::<Errand>()
+    .add_systems(PostStartup, stand)
+    .add_systems(Update, (idle, heed, tally, converse));
 }

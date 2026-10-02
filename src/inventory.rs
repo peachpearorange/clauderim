@@ -120,7 +120,9 @@ impl Inventory {
     }
   }
 
-  fn spend(&mut self, item: Item) -> bool {
+  pub fn holding(&self, item: Item) -> u32 { self.goods.get(&item).copied().unwrap_or(0) }
+
+  pub fn spend(&mut self, item: Item) -> bool {
     let held = self.goods.remove(&item).unwrap_or(0);
     (held > 1).then(|| self.goods.insert(item, held - 1));
     held > 0
