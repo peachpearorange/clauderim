@@ -29,12 +29,15 @@ const LEVER_RATE: f32 = 4.0;
 const LEVER_RANGE: f32 = 1.8;
 const RESERVE: f32 = 0.6;
 const DIVE: f32 = 0.3;
-const PITCH_TORQUE: f32 = 0.35;
-const ROLL_TORQUE: f32 = 0.45;
-const TURN_LIMIT: f32 = 6.0;
-const SPIN_DRAG: Vec3 = Vec3::new(0.5, 1.0, 0.5);
-const MAX_SPIN: Vec3 = Vec3::new(0.8, 1.2, 1.0);
+const CYCLIC: Vec2 = Vec2::new(0.14, 0.18);
+const MOUSE_CYCLIC: f32 = 0.1;
+const FLAP_TIME: f32 = 0.25;
+const FLAPBACK: f32 = 0.0035;
+const HUB_POWER: Vec3 = Vec3::new(2.4, 0.0, 3.2);
+const TURN_LIMIT: f32 = 1.2;
+const SPIN_DRAG: Vec3 = Vec3::new(0.1, 1.0, 0.1);
 const VANE: f32 = 0.004;
+const STABILISER: f32 = 0.002;
 const TORQUE_KICK: f32 = 0.6;
 const FORE_DRAG: f32 = 0.002;
 const ROTOR_DRAG: f32 = 0.06;
@@ -157,6 +160,7 @@ struct Contact {
 struct Airframe {
   velocity: Vec3,
   attitude: Quat,
+  disc: Quat,
   spin: Vec3,
   lever: f32,
   rotor: f32
@@ -164,7 +168,8 @@ struct Airframe {
 
 impl Airframe {
   fn facing(yaw: f32) -> Self {
-    Self { attitude: Quat::from_rotation_y(yaw), ..default() }
+    let attitude = Quat::from_rotation_y(yaw);
+    Self { attitude, disc: attitude, ..default() }
   }
 
   fn heading(&self) -> f32 {
@@ -174,19 +179,29 @@ impl Airframe {
     f32::atan2(-toward.x, -toward.z)
   }
 
+  fn tilt(&self) -> Quat { self.attitude.inverse() * self.disc }
+
   fn step(
     self,
     Controls { crewed, ahead, aside, climb, turn }: Controls,
     Contact { above, altitude, ground, gust }: Contact,
     dt: f32
   ) -> Self {
-    let up = self.attitude * Vec3::Y;
     let heading = self.heading();
-    let forward = Vec3::new(-heading.sin(), 0.0, -heading.cos());
-    let right = Vec3::new(heading.cos(), 0.0, -heading.sin());
     let rotor = self.rotor
       + ((crewed as u8 as f32) - self.rotor).clamp(-SPOOL_DOWN * dt, SPOOL_UP * dt);
-    let hover = 1.0 / up.y.max(0.6);
+    let manned = crewed as u8 as f32;
+    let cyclic = Vec2::new(-ahead * CYCLIC.x + turn.y * MOUSE_CYCLIC, -aside * CYCLIC.y)
+      .clamp(-CYCLIC, CYCLIC)
+      * manned;
+    let along = self.attitude.inverse() * self.velocity;
+    let flapped =
+      cyclic + (Vec2::new(-along.z, along.x) * FLAPBACK).clamp_length_max(0.2);
+    let swashed =
+      self.attitude * Quat::from_euler(EulerRot::YXZ, 0.0, flapped.x, flapped.y);
+    let disc = self.disc.slerp(swashed, 1.0 - (-dt / FLAP_TIME).exp()).normalize();
+    let thrust = disc * Vec3::Y;
+    let hover = smooth(-0.1, 0.5, thrust.y) / thrust.y.max(0.6);
     let wanted = match ground {
       Some(_) if climb <= 0.0 => 0.0,
       _ if climb < 0.0 => hover * (1.0 + climb) + DIVE * climb,
@@ -194,9 +209,8 @@ impl Airframe {
     };
     let lever = (self.lever + (wanted - self.lever) * (1.0 - (-LEVER_RATE * dt).exp()))
       .clamp(-DIVE, LEVER_RANGE);
-    let (cruise, slip) = (self.velocity.dot(forward), self.velocity.dot(right));
     let airspeed = self.velocity.length();
-    let cushion = CUSHION * (1.0 - smooth(0.0, ROTOR_SPAN, above));
+    let cushion = CUSHION * (1.0 - smooth(0.0, ROTOR_SPAN, above)) * thrust.y.max(0.0);
     let translational =
       0.05 * smooth(5.0, 15.0, airspeed) * (1.0 - smooth(25.0, 45.0, airspeed));
     let lift = GRAVITY
@@ -205,32 +219,36 @@ impl Airframe {
       * rotor
       * (-altitude / SCALE_HEIGHT).exp()
       * (1.0 + cushion + translational);
-    let rise = self.velocity.y;
-    let drag = -forward * FORE_DRAG * cruise.abs() * cruise
-      - right * SIDE_DRAG * slip.abs() * slip
-      - self.velocity.with_y(0.0) * ROTOR_DRAG
-      - Vec3::Y * (CLIMB_DRAG * rise + CLIMB_DRAG_QUAD * rise.abs() * rise);
+    let inflow = self.velocity.dot(thrust);
+    let drag = self.attitude
+      * Vec3::new(
+        -SIDE_DRAG * along.x.abs() * along.x,
+        0.0,
+        -FORE_DRAG * along.z.abs() * along.z
+      )
+      - (self.velocity - thrust * inflow) * ROTOR_DRAG
+      - thrust * (CLIMB_DRAG * inflow + CLIMB_DRAG_QUAD * inflow.abs() * inflow);
     let load = ground.map_or(0.0, |_| (1.0 - lift / GRAVITY).clamp(0.0, 1.0));
-    let accelerated = self.velocity + (up * lift - Vec3::Y * GRAVITY + drag) * dt;
+    let accelerated = self.velocity + (thrust * lift - Vec3::Y * GRAVITY + drag) * dt;
     let velocity =
       accelerated.with_y(0.0) * (-6.0 * load * dt).exp() + Vec3::Y * accelerated.y;
     let airborne = 1.0 - load;
-    let stick = Vec3::new(-ahead * PITCH_TORQUE + turn.y, turn.x, -aside * ROLL_TORQUE)
-      * (crewed as u8 as f32);
-    let vane = -VANE * airspeed * slip;
-    let reaction = -TORQUE_KICK * LEVER_RATE * (wanted - self.lever);
-    let spin = (self.spin
-      + ((stick * rotor + Vec3::Y * (vane + reaction) + gust) * airborne
+    let hub = self.tilt().to_scaled_axis() * HUB_POWER * rotor * rotor;
+    let vanes =
+      Vec3::new(-STABILISER * along.z * along.y, -VANE * airspeed * along.x, 0.0);
+    let pedal = Vec3::Y * turn.x * manned * rotor;
+    let reaction = Vec3::Y * -TORQUE_KICK * LEVER_RATE * (wanted - self.lever);
+    let spin = self.spin
+      + ((hub + vanes + pedal + reaction + gust) * airborne
         - self.spin * (SPIN_DRAG + Vec3::splat(6.0 * load)))
-        * dt)
-      .clamp(-MAX_SPIN, MAX_SPIN);
+        * dt;
     let turned = (self.attitude * Quat::from_scaled_axis(spin * dt)).normalize();
     let attitude = ground.map_or(turned, |normal| {
       let settled =
         Quat::from_rotation_arc(Vec3::Y, normal) * Quat::from_rotation_y(heading);
       turned.slerp(settled, 1.0 - (-8.0 * load * dt).exp())
     });
-    Self { velocity, attitude, spin, lever, rotor }
+    Self { velocity, attitude, disc, spin, lever, rotor }
   }
 
   fn fly(self, controls: Controls, contact: Contact, dt: f32) -> Self {
@@ -775,7 +793,7 @@ fn fly(
     heli.blades += Vec3::new(1.0, 5.0, 0.0) * ROTOR_RATE * airframe.rotor * dt;
     let Vec3 { x: main, y: tail, z: gun } = heli.blades;
     let spins = [
-      (heli.rotor, Quat::from_rotation_y(main)),
+      (heli.rotor, heli.airframe.tilt() * Quat::from_rotation_y(main)),
       (heli.tail, Quat::from_rotation_x(tail)),
       (heli.gun, Quat::from_rotation_z(gun))
     ];
@@ -1139,8 +1157,12 @@ mod tests {
       rolled.spin,
       coasting.spin
     );
-    let (rested, _) = simulate(rolled, held, 8.0, crewed);
-    assert!(rested.spin.length() < 0.1, "rotation dies away: {:?}", rested.spin);
+    let (banked, _) = simulate(hovering, held, 1.0, roll);
+    let swaying = (1..=20).all(|second| {
+      let (swung, _) = simulate(banked, held, second as f32, crewed);
+      (swung.attitude * Vec3::Y).y > 0.8
+    });
+    assert!(swaying, "hands off it sways but does not tumble");
     let (pointed, _) =
       simulate(hovering, held, 3.0, Controls { turn: Vec2::new(1.0, 0.0), ..crewed });
     assert!(
@@ -1148,11 +1170,13 @@ mod tests {
       "turns: {}",
       pointed.heading()
     );
-    let (tilted, height) =
-      simulate(hovering, held, 1.2, Controls { ahead: 1.0, ..crewed });
-    let (cruising, _) = simulate(tilted, height, 10.0, crewed);
+    let (cruising, _) = simulate(hovering, held, 15.0, Controls { ahead: 1.0, ..crewed });
     let speed = cruising.velocity.with_y(0.0).length();
     assert!(speed > 25.0, "flies forward: {speed}");
+    assert!(
+      (cruising.attitude * Vec3::Y).y > 0.7,
+      "flapback and the tailplane hold the nose: {cruising:?}"
+    );
     let (down, height) =
       simulate(hovering, held, 40.0, Controls { climb: -0.3, ..crewed });
     assert!(height < 0.01 && down.velocity.length() < 0.5, "lands: {height} {down:?}");
