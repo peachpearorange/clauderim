@@ -133,7 +133,11 @@ fn posed() -> Motion {
     swing: (pose == "swing").then_some(0.4),
     guard: (pose == "guard") as u8 as f32,
     fallen: (pose == "dead") as u8 as f32,
-    speed: (pose == "run").then_some(5.0).unwrap_or(0.0),
+    speed: match pose {
+      "run" => 5.0,
+      "walk" => 2.5,
+      _ => 0.0
+    },
     crouch: (pose == "sneak") as u8 as f32,
     stride: 1.0,
     ..default()
@@ -434,15 +438,18 @@ fn stage(
       flora::specimen(&name, seed as usize, &mut images, &mut materials, &stuffs)
         .unwrap_or_else(|| panic!("studio: nothing called {name:?}"))
     ),
-    Subject::Atronach => hang(
-      &mut commands,
-      &mut meshes,
-      &holders,
-      atronach::body()
-        .into_iter()
-        .map(|(stuff, mesh)| (stuffs.of(stuff), mesh))
-        .collect()
-    ),
+    Subject::Atronach => {
+      for (index, &holder) in holders.iter().enumerate() {
+        atronach::spawn(
+          &mut commands,
+          &mut meshes,
+          &stuffs,
+          holder,
+          index as f32 * opts.film.unwrap_or(0.0)
+        );
+        commands.entity(holder).insert(posed());
+      }
+    }
     Subject::Cages => hang(
       &mut commands,
       &mut meshes,
@@ -560,6 +567,9 @@ pub fn plugin(app: &mut App) {
   app
     .add_message::<crate::combat::Struck>()
     .add_systems(Startup, stage)
-    .add_systems(Update, (robot::idle, frame, checkered.run_if(|| opts().checker)))
+    .add_systems(
+      Update,
+      (robot::idle, atronach::animate, frame, checkered.run_if(|| opts().checker))
+    )
     .add_systems(PostUpdate, dragon::pose.before(TransformSystems::Propagate));
 }
