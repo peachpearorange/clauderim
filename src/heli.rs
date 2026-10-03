@@ -669,7 +669,7 @@ fn board(
           commands.entity(entity).insert((Seated, ColliderDisabled));
           notices.write_batch([
             Notice(
-              "Mouse turns and pitches, W/S pitch, A/D roll, Space climbs, Ctrl dives"
+              "Mouse turns and pitches, W/S pitch, A/D roll, Space climbs, Shift dives"
                 .into()
             ),
             Notice("Left mouse fires the gun".into())
@@ -702,8 +702,7 @@ fn fly(
       crewed: heli.crewed,
       ahead: held(KeyCode::KeyW) - held(KeyCode::KeyS),
       aside: held(KeyCode::KeyD) - held(KeyCode::KeyA),
-      climb: held(KeyCode::Space).max(held(KeyCode::ShiftLeft))
-        - held(KeyCode::ControlLeft),
+      climb: held(KeyCode::Space) - held(KeyCode::ShiftLeft),
       turn: (-motion.delta * MOUSE_TURN / dt.max(1e-3) * (view.captured as u8 as f32))
         .clamp_length_max(TURN_LIMIT)
     };
