@@ -2,8 +2,7 @@ use {super::{ambience::chant,
              music::{Saws, choir, drum, swell},
              synth::{Adsr, Hall, Lag, Osc, Phone, RATE, Rng, Svf, Wave, curve, drive,
                      len, midi, mix, noise, perc, speak, time}},
-     crate::signal::Cue,
-     std::f32::consts::PI};
+     crate::signal::Cue};
 
 fn whoosh(seed: u64, dur: f32, pitch: f32, heft: f32) -> Vec<f32> {
   let mut rng = Rng::new(seed);
@@ -267,104 +266,77 @@ fn shout(seed: u64) -> Wave {
   Hall::new(0.93, 0.45, 1.6).apply(&Wave::mono(dry), 0.8, false)
 }
 
-struct Folds {
-  phase: f32,
-  stretch: f32,
-  force: f32,
-  flow: f32,
-  rng: Rng
-}
-
-impl Folds {
-  fn new(seed: u64) -> Self {
-    Self { phase: 0.0, stretch: 1.0, force: 1.0, flow: 0.0, rng: Rng::new(seed) }
-  }
-
-  fn step(&mut self, pitch: f32, rough: f32, breath: f32) -> f32 {
-    self.phase += pitch * self.stretch / RATE;
-    if self.phase >= 1.0 {
-      self.stretch = 1.0 + rough * 0.14 * self.rng.signed();
-      self.force = 1.0 - rough * 0.6 * self.rng.unit();
-      self.phase = self.phase.fract()
-    }
-    let phase = self.phase;
-    let flow = self.force
-      * if phase < 0.5 {
-        0.5 - 0.5 * (PI * phase / 0.5).cos()
-      } else if phase < 0.85 {
-        (PI * (phase - 0.5) / 0.7).cos()
-      } else {
-        0.0
-      };
-    let pulse = (flow - self.flow) * RATE / (pitch * 4.0);
-    self.flow = flow;
-    pulse + self.rng.signed() * flow * breath
-  }
-}
-
 fn roar(seed: u64) -> Wave {
-  const SHUT: [f32; 4] = [260.0, 520.0, 1100.0, 1900.0];
-  const OPEN: [f32; 4] = [430.0, 830.0, 1400.0, 2300.0];
-  const WIDTHS: [f32; 4] = [70.0, 90.0, 140.0, 220.0];
-  const GAINS: [f32; 4] = [1.0, 0.85, 0.45, 0.3];
-  let dur = 2.6;
-  let pitch = [
-    (0.0, 72.0),
-    (0.15, 112.0),
-    (0.3, 170.0),
-    (0.55, 182.0),
-    (0.9, 142.0),
-    (1.2, 112.0),
-    (1.8, 96.0),
-    (2.3, 82.0),
-    (dur, 72.0)
+  const BODY: [(f32, f32, f32); 6] = [
+    (110.0, 1.0, 0.35),
+    (240.0, 1.2, 0.45),
+    (470.0, 1.2, 0.6),
+    (900.0, 1.1, 0.9),
+    (1700.0, 1.0, 1.0),
+    (2600.0, 0.9, 0.7)
   ];
-  let rough = [(0.0, 0.5), (0.25, 0.08), (0.75, 0.1), (1.1, 0.4), (1.6, 0.8), (dur, 1.0)];
+  let dur = 3.2;
+  let pitch = [
+    (0.0, 150.0),
+    (0.18, 230.0),
+    (0.6, 320.0),
+    (1.4, 350.0),
+    (1.75, 300.0),
+    (2.1, 190.0),
+    (2.6, 130.0),
+    (dur, 105.0)
+  ];
+  let slip =
+    [(0.0, 0.02), (0.25, 0.008), (1.5, 0.01), (1.9, 0.015), (2.4, 0.025), (dur, 0.035)];
   let swell = [
     (0.0, 0.0),
-    (0.12, 0.8),
-    (0.3, 1.0),
-    (1.0, 0.95),
-    (1.9, 0.7),
-    (2.4, 0.35),
+    (0.15, 0.85),
+    (0.4, 1.0),
+    (1.5, 0.95),
+    (1.7, 0.75),
+    (1.85, 0.9),
+    (2.5, 0.65),
     (dur, 0.0)
   ];
-  let open = [(0.0, 0.2), (0.3, 1.0), (1.0, 0.9), (2.0, 0.5), (dur, 0.2)];
-  let throat = |seed: u64, detune: f32, tract: f32| -> Vec<f32> {
-    let mut folds = Folds::new(seed);
-    let mut mouth = [Svf::default(); 4];
-    (0..len(dur))
-      .map(|index| {
-        let t = time(index);
-        let rough = curve(t, &rough);
-        let source = folds.step(curve(t, &pitch) * detune, rough, 0.15 + 0.35 * rough);
-        let open = curve(t, &open);
-        mouth
-          .iter_mut()
-          .zip(SHUT.iter().zip(OPEN).zip(WIDTHS.iter().zip(GAINS)))
-          .map(|(filter, ((&shut, wide), (&width, gain)))| {
-            let hz = (shut + (wide - shut) * open) * tract;
-            filter.tune(hz, hz / width);
-            filter.step(source).band * gain
-          })
-          .sum::<f32>()
-          * curve(t, &swell)
-      })
-      .collect()
-  };
-  let (body, twin) = (throat(seed, 1.0, 1.0), throat(seed + 1, 0.985, 1.04));
-  let (mut floor, mut top) = (Svf::new(50.0, 0.7), Lag::new(6000.0));
-  let dry: Vec<f32> = body
-    .iter()
-    .zip(&twin)
-    .map(|(a, b)| {
-      let loud = drive(a + b * 0.8, 1.3);
+  let mut rng = Rng::new(seed);
+  let (mut string, mut stretch, mut waver) = (Osc::default(), 1.0f32, Lag::new(3.0));
+  let mut last = 0.0f32;
+  let mut body = BODY.map(|(hz, q, _)| Svf::new(hz, q));
+  let (mut rosin, mut grit) = (Svf::new(3200.0, 0.9), Lag::new(40.0));
+  let (mut rumble, mut floor, mut top) =
+    (Lag::new(90.0), Svf::new(45.0, 0.7), Lag::new(7500.0));
+  let dry: Vec<f32> = (0..len(dur))
+    .map(|index| {
+      let t = time(index);
+      let slip = curve(t, &slip);
+      let before = string.0;
+      let bow = string
+        .saw(curve(t, &pitch) * stretch * (1.0 + 0.02 * waver.step(rng.signed() * 5.0)));
+      if string.0 < before {
+        stretch = 1.0 + slip * rng.signed()
+      }
+      let edge = bow - 0.85 * last;
+      last = bow;
+      let wood = body
+        .iter_mut()
+        .zip(BODY)
+        .map(|(filter, (_, _, gain))| filter.step(edge).band * gain)
+        .sum::<f32>();
+      let x = rng.signed();
+      let scrape = rosin.step(x).band
+        * (0.25 + 8.0 * slip)
+        * (0.6 + 0.4 * grit.step(rng.signed() * 4.0));
+      let heft = rumble.step(x)
+        * 3.0
+        * curve(t, &[(0.0, 0.0), (1.6, 0.2), (2.2, 1.0), (dur, 0.6)]);
+      let loud =
+        drive((wood * 0.9 + bow * 0.12 + scrape * 0.06 + heft) * curve(t, &swell), 1.5);
       top.step(loud - floor.step(loud).low)
     })
     .collect();
-  let echoes = [(0.62, 0.28), (1.35, 0.12)];
-  let mut far = Lag::new(1600.0);
-  let echoed: Vec<f32> = (0..len(dur + 1.6))
+  let echoes = [(0.7, 0.2), (1.5, 0.08)];
+  let mut far = Lag::new(1200.0);
+  let echoed: Vec<f32> = (0..len(dur + 2.0))
     .map(|index| {
       let heard = |delay: f32| {
         index.checked_sub(len(delay)).and_then(|at| dry.get(at)).copied().unwrap_or(0.0)
@@ -373,7 +345,7 @@ fn roar(seed: u64) -> Wave {
         + far.step(echoes.iter().map(|&(delay, gain)| heard(delay) * gain).sum::<f32>())
     })
     .collect();
-  Hall::new(0.88, 0.5, 1.5).apply(&Wave::mono(echoed), 0.4, false)
+  Hall::new(0.94, 0.65, 1.8).apply(&Wave::mono(echoed), 0.65, false)
 }
 
 fn fire_breath(seed: u64) -> Wave {
