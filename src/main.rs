@@ -1,5 +1,6 @@
 #![recursion_limit = "256"]
 
+mod atronach;
 mod audio;
 mod blocky;
 mod blur;

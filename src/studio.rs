@@ -1,4 +1,5 @@
-use {crate::{cage::Cage,
+use {crate::{atronach,
+             cage::Cage,
              creature, dragon,
              face::{Person, Race},
              flora,
@@ -32,7 +33,8 @@ enum Subject {
   Robot,
   Work(Work),
   Growth(String),
-  Cages
+  Cages,
+  Atronach
 }
 
 impl Subject {
@@ -65,6 +67,7 @@ impl Subject {
       "dragonaloft" => Subject::Dragon { aloft: true },
       "robot" => Subject::Robot,
       "cages" => Subject::Cages,
+      "atronach" => Subject::Atronach,
       "house" => Subject::Work(Work::House(house(9.0, 6.5, 3.0))),
       "inn" => Subject::Work(Work::Inn(house(15.0, 9.0, 6.1))),
       "longhall" => Subject::Work(Work::Longhall(house(22.0, 11.0, 4.4))),
@@ -111,7 +114,8 @@ impl Subject {
       | Subject::Foe(_)
       | Subject::Villager(_)
       | Subject::Wolf
-      | Subject::Dragon { .. } => PI,
+      | Subject::Dragon { .. }
+      | Subject::Atronach => PI,
       Subject::Robot | Subject::Work(_) | Subject::Growth(_) | Subject::Cages => 0.0
     }
   }
@@ -425,6 +429,15 @@ fn stage(
       &holders,
       flora::specimen(&name, seed as usize, &mut images, &mut materials, &stuffs)
         .unwrap_or_else(|| panic!("studio: nothing called {name:?}"))
+    ),
+    Subject::Atronach => hang(
+      &mut commands,
+      &mut meshes,
+      &holders,
+      atronach::body()
+        .into_iter()
+        .map(|(stuff, mesh)| (stuffs.of(stuff), mesh))
+        .collect()
     ),
     Subject::Cages => hang(
       &mut commands,

@@ -269,6 +269,23 @@ pub fn cliff() -> Image { shade(512, |u, v| cliff_grain(u, v).1) }
 
 pub fn cliff_bumps() -> Image { bumps(512, 0.02, |u, v| cliff_grain(u, v).0) }
 
+fn ice_grain(u: f32, v: f32) -> (f32, f32) {
+  let vein = |base: i32, seed: u32| {
+    (1.0 - (2.0 * tile_fbm(u, v, base, 4, seed) - 1.0).abs()).powf(12.0)
+  };
+  let veins = (vein(3, 171) + 0.7 * vein(6, 172)).min(1.0);
+  let cloud = tile_fbm(u, v, 3, 4, 173);
+  let frost = tile_fbm(u, v, 24, 3, 174);
+  (
+    0.5 * cloud + 0.1 * frost - 0.6 * veins,
+    (0.22 + 0.45 * smooth(0.3, 0.75, cloud) + 0.12 * frost + 0.6 * veins).min(1.0)
+  )
+}
+
+pub fn ice() -> Image { shade(512, |u, v| ice_grain(u, v).1) }
+
+pub fn ice_bumps() -> Image { bumps(512, 0.015, |u, v| ice_grain(u, v).0) }
+
 pub fn cracks() -> Image {
   shade(256, |u, v| {
     let ridge = 1.0 - (2.0 * tile_fbm(u, v, 5, 4, 91) - 1.0).abs();

@@ -60,7 +60,9 @@ pub enum Stuff {
   #[assoc(roughness = 0.9, grain = Grain::Masonry, reflectance = 0.25)]
   Masonry,
   #[assoc(roughness = 0.85, grain = Grain::Planks)]
-  Planks
+  Planks,
+  #[assoc(roughness = 0.12, grain = Grain::Ice, reflectance = 0.5, tiling = 0.7, glow = LinearRgba::rgb(0.5, 1.7, 2.6), glow_follows_grain = true)]
+  Ice
 }
 
 impl Stuff {
@@ -77,6 +79,7 @@ impl Stuff {
         | Grain::Shingles
         | Grain::Masonry
         | Grain::Planks
+        | Grain::Ice
     )
   }
 
@@ -87,7 +90,7 @@ impl Stuff {
     mesh
   }
 
-  pub const ALL: [Stuff; 24] = [
+  pub const ALL: [Stuff; 25] = [
     Stuff::Skin,
     Stuff::Fur,
     Stuff::Leather,
@@ -111,7 +114,8 @@ impl Stuff {
     Stuff::Thatch,
     Stuff::Shingle,
     Stuff::Masonry,
-    Stuff::Planks
+    Stuff::Planks,
+    Stuff::Ice
   ];
 }
 
@@ -132,7 +136,8 @@ pub enum Grain {
   Thatch,
   Shingles,
   Masonry,
-  Planks
+  Planks,
+  Ice
 }
 
 #[derive(Resource)]
@@ -171,7 +176,8 @@ fn prepare(
     (Grain::Thatch, relieved(texture::thatch())),
     (Grain::Shingles, (texture::shingles(), Some(texture::shingle_bumps()))),
     (Grain::Masonry, relieved(texture::masonry())),
-    (Grain::Planks, relieved(texture::planks()))
+    (Grain::Planks, relieved(texture::planks())),
+    (Grain::Ice, (texture::ice(), Some(texture::ice_bumps())))
   ]
   .map(|(grain, (tone, relief))| {
     (grain, images.add(tone), relief.map(|relief| images.add(relief)))
