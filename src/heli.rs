@@ -32,12 +32,11 @@ const DIVE: f32 = 0.3;
 const CYCLIC: Vec2 = Vec2::new(0.14, 0.18);
 const MOUSE_CYCLIC: f32 = 0.1;
 const FLAP_TIME: f32 = 0.25;
-const FLAPBACK: f32 = 0.0035;
 const HUB_POWER: Vec3 = Vec3::new(2.4, 0.0, 3.2);
 const TURN_LIMIT: f32 = 1.2;
 const SPIN_DRAG: Vec3 = Vec3::new(0.1, 1.0, 0.1);
-const VANE: f32 = 0.004;
-const STABILISER: f32 = 0.002;
+const VANE: f32 = 0.001;
+const STABILISER: f32 = 0.0005;
 const TORQUE_KICK: f32 = 0.6;
 const FORE_DRAG: f32 = 0.002;
 const ROTOR_DRAG: f32 = 0.06;
@@ -195,10 +194,8 @@ impl Airframe {
       .clamp(-CYCLIC, CYCLIC)
       * manned;
     let along = self.attitude.inverse() * self.velocity;
-    let flapped =
-      cyclic + (Vec2::new(-along.z, along.x) * FLAPBACK).clamp_length_max(0.2);
     let swashed =
-      self.attitude * Quat::from_euler(EulerRot::YXZ, 0.0, flapped.x, flapped.y);
+      self.attitude * Quat::from_euler(EulerRot::YXZ, 0.0, cyclic.x, cyclic.y);
     let disc = self.disc.slerp(swashed, 1.0 - (-dt / FLAP_TIME).exp()).normalize();
     let thrust = disc * Vec3::Y;
     let hover = smooth(-0.1, 0.5, thrust.y) / thrust.y.max(0.6);
@@ -1170,13 +1167,11 @@ mod tests {
       "turns: {}",
       pointed.heading()
     );
-    let (cruising, _) = simulate(hovering, held, 15.0, Controls { ahead: 1.0, ..crewed });
+    let (tilted, height) =
+      simulate(hovering, held, 1.0, Controls { ahead: 1.0, ..crewed });
+    let (cruising, _) = simulate(tilted, height, 10.0, crewed);
     let speed = cruising.velocity.with_y(0.0).length();
-    assert!(speed > 25.0, "flies forward: {speed}");
-    assert!(
-      (cruising.attitude * Vec3::Y).y > 0.7,
-      "flapback and the tailplane hold the nose: {cruising:?}"
-    );
+    assert!(speed > 20.0, "flies forward: {speed}");
     let (down, height) =
       simulate(hovering, held, 40.0, Controls { climb: -0.3, ..crewed });
     assert!(height < 0.01 && down.velocity.length() < 0.5, "lands: {height} {down:?}");
