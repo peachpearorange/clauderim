@@ -29,11 +29,11 @@ const LEVER_RATE: f32 = 4.0;
 const LEVER_RANGE: f32 = 1.8;
 const RESERVE: f32 = 0.6;
 const DIVE: f32 = 0.3;
-const PITCH_RATE: f32 = 1.6;
-const ROLL_RATE: f32 = 2.4;
-const TURN_LIMIT: f32 = 3.5;
-const RESPONSE: f32 = 6.0;
-const SPIN_DRAG: f32 = 0.3;
+const PITCH_TORQUE: f32 = 0.35;
+const ROLL_TORQUE: f32 = 0.45;
+const TURN_LIMIT: f32 = 6.0;
+const SPIN_DRAG: Vec3 = Vec3::new(0.5, 1.0, 0.5);
+const MAX_SPIN: Vec3 = Vec3::new(0.8, 1.2, 1.0);
 const VANE: f32 = 0.004;
 const TORQUE_KICK: f32 = 0.6;
 const FORE_DRAG: f32 = 0.002;
@@ -53,7 +53,7 @@ const CHASE_NEAREST: f32 = 8.0;
 const CHASE_FARTHEST: f32 = 400.0;
 const ZOOM_STEP: f32 = 1.25;
 const TRAIL: f32 = 5.0;
-const MOUSE_TURN: f32 = 0.0025;
+const MOUSE_TURN: f32 = 0.002;
 const SEAT: Vec3 = Vec3::new(4.5 * PX, 0.745, -10.0 * PX);
 const SEAT_EYE: Vec3 = Vec3::new(4.5 * PX, 2.42, -10.6 * PX);
 const CRASH: f32 = 9.0;
@@ -215,15 +215,15 @@ impl Airframe {
     let velocity =
       accelerated.with_y(0.0) * (-6.0 * load * dt).exp() + Vec3::Y * accelerated.y;
     let airborne = 1.0 - load;
-    let stick = Vec3::new(-ahead * PITCH_RATE + turn.y, turn.x, -aside * ROLL_RATE)
+    let stick = Vec3::new(-ahead * PITCH_TORQUE + turn.y, turn.x, -aside * ROLL_TORQUE)
       * (crewed as u8 as f32);
     let vane = -VANE * airspeed * slip;
     let reaction = -TORQUE_KICK * LEVER_RATE * (wanted - self.lever);
-    let spin = self.spin
-      + ((stick - self.spin) * RESPONSE * rotor * airborne
-        + (Vec3::Y * (vane + reaction) + gust) * airborne
-        - self.spin * (SPIN_DRAG + 6.0 * load))
-        * dt;
+    let spin = (self.spin
+      + ((stick * rotor + Vec3::Y * (vane + reaction) + gust) * airborne
+        - self.spin * (SPIN_DRAG + Vec3::splat(6.0 * load)))
+        * dt)
+      .clamp(-MAX_SPIN, MAX_SPIN);
     let turned = (self.attitude * Quat::from_scaled_axis(spin * dt)).normalize();
     let attitude = ground.map_or(turned, |normal| {
       let settled =
@@ -1125,19 +1125,31 @@ mod tests {
     let (diving, dived) =
       simulate(hovering, held, 3.0, Controls { climb: -1.0, ..crewed });
     assert!(diving.velocity.y < -18.0, "dives fast: {:?} {dived}", diving.velocity);
-    let (rolled, _) = simulate(hovering, held, 1.4, Controls { aside: 1.0, ..crewed });
-    assert!((rolled.attitude * Vec3::Y).y < 0.0, "rolls over: {:?}", rolled.attitude);
-    let (rested, _) = simulate(rolled, held, 1.0, crewed);
-    assert!(rested.spin.length() < 0.2, "holds its attitude: {:?}", rested.spin);
-    let (pointed, _) =
-      simulate(hovering, held, 2.0, Controls { turn: Vec2::new(1.0, 0.0), ..crewed });
+    let roll = Controls { aside: 1.0, ..crewed };
+    let flips = (1..=16).any(|half| {
+      let (rolled, _) = simulate(hovering, held, half as f32 * 0.5, roll);
+      (rolled.attitude * Vec3::Y).y < 0.0
+    });
+    assert!(flips, "rolls over");
+    let (rolled, _) = simulate(hovering, held, 2.5, roll);
+    let (coasting, _) = simulate(rolled, held, 0.5, crewed);
     assert!(
-      wrap(pointed.heading() - hovering.heading()) > 1.2,
+      coasting.spin.z.abs() > 0.6 * rolled.spin.z.abs(),
+      "keeps rolling when released: {:?} {:?}",
+      rolled.spin,
+      coasting.spin
+    );
+    let (rested, _) = simulate(rolled, held, 8.0, crewed);
+    assert!(rested.spin.length() < 0.1, "rotation dies away: {:?}", rested.spin);
+    let (pointed, _) =
+      simulate(hovering, held, 3.0, Controls { turn: Vec2::new(1.0, 0.0), ..crewed });
+    assert!(
+      wrap(pointed.heading() - hovering.heading()) > 1.0,
       "turns: {}",
       pointed.heading()
     );
     let (tilted, height) =
-      simulate(hovering, held, 0.35, Controls { ahead: 1.0, ..crewed });
+      simulate(hovering, held, 1.2, Controls { ahead: 1.0, ..crewed });
     let (cruising, _) = simulate(tilted, height, 10.0, crewed);
     let speed = cruising.velocity.with_y(0.0).length();
     assert!(speed > 25.0, "flies forward: {speed}");
