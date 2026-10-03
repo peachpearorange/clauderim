@@ -484,8 +484,14 @@ impl Piece {
         (sums, counts)
       }
     );
-    let girth: Vec<f32> =
-      (0..BANDS).map(|index| sums[index] / counts[index].max(1.0)).collect();
+    let girth: Vec<f32> = (0..BANDS)
+      .map(|index| {
+        (0..BANDS)
+          .filter(|&other| counts[other] > 0.0)
+          .min_by_key(|&other| other.abs_diff(index))
+          .map_or(0.0, |other| sums[other] / counts[other])
+      })
+      .collect();
     let girth_at = |along: f32| {
       let at = (band(along) - 0.5).clamp(0.0, BANDS as f32 - 1.0);
       let low = at.floor() as usize;
