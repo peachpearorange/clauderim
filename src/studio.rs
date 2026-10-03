@@ -1,14 +1,17 @@
-use {crate::{creature, dragon,
+use {crate::{cage::Cage,
+             creature, dragon,
              face::{Person, Race},
              flora,
              fx::Effects,
              humanoid::{self, Calling, Frame, Grip, Kit, MAN, Motion},
+             model::Piece,
+             noise,
              opts::opts,
              player::MainCamera,
-             robot,
+             robot, sdf,
              settlement::{self, Clutter, House, Roof, Walls, Work},
              signal::FoeKind,
-             stuff::Stuffs,
+             stuff::{Stuff, Stuffs},
              wolf},
      bevy::{camera::primitives::Aabb,
             light::{CascadeShadowConfig, CascadeShadowConfigBuilder},
@@ -16,7 +19,7 @@ use {crate::{creature, dragon,
             prelude::*,
             transform::TransformSystems,
             window::PrimaryWindow},
-     std::f32::consts::PI};
+     std::f32::consts::{FRAC_PI_2, PI}};
 
 const FOV: f32 = 20.0;
 
@@ -28,7 +31,8 @@ enum Subject {
   Dragon { aloft: bool },
   Robot,
   Work(Work),
-  Growth(String)
+  Growth(String),
+  Cages
 }
 
 impl Subject {
@@ -60,6 +64,7 @@ impl Subject {
       "dragon" => Subject::Dragon { aloft: false },
       "dragonaloft" => Subject::Dragon { aloft: true },
       "robot" => Subject::Robot,
+      "cages" => Subject::Cages,
       "house" => Subject::Work(Work::House(house(9.0, 6.5, 3.0))),
       "inn" => Subject::Work(Work::Inn(house(15.0, 9.0, 6.1))),
       "longhall" => Subject::Work(Work::Longhall(house(22.0, 11.0, 4.4))),
@@ -107,7 +112,7 @@ impl Subject {
       | Subject::Villager(_)
       | Subject::Wolf
       | Subject::Dragon { .. } => PI,
-      Subject::Robot | Subject::Work(_) | Subject::Growth(_) => 0.0
+      Subject::Robot | Subject::Work(_) | Subject::Growth(_) | Subject::Cages => 0.0
     }
   }
 }
@@ -150,6 +155,93 @@ fn figure(
   let (rig, _) =
     humanoid::spawn_body(commands, meshes, poses, stuffs, body, frame, grip, hunch, kit);
   commands.entity(holder).insert((rig, posed()));
+}
+
+fn cages() -> Vec<(Stuff, Mesh)> {
+  let chest = Cage::cuboid(Vec3::new(0.9, 0.55, 0.55))
+    .beveled(0.03)
+    .subdivided(3)
+    .shaped(|point| point + Vec3::new(-2.2, 0.275, 0.0));
+  let boulder = Cage::cuboid(Vec3::new(0.8, 0.6, 0.7))
+    .creased(|a, b| a.y < 0.0 && b.y < 0.0, 3.0)
+    .subdivided(2)
+    .displaced(|point, _| noise::fbm3(point * 3.0, 3, 5) * 0.12)
+    .subdivided(2)
+    .shaped(|point| point + Vec3::new(-1.0, 0.3, 0.0));
+  let dome = Cage::cuboid(Vec3::new(0.12, 0.2, 0.26))
+    .shaped(|point| point + Vec3::new(0.06, 0.1, 0.0))
+    .cut(Vec3::new(0.12, 0.1, 0.13), 0.45)
+    .cut(Vec3::new(0.12, 0.2, 0.0), 0.5)
+    .pulled(Vec3::new(0.0, 0.2, 0.0), 0.12, Vec3::Y * 0.05)
+    .pulled(Vec3::new(0.06, 0.09, 0.13), 0.08, Vec3::Z * 0.02);
+  let side = dome.faces_where(|centre, normal| {
+    normal.x > 0.7 && centre.y > 0.12 && centre.z.abs() < 0.07
+  })[0];
+  let horned = (0..7).fold(dome.inset(&[side], 0.012), |cage, step| {
+    let tip = cage.centre(side);
+    let reach = Quat::from_rotation_z(0.28 * step as f32) * Vec3::X * 0.055;
+    cage.extruded(&[side], |point| {
+      tip + reach + Quat::from_rotation_z(0.28) * ((point - tip) * 0.84)
+    })
+  });
+  let open = horned.facing(Vec3::NEG_Y);
+  let helmet = horned
+    .without(&open)
+    .mirrored()
+    .subdivided(3)
+    .displaced(|point, _| noise::value3(point * 60.0, 3) * 0.002)
+    .solidified(0.008)
+    .shaped(|point| point * 1.6 + Vec3::new(0.3, 0.0, 0.0));
+  let disc =
+    Cage::prism(16, 0.42, 0.05).shaped(|point| Quat::from_rotation_x(FRAC_PI_2) * point);
+  let front = disc.facing(Vec3::Z)[0];
+  let shield = disc
+    .inset(&[front], 0.04)
+    .pushed(&[front], -0.01)
+    .inset(&[front], 0.2)
+    .inset(&[front], 0.03)
+    .pushed(&[front], 0.07)
+    .sharpened(30.0, 1.0)
+    .subdivided(3)
+    .shaped(|point| point + Vec3::new(1.6, 0.45, 0.0));
+  let beast = Cage::from(sdf::surface(
+    sdf::smooth_unions(
+      [
+        sdf::at(sdf::ellipsoid(Vec3::new(0.2, 0.22, 0.42)), Vec3::new(0.0, 0.6, 0.0)),
+        sdf::limb(Vec3::new(0.0, 0.66, 0.3), 0.13, Vec3::new(0.0, 0.92, 0.55), 0.08),
+        sdf::at(sdf::ellipsoid(Vec3::new(0.1, 0.1, 0.17)), Vec3::new(0.0, 0.95, 0.65)),
+        sdf::limb(Vec3::new(0.0, 0.62, -0.38), 0.07, Vec3::new(0.0, 0.5, -0.8), 0.02)
+      ]
+      .into_iter()
+      .chain([-1.0f32, 1.0].into_iter().flat_map(|side| {
+        [0.25, -0.28].map(|z| {
+          sdf::limb(
+            Vec3::new(side * 0.12, 0.55, z),
+            0.08,
+            Vec3::new(side * 0.13, 0.04, z),
+            0.04
+          )
+        })
+      })),
+      0.09
+    ),
+    &sdf::Bounds { center: Vec3::new(0.0, 0.5, 0.0), half_extent: 1.0, depth: 7 }
+  ))
+  .relaxed(3, 0.5)
+  .shaped(|point| point + Vec3::new(3.0, 0.0, 0.0));
+  vec![
+    (Stuff::Fur, Piece::new(beast.mesh(60.0), Srgba::rgb(0.45, 0.4, 0.35))),
+    (Stuff::Wood, Piece::new(chest.mesh(50.0), Srgba::rgb(0.55, 0.4, 0.27))),
+    (Stuff::Stone, Piece::new(boulder.mesh(50.0), Srgba::rgb(0.6, 0.6, 0.58))),
+    (Stuff::Iron, Piece::new(helmet.mesh(50.0), Srgba::rgb(0.5, 0.5, 0.52))),
+    (Stuff::Wood, Piece::new(shield.mesh(50.0), Srgba::rgb(0.5, 0.36, 0.24))),
+  ]
+  .into_iter()
+  .map(|(stuff, piece)| {
+    let Piece(mesh) = piece.planar(0.6);
+    (stuff, stuff.fitted(mesh))
+  })
+  .collect()
 }
 
 fn hang(
@@ -333,6 +425,12 @@ fn stage(
       &holders,
       flora::specimen(&name, seed as usize, &mut images, &mut materials, &stuffs)
         .unwrap_or_else(|| panic!("studio: nothing called {name:?}"))
+    ),
+    Subject::Cages => hang(
+      &mut commands,
+      &mut meshes,
+      &holders,
+      cages().into_iter().map(|(stuff, mesh)| (stuffs.of(stuff), mesh)).collect()
     )
   }
 }

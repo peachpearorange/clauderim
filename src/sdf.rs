@@ -43,6 +43,22 @@ pub fn cylinder(radius: f32, half_height: f32) -> Tree {
   outside + radial.max(axial).min(0.0)
 }
 
+pub fn limb(from: Vec3, from_radius: f32, to: Vec3, to_radius: f32) -> Tree {
+  let (x, y, z) = Tree::axes();
+  let span = to - from;
+  let [rx, ry, rz] = [x - scalar(from.x), y - scalar(from.y), z - scalar(from.z)];
+  let along = ((rx.clone() * scalar(span.x)
+    + ry.clone() * scalar(span.y)
+    + rz.clone() * scalar(span.z))
+    / scalar(span.length_squared().max(1e-6)))
+  .max(0.0)
+  .min(1.0);
+  let away = (rx - along.clone() * scalar(span.x)).square()
+    + (ry - along.clone() * scalar(span.y)).square()
+    + (rz - along.clone() * scalar(span.z)).square();
+  away.sqrt() - (scalar(from_radius) + along * scalar(to_radius - from_radius))
+}
+
 pub fn along_z(shape: Tree) -> Tree {
   let (x, y, z) = Tree::axes();
   shape.remap_xyz(x, z, y)

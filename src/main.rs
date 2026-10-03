@@ -3,6 +3,7 @@
 mod audio;
 mod blocky;
 mod blur;
+mod cage;
 mod cave;
 mod cloud;
 mod combat;
