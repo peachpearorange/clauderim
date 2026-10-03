@@ -826,7 +826,6 @@ fn shoot(
   mut struck: MessageWriter<Struck>,
   mut sounds: MessageWriter<Sound>,
   player: Single<Entity, With<Player>>,
-  camera: Single<&GlobalTransform, With<MainCamera>>,
   mut crosshair: Single<&mut Visibility, With<Crosshair>>,
   mut helis: Query<(Entity, &Transform, &mut Helicopter)>,
   targets: Query<(), With<Vitals>>
@@ -843,21 +842,20 @@ fn shoot(
       heli.rounds += 1;
       let round = heli.rounds as i32;
       let scatter = Vec2::new(hash(round, 0, 61), hash(round, 1, 61)) * 2.0 - 1.0;
-      let eye = camera.translation();
-      let aim = (camera.forward().as_vec3()
-        + (camera.right().as_vec3() * scatter.x + camera.up().as_vec3() * scatter.y)
+      let muzzle = craft.transform_point((GUN_HUB - Vec3::Z * 10.0) * PX);
+      let aim = (craft.forward().as_vec3()
+        + (craft.right().as_vec3() * scatter.x + craft.up().as_vec3() * scatter.y)
           * GUN_SPREAD)
         .normalize();
       let hit = spatial.cast_ray(
-        eye,
+        muzzle,
         Dir3::new(aim).unwrap_or(Dir3::NEG_Z),
         GUN_RANGE,
         true,
         &SpatialQueryFilter::from_mask([Layer::World, Layer::Walker])
           .with_excluded_entities([entity, *player])
       );
-      let target = eye + aim * hit.map_or(GUN_RANGE, |hit| hit.distance);
-      let muzzle = craft.transform_point((GUN_HUB - Vec3::Z * 10.0) * PX);
+      let target = muzzle + aim * hit.map_or(GUN_RANGE, |hit| hit.distance);
       let path = target - muzzle;
       let flight = (path.length() / ROUND_SPEED).max(TRACER_LIFE);
       commands.spawn((
