@@ -257,7 +257,8 @@ fn main() {
         robot::plugin,
         patrol::plugin,
         spider::plugin,
-        heli::plugin
+        heli::plugin,
+        atronach::plugin
       ))
       .add_plugins(audio::plugin)
       .add_systems(

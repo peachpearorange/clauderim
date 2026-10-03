@@ -1,8 +1,14 @@
 use {crate::{humanoid::Motion,
              model::{self, Piece},
-             stuff::{Stuff, Stuffs}},
+             noise::Roll,
+             opts::opts,
+             place,
+             player::Player,
+             stuff::{Stuff, Stuffs},
+             terrain::{self, height_at}},
+     avian3d::prelude::*,
      bevy::{mesh::VertexAttributeValues, prelude::*},
-     std::f32::consts::TAU};
+     std::{f32::consts::TAU, sync::LazyLock}};
 
 const TILE: f32 = 0.6;
 
@@ -310,9 +316,7 @@ fn posed(bone: Bone, motion: &Motion, time: f32, offset: f32) -> (Vec3, Quat) {
       (
         Vec3::ZERO,
         euler(
-          0.08
-            + 0.18 * walk * (-step * k).max(0.0)
-            + smash * (0.9 * raise - 0.9 * slam),
+          0.08 + 0.18 * walk * (-step * k).max(0.0) + smash * (0.9 * raise - 0.9 * slam),
           0.0,
           0.0
         )
@@ -351,5 +355,96 @@ pub fn animate(
         *transform = Transform::from_translation(bone.rest() + shift).with_rotation(turn)
       }
     }
+  }
+}
+
+const HAUNTS: usize = 9;
+
+fn snowfield(at: Vec2) -> bool {
+  let height = height_at(at);
+  let slope = Vec2::new(
+    height_at(at + Vec2::X * 6.0) - height,
+    height_at(at + Vec2::Y * 6.0) - height
+  ) / 6.0;
+  height > 240.0 && slope.length() < 0.35 && place::route_distance(at) > 12.0
+}
+
+static HOMES: LazyLock<Vec<Vec2>> = LazyLock::new(|| {
+  let reach = terrain::WORLD - 150.0;
+  let mut spots: Vec<Vec2> = (-60..=60)
+    .flat_map(|row| {
+      (-60..=60)
+        .map(move |column| place::START + Vec2::new(column as f32, row as f32) * 45.0)
+    })
+    .filter(|spot| {
+      spot.abs().max_element() < reach
+        && (350.0..2900.0).contains(&spot.distance(place::START))
+    })
+    .filter(|&spot| snowfield(spot))
+    .collect();
+  spots.sort_by(|a, b| a.distance(place::START).total_cmp(&b.distance(place::START)));
+  spots.into_iter().fold(Vec::new(), |mut homes, spot| {
+    if homes.len() < HAUNTS && homes.iter().all(|home: &Vec2| home.distance(spot) > 550.0)
+    {
+      homes.push(spot)
+    }
+    homes
+  })
+});
+
+fn haunt(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  stuffs: Res<Stuffs>,
+  player: Single<&Transform, Added<Player>>
+) {
+  let specimen = (opts().foe.as_deref() == Some("atronach")).then(|| {
+    player.translation.xz() + player.forward().as_vec3().xz() * opts().gap.unwrap_or(9.0)
+  });
+  for (index, &home) in HOMES.iter().chain(specimen.iter()).enumerate() {
+    let at = home.extend(height_at(home) - 0.05).xzy();
+    let facing = specimen.filter(|&spot| spot == home).map_or_else(
+      || Quat::from_rotation_y(Roll::new(index as u32 * 13 + 5).range(0.0, TAU)),
+      |_| {
+        let toward = (player.translation.xz() - home).normalize_or(Vec2::Y);
+        Quat::from_rotation_arc(Vec3::NEG_Z, toward.extend(0.0).xzy())
+      }
+    );
+    let holder = commands
+      .spawn((
+        Name::new("Frost Atronach"),
+        Transform::from_translation(at).with_rotation(facing),
+        Visibility::default(),
+        Motion::default()
+      ))
+      .id();
+    spawn(&mut commands, &mut meshes, &stuffs, holder, index as f32 * 1.7);
+    commands.spawn((
+      RigidBody::Static,
+      Collider::cylinder(0.7, 3.0),
+      Transform::from_translation(at + Vec3::Y * 1.5)
+    ));
+  }
+}
+
+pub fn plugin(app: &mut App) {
+  app.add_systems(PostStartup, haunt).add_systems(Update, animate);
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn atronachs_haunt_snowfields_around_the_start() {
+    println!(
+      "{:?}",
+      HOMES
+        .iter()
+        .map(|home| (home.round(), height_at(*home).round()))
+        .collect::<Vec<_>>()
+    );
+    assert_eq!(HOMES.len(), HAUNTS);
+    assert!(HOMES.iter().all(|&home| snowfield(home)));
   }
 }
