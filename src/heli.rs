@@ -12,7 +12,10 @@ use {crate::{blocky::{self, Bone, Facet, Pixel, Shape, Texel, srgb},
              terrain::{self, BOUND, smooth},
              walker::{Layer, Walker, Walking}},
      avian3d::{math::AdjustPrecision, prelude::*},
-     bevy::{input::mouse::AccumulatedMouseMotion, light::NotShadowCaster, prelude::*},
+     bevy::{input::mouse::{AccumulatedMouseMotion, AccumulatedMouseScroll,
+                           MouseScrollUnit},
+            light::NotShadowCaster,
+            prelude::*},
      std::{f32::consts::{FRAC_PI_2, PI, TAU},
            sync::LazyLock}};
 
@@ -22,24 +25,22 @@ const PAD_LIFT: f32 = 0.35;
 const GRAVITY: f32 = 9.81;
 const SPOOL_UP: f32 = 0.25;
 const SPOOL_DOWN: f32 = 0.12;
-const LEVER_RATE: f32 = 2.5;
+const LEVER_RATE: f32 = 4.0;
 const LEVER_RANGE: f32 = 1.8;
-const RESERVE: f32 = 0.55;
-const MAX_TILT: f32 = 0.45;
-const MAX_BANK: f32 = 0.42;
-const COORDINATION: f32 = 0.05;
-const ATTITUDE_SPRING: f32 = 7.0;
-const ATTITUDE_DAMP: f32 = 5.0;
-const YAW_SPRING: f32 = 3.5;
-const YAW_DAMP: f32 = 3.0;
-const YAW_LIMIT: f32 = 2.5;
+const RESERVE: f32 = 0.6;
+const DIVE: f32 = 0.3;
+const PITCH_RATE: f32 = 1.6;
+const ROLL_RATE: f32 = 2.4;
+const TURN_LIMIT: f32 = 3.5;
+const RESPONSE: f32 = 6.0;
+const SPIN_DRAG: f32 = 0.3;
 const VANE: f32 = 0.004;
 const TORQUE_KICK: f32 = 0.6;
 const FORE_DRAG: f32 = 0.002;
 const ROTOR_DRAG: f32 = 0.06;
 const SIDE_DRAG: f32 = 0.02;
-const CLIMB_DRAG: f32 = 0.7;
-const CLIMB_DRAG_QUAD: f32 = 0.01;
+const CLIMB_DRAG: f32 = 0.4;
+const CLIMB_DRAG_QUAD: f32 = 0.004;
 const CUSHION: f32 = 0.12;
 const ROTOR_SPAN: f32 = 12.0;
 const SCALE_HEIGHT: f32 = 9000.0;
@@ -48,9 +49,11 @@ const STEP: f32 = 0.01;
 const BOARD_REACH: f32 = 5.0;
 const PARKED: f32 = 2.0;
 const HARD_LANDING: f32 = 4.0;
-const CHASE: f32 = 5.0;
-const LOOK_SPEED: f32 = 0.0025;
-const PITCH_LIMIT: f32 = 1.35;
+const CHASE_NEAREST: f32 = 8.0;
+const CHASE_FARTHEST: f32 = 400.0;
+const ZOOM_STEP: f32 = 1.25;
+const TRAIL: f32 = 5.0;
+const MOUSE_TURN: f32 = 0.0025;
 const SEAT: Vec3 = Vec3::new(4.5 * PX, 0.745, -10.0 * PX);
 const SEAT_EYE: Vec3 = Vec3::new(4.5 * PX, 2.42, -10.6 * PX);
 const CRASH: f32 = 9.0;
@@ -139,7 +142,7 @@ struct Controls {
   ahead: f32,
   aside: f32,
   climb: f32,
-  heading: f32
+  turn: Vec2
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -153,37 +156,44 @@ struct Contact {
 #[derive(Clone, Copy, Default, Debug)]
 struct Airframe {
   velocity: Vec3,
-  yaw: f32,
-  pitch: f32,
-  roll: f32,
+  attitude: Quat,
   spin: Vec3,
   lever: f32,
   rotor: f32
 }
 
 impl Airframe {
-  fn rotation(&self) -> Quat {
-    Quat::from_euler(EulerRot::YXZ, self.yaw, self.pitch, self.roll)
+  fn facing(yaw: f32) -> Self {
+    Self { attitude: Quat::from_rotation_y(yaw), ..default() }
+  }
+
+  fn heading(&self) -> f32 {
+    let nose = self.attitude * Vec3::NEG_Z;
+    let top = self.attitude * Vec3::Y;
+    let toward = if nose.xz().length() > 0.1 { nose } else { -top * nose.y.signum() };
+    f32::atan2(-toward.x, -toward.z)
   }
 
   fn step(
     self,
-    Controls { crewed, ahead, aside, climb, heading }: Controls,
+    Controls { crewed, ahead, aside, climb, turn }: Controls,
     Contact { above, altitude, ground, gust }: Contact,
     dt: f32
   ) -> Self {
-    let up = self.rotation() * Vec3::Y;
-    let forward = Vec3::new(-self.yaw.sin(), 0.0, -self.yaw.cos());
-    let right = Vec3::new(self.yaw.cos(), 0.0, -self.yaw.sin());
+    let up = self.attitude * Vec3::Y;
+    let heading = self.heading();
+    let forward = Vec3::new(-heading.sin(), 0.0, -heading.cos());
+    let right = Vec3::new(heading.cos(), 0.0, -heading.sin());
     let rotor = self.rotor
       + ((crewed as u8 as f32) - self.rotor).clamp(-SPOOL_DOWN * dt, SPOOL_UP * dt);
     let hover = 1.0 / up.y.max(0.6);
     let wanted = match ground {
       Some(_) if climb <= 0.0 => 0.0,
-      _ => (hover + climb * RESERVE).max(0.0)
+      _ if climb < 0.0 => hover * (1.0 + climb) + DIVE * climb,
+      _ => hover + climb * RESERVE
     };
     let lever = (self.lever + (wanted - self.lever) * (1.0 - (-LEVER_RATE * dt).exp()))
-      .clamp(0.0, LEVER_RANGE);
+      .clamp(-DIVE, LEVER_RANGE);
     let (cruise, slip) = (self.velocity.dot(forward), self.velocity.dot(right));
     let airspeed = self.velocity.length();
     let cushion = CUSHION * (1.0 - smooth(0.0, ROTOR_SPAN, above));
@@ -204,40 +214,23 @@ impl Airframe {
     let accelerated = self.velocity + (up * lift - Vec3::Y * GRAVITY + drag) * dt;
     let velocity =
       accelerated.with_y(0.0) * (-6.0 * load * dt).exp() + Vec3::Y * accelerated.y;
-    let (settle_pitch, settle_roll) = ground.map_or((0.0, 0.0), |normal| {
-      (-normal.dot(forward).asin(), -normal.dot(right).asin())
-    });
-    let coordinated = (self.spin.y * cruise.max(0.0) * COORDINATION).clamp(-0.5, 0.5);
-    let aim_pitch = (-ahead * MAX_TILT).lerp(settle_pitch, load);
-    let aim_roll = (-aside * MAX_BANK + coordinated).lerp(settle_roll, load);
-    let authority = rotor.max(load);
     let airborne = 1.0 - load;
-    let cyclic = |aim: f32, angle: f32, rate: f32| {
-      (ATTITUDE_SPRING * (aim - angle) - ATTITUDE_DAMP * rate) * authority - 0.3 * rate
-    };
-    let pedal = (YAW_SPRING * wrap(heading - self.yaw) - YAW_DAMP * self.spin.y)
-      .clamp(-YAW_LIMIT, YAW_LIMIT)
-      * rotor
+    let stick = Vec3::new(-ahead * PITCH_RATE + turn.y, turn.x, -aside * ROLL_RATE)
       * (crewed as u8 as f32);
     let vane = -VANE * airspeed * slip;
     let reaction = -TORQUE_KICK * LEVER_RATE * (wanted - self.lever);
-    let turning =
-      (pedal + vane + reaction + gust.y) * airborne - (6.0 * load + 0.3) * self.spin.y;
     let spin = self.spin
-      + Vec3::new(
-        cyclic(aim_pitch, self.pitch, self.spin.x) + gust.x * airborne,
-        turning,
-        cyclic(aim_roll, self.roll, self.spin.z) + gust.z * airborne
-      ) * dt;
-    Self {
-      velocity,
-      yaw: wrap(self.yaw + spin.y * dt),
-      pitch: (self.pitch + spin.x * dt).clamp(-1.2, 1.2),
-      roll: (self.roll + spin.z * dt).clamp(-1.2, 1.2),
-      spin,
-      lever,
-      rotor
-    }
+      + ((stick - self.spin) * RESPONSE * rotor * airborne
+        + (Vec3::Y * (vane + reaction) + gust) * airborne
+        - self.spin * (SPIN_DRAG + 6.0 * load))
+        * dt;
+    let turned = (self.attitude * Quat::from_scaled_axis(spin * dt)).normalize();
+    let attitude = ground.map_or(turned, |normal| {
+      let settled =
+        Quat::from_rotation_arc(Vec3::Y, normal) * Quat::from_rotation_y(heading);
+      turned.slerp(settled, 1.0 - (-8.0 * load * dt).exp())
+    });
+    Self { velocity, attitude, spin, lever, rotor }
   }
 
   fn fly(self, controls: Controls, contact: Contact, dt: f32) -> Self {
@@ -619,7 +612,7 @@ fn build(
     RigidBody::Kinematic,
     hull(),
     Helicopter {
-      airframe: Airframe { yaw, rotor: crewed as u8 as f32, ..default() },
+      airframe: Airframe { rotor: crewed as u8 as f32, ..Airframe::facing(yaw) },
       crewed,
       landed: true,
       crashed: false,
@@ -669,14 +662,15 @@ fn board(
         if seated {
           let door = craft.transform_point(DOOR).xz();
           body.translation = door.extend(floor(door) + capsule_offset() + 0.3).xzy();
-          body.rotation = Quat::from_rotation_y(heli.airframe.yaw);
+          body.rotation = Quat::from_rotation_y(heli.airframe.heading());
           motion.seated = 0.0;
           commands.entity(entity).remove::<(Seated, ColliderDisabled)>();
         } else {
           commands.entity(entity).insert((Seated, ColliderDisabled));
           notices.write_batch([
             Notice(
-              "W/S pitch, A/D bank, mouse steers, Space climbs, Ctrl descends".into()
+              "Mouse turns and pitches, W/S pitch, A/D roll, Space climbs, Ctrl dives"
+                .into()
             ),
             Notice("Left mouse fires the gun".into())
           ]);
@@ -701,11 +695,6 @@ fn fly(
   let (dt, now) = (time.delta_secs().min(0.25), time.elapsed_secs());
   for (entity, collider, mut transform, mut heli) in helis.iter_mut() {
     if heli.crewed {
-      if view.captured {
-        view.yaw -= motion.delta.x * LOOK_SPEED;
-        view.pitch =
-          (view.pitch - motion.delta.y * LOOK_SPEED).clamp(-PITCH_LIMIT, PITCH_LIMIT);
-      }
       view.first_person ^= keys.just_pressed(KeyCode::KeyF);
     }
     let held = |key: KeyCode| keys.pressed(key) as u8 as f32;
@@ -715,7 +704,8 @@ fn fly(
       aside: held(KeyCode::KeyD) - held(KeyCode::KeyA),
       climb: held(KeyCode::Space).max(held(KeyCode::ShiftLeft))
         - held(KeyCode::ControlLeft),
-      heading: view.yaw
+      turn: (-motion.delta * MOUSE_TURN / dt.max(1e-3) * (view.captured as u8 as f32))
+        .clamp_length_max(TURN_LIMIT)
     };
     let controls = if heli.crewed { controls } else { Controls::default() };
     let filter = SpatialQueryFilter::from_mask(Layer::World)
@@ -748,7 +738,7 @@ fn fly(
       gust
     };
     let airframe = heli.airframe.fly(controls, contact, dt);
-    let turned = airframe.rotation();
+    let turned = airframe.attitude;
     let mut impact = 0.0f32;
     let MoveAndSlideOutput { position, projected_velocity } = move_and_slide
       .move_and_slide(
@@ -771,8 +761,8 @@ fn fly(
     } else {
       projected_velocity
     };
-    heli.crashed =
-      heli.crewed && (impact > CRASH || (landed && (turned * Vec3::Y).y < TIPPED));
+    heli.crashed = heli.crewed
+      && (impact > CRASH || (landed && (airframe.attitude * Vec3::Y).y < TIPPED));
     if impact > HARD_LANDING {
       shake.0 = shake.0.max((impact * 0.08).min(1.0));
       sounds.write(Sound::here(Cue::Block, position));
@@ -955,7 +945,7 @@ fn explode(
     body.translation = door
       .extend((craft.translation.y + 1.5).max(floor(door) + 1.0) + capsule_offset())
       .xzy();
-    body.rotation = Quat::from_rotation_y(heli.airframe.yaw);
+    body.rotation = Quat::from_rotation_y(heli.airframe.heading());
     motion.seated = 0.0;
     vitals.health -= BLAST;
     commands.entity(hero).remove::<(Seated, ColliderDisabled)>();
@@ -989,16 +979,27 @@ fn salvage(
         }
         *transform = Transform::from_translation(PAD.at.extend(PAD.top).xzy())
           .with_rotation(Quat::from_rotation_y(PAD.yaw));
-        heli.airframe = Airframe { yaw: PAD.yaw, ..default() };
+        heli.airframe = Airframe::facing(PAD.yaw);
         heli.wreck = None;
       }
     }
   }
 }
 
+struct Reach {
+  set: f32,
+  shown: f32
+}
+
+impl Default for Reach {
+  fn default() -> Self { Self { set: 24.0, shown: 24.0 } }
+}
+
 fn chase(
   time: Res<Time>,
-  view: Res<View>,
+  scroll: Res<AccumulatedMouseScroll>,
+  mut view: ResMut<View>,
+  mut reach: Local<Reach>,
   shake: Res<Shake>,
   spatial: SpatialQuery,
   player: Single<Entity, With<Player>>,
@@ -1008,6 +1009,25 @@ fn chase(
   if let Some((entity, craft, heli)) = helis.iter().find(|(_, _, heli)| heli.crewed)
     && opts().eye.is_none()
   {
+    let dt = time.delta_secs().min(0.25);
+    let notches = scroll.delta.y
+      * match scroll.unit {
+        MouseScrollUnit::Line => 1.0,
+        MouseScrollUnit::Pixel => 0.02
+      };
+    (view.first_person, reach.set) = match (view.first_person, notches) {
+      (true, out) if out < 0.0 => (false, CHASE_NEAREST),
+      (false, into) if into > 0.0 && reach.set <= CHASE_NEAREST => (true, CHASE_NEAREST),
+      (first, _) => (
+        first,
+        (reach.set * ZOOM_STEP.powf(-notches)).clamp(CHASE_NEAREST, CHASE_FARTHEST)
+      )
+    };
+    reach.shown += (reach.set - reach.shown) * (1.0 - (-dt * 8.0).exp());
+    let nose = craft.rotation * Vec3::NEG_Z;
+    let trail = 1.0 - (-TRAIL * dt).exp();
+    view.yaw = wrap(view.yaw + wrap(heli.airframe.heading() - view.yaw) * trail);
+    view.pitch += (nose.y.clamp(-1.0, 1.0).asin() * 0.6 - 0.22 - view.pitch) * trail;
     let look = Quat::from_euler(EulerRot::YXZ, view.yaw, view.pitch, 0.0);
     let now = time.elapsed_secs();
     let tremor = Vec3::new((now * 71.0).sin(), (now * 83.0).cos(), (now * 59.0).sin())
@@ -1015,20 +1035,13 @@ fn chase(
       * shake.0
       * 0.25;
     **camera = if view.first_person {
-      Transform::from_translation(craft.transform_point(SEAT_EYE) + tremor).with_rotation(
-        craft.rotation
-          * Quat::from_euler(
-            EulerRot::YXZ,
-            wrap(view.yaw - heli.airframe.yaw),
-            view.pitch,
-            0.0
-          )
-      )
+      Transform::from_translation(craft.transform_point(SEAT_EYE) + tremor)
+        .with_rotation(craft.rotation * Quat::from_rotation_x(-0.12))
     } else {
       let focus = craft.translation + Vec3::Y * 2.2;
       let back = look * Vec3::Z;
-      let distance = CHASE * view.distance;
-      let reach = spatial
+      let distance = reach.shown;
+      let clear = spatial
         .cast_ray(
           focus,
           Dir3::new(back).unwrap_or(Dir3::Z),
@@ -1038,7 +1051,7 @@ fn chase(
             .with_excluded_entities([entity, *player])
         )
         .map_or(distance, |hit| (hit.distance - 0.3).max(2.0));
-      let eye = focus + back * reach;
+      let eye = focus + back * clear;
       Transform::from_translation(eye.with_y(eye.y.max(floor(eye.xz()) + 0.4)) + tremor)
         .with_rotation(look)
     };
@@ -1103,37 +1116,34 @@ mod tests {
       "spools up on the ground: {height} {idle:?}"
     );
     let (climbed, height) =
-      simulate(idle, height, 6.0, Controls { climb: 1.0, ..crewed });
-    assert!(height > 15.0, "climbs: {height}");
-    let (hovering, held) = simulate(climbed, height, 6.0, crewed);
+      simulate(idle, height, 10.0, Controls { climb: 1.0, ..crewed });
+    assert!(height > 60.0, "climbs: {height}");
+    let (hovering, held) = simulate(climbed, height, 8.0, crewed);
     assert!(
       hovering.velocity.y.abs() < 0.5 && held > height,
       "holds height: {hovering:?}"
     );
-    let (cruising, cruise_height) =
-      simulate(hovering, held, 25.0, Controls { ahead: 1.0, ..crewed });
-    let speed = cruising.velocity.with_y(0.0).length();
-    assert!((30.0..45.0).contains(&speed), "cruises: {speed}");
+    let (diving, dived) =
+      simulate(hovering, held, 3.0, Controls { climb: -1.0, ..crewed });
+    assert!(diving.velocity.y < -18.0, "dives fast: {:?} {dived}", diving.velocity);
+    let (rolled, _) = simulate(hovering, held, 1.4, Controls { aside: 1.0, ..crewed });
+    assert!((rolled.attitude * Vec3::Y).y < 0.0, "rolls over: {:?}", rolled.attitude);
+    let (rested, _) = simulate(rolled, held, 1.0, crewed);
+    assert!(rested.spin.length() < 0.2, "holds its attitude: {:?}", rested.spin);
+    let (pointed, _) =
+      simulate(hovering, held, 2.0, Controls { turn: Vec2::new(1.0, 0.0), ..crewed });
     assert!(
-      (cruise_height - held).abs() < 25.0,
-      "keeps altitude: {held} {cruise_height}"
+      wrap(pointed.heading() - hovering.heading()) > 1.2,
+      "turns: {}",
+      pointed.heading()
     );
-    let (turning, turn_height) = simulate(cruising, cruise_height, 3.0, Controls {
-      ahead: 1.0,
-      heading: cruising.yaw + 1.5,
-      ..crewed
-    });
-    assert!(wrap(turning.yaw - cruising.yaw) > 0.8, "turns: {}", turning.yaw);
-    let level = Controls { heading: turning.yaw, ..crewed };
-    let (flared, flare_height) =
-      simulate(turning, turn_height, 5.0, Controls { ahead: -1.0, ..level });
-    let (braked, braked_height) = simulate(flared, flare_height, 15.0, level);
-    assert!(braked.velocity.length() < 3.0, "slows: {:?}", braked.velocity);
-    let (down, height) = simulate(braked, braked_height, 40.0, Controls {
-      climb: -1.0,
-      heading: braked.yaw,
-      ..crewed
-    });
+    let (tilted, height) =
+      simulate(hovering, held, 0.35, Controls { ahead: 1.0, ..crewed });
+    let (cruising, _) = simulate(tilted, height, 10.0, crewed);
+    let speed = cruising.velocity.with_y(0.0).length();
+    assert!(speed > 25.0, "flies forward: {speed}");
+    let (down, height) =
+      simulate(hovering, held, 40.0, Controls { climb: -0.3, ..crewed });
     assert!(height < 0.01 && down.velocity.length() < 0.5, "lands: {height} {down:?}");
     let (parked, _) = simulate(down, 0.0, 15.0, Controls::default());
     assert!(parked.rotor < 0.01 && parked.lever < 0.01, "spools down: {parked:?}");
