@@ -31,7 +31,8 @@ pub struct Opts {
   pub gap: Option<f32>,
   pub pilot: bool,
   pub studio: Option<String>,
-  pub views: Vec<f32>
+  pub views: Vec<f32>,
+  pub checker: bool
 }
 
 impl Default for Opts {
@@ -63,7 +64,8 @@ impl Default for Opts {
       gap: None,
       pilot: false,
       studio: None,
-      views: vec![0.0, 45.0, 90.0, 180.0]
+      views: vec![0.0, 45.0, 90.0, 180.0],
+      checker: false
     }
   }
 }

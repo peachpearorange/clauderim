@@ -99,7 +99,11 @@ pub fn body() -> Vec<(Stuff, Mesh)> {
   vec![(
     Stuff::Ice,
     Stuff::Ice.fitted(model::merge(
-      core.into_iter().chain(side(1.0)).chain(side(-1.0)).map(|piece| piece.planar(0.6))
+      core
+        .into_iter()
+        .chain(side(1.0))
+        .chain(side(-1.0))
+        .map(|piece| piece.unwrapped(0.6))
     ))
   )]
 }

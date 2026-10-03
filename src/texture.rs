@@ -286,6 +286,26 @@ pub fn ice() -> Image { shade(512, |u, v| ice_grain(u, v).1) }
 
 pub fn ice_bumps() -> Image { bumps(512, 0.015, |u, v| ice_grain(u, v).0) }
 
+pub fn checker() -> Image {
+  image(512, TextureFormat::Rgba8UnormSrgb, |u, v| {
+    let cell = (Vec2::new(u, v) * 8.0).floor().as_ivec2();
+    let fine = (Vec2::new(u, v) * 32.0).fract();
+    let edge = (Vec2::new(u, v) * 8.0).fract();
+    let dark = (cell.x + cell.y) % 2 == 0;
+    let hue = ((cell.x * 3 + cell.y * 5) % 8) as f32 * 45.0;
+    let base = Srgba::from(Hsla::hsl(hue, 0.55, if dark { 0.38 } else { 0.62 }));
+    let line = (edge.min_element() < 0.03) as u8 as f32 * 0.7
+      + (fine.min_element() < 0.04) as u8 as f32 * 0.15;
+    let shade = |channel: f32| byte(channel * (1.0 - line));
+    let marker = (edge - Vec2::new(0.5, 0.25)).length() < 0.08;
+    if marker {
+      [255, 255, 255, 255]
+    } else {
+      [shade(base.red), shade(base.green), shade(base.blue), 255]
+    }
+  })
+}
+
 pub fn cracks() -> Image {
   shade(256, |u, v| {
     let ridge = 1.0 - (2.0 * tile_fbm(u, v, 5, 4, 91) - 1.0).abs();

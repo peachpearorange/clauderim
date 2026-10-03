@@ -233,18 +233,22 @@ fn cages() -> Vec<(Stuff, Mesh)> {
   ))
   .relaxed(3, 0.5)
   .shaped(|point| point + Vec3::new(3.0, 0.0, 0.0));
-  vec![
-    (Stuff::Fur, Piece::new(beast.mesh(60.0), Srgba::rgb(0.45, 0.4, 0.35))),
-    (Stuff::Wood, Piece::new(chest.mesh(50.0), Srgba::rgb(0.55, 0.4, 0.27))),
-    (Stuff::Stone, Piece::new(boulder.mesh(50.0), Srgba::rgb(0.6, 0.6, 0.58))),
-    (Stuff::Iron, Piece::new(helmet.mesh(50.0), Srgba::rgb(0.5, 0.5, 0.52))),
-    (Stuff::Wood, Piece::new(shield.mesh(50.0), Srgba::rgb(0.5, 0.36, 0.24))),
+  let unwrapped = |mesh: Mesh, color: Srgba| Piece::new(mesh, color).unwrapped(0.25);
+  [
+    (Stuff::Fur, unwrapped(beast.mesh(60.0), Srgba::rgb(0.45, 0.4, 0.35))),
+    (Stuff::Wood, Piece::new(chest.mesh(50.0), Srgba::rgb(0.55, 0.4, 0.27)).boxed(0.25)),
+    (Stuff::Stone, unwrapped(boulder.mesh(50.0), Srgba::rgb(0.6, 0.6, 0.58))),
+    (Stuff::Iron, unwrapped(helmet.mesh(50.0), Srgba::rgb(0.5, 0.5, 0.52))),
+    (
+      Stuff::Wood,
+      Piece::new(shield.mesh(50.0), Srgba::rgb(0.5, 0.36, 0.24)).seamed(0.25, |edge| {
+        let top = |point: Vec3| point.x.abs() < 1e-3 && point.y > 0.45;
+        edge.bend > 0.5 || (top(edge.from) && top(edge.to))
+      })
+    )
   ]
   .into_iter()
-  .map(|(stuff, piece)| {
-    let Piece(mesh) = piece.planar(0.6);
-    (stuff, stuff.fitted(mesh))
-  })
+  .map(|(stuff, Piece(mesh))| (stuff, stuff.fitted(mesh)))
   .collect()
 }
 
@@ -530,10 +534,31 @@ fn frame(
   }
 }
 
+fn checkered(
+  mut commands: Commands,
+  parts: Query<Entity, (Added<MeshMaterial3d<StandardMaterial>>, Without<Floor>)>,
+  mut checker: Local<Option<Handle<StandardMaterial>>>,
+  mut images: ResMut<Assets<Image>>,
+  mut materials: ResMut<Assets<StandardMaterial>>
+) {
+  let checker = checker
+    .get_or_insert_with(|| {
+      materials.add(StandardMaterial {
+        base_color_texture: Some(images.add(crate::texture::checker())),
+        perceptual_roughness: 0.8,
+        ..default()
+      })
+    })
+    .clone();
+  for part in &parts {
+    commands.entity(part).insert(MeshMaterial3d(checker.clone()));
+  }
+}
+
 pub fn plugin(app: &mut App) {
   app
     .add_message::<crate::combat::Struck>()
     .add_systems(Startup, stage)
-    .add_systems(Update, (robot::idle, frame))
+    .add_systems(Update, (robot::idle, frame, checkered.run_if(|| opts().checker)))
     .add_systems(PostUpdate, dragon::pose.before(TransformSystems::Propagate));
 }
