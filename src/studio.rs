@@ -544,6 +544,7 @@ fn checkered(
   let checker = checker
     .get_or_insert_with(|| {
       materials.add(StandardMaterial {
+        base_color: LinearRgba::gray(4.0).into(),
         base_color_texture: Some(images.add(crate::texture::checker())),
         perceptual_roughness: 0.8,
         ..default()

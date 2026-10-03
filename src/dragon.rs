@@ -285,17 +285,6 @@ fn plated(mut mesh: Mesh) -> Mesh {
   mesh
 }
 
-fn tiled(mut piece: Piece, around: f32, along: f32) -> Piece {
-  if let Some(bevy::mesh::VertexAttributeValues::Float32x2(uvs)) =
-    piece.0.attribute_mut(Mesh::ATTRIBUTE_UV_0)
-  {
-    for uv in uvs.iter_mut() {
-      *uv = [uv[0] * around.max(0.5).round(), uv[1] * along]
-    }
-  }
-  piece
-}
-
 fn mirrored(turn: Quat) -> Quat { Quat::from_xyzw(turn.x, -turn.y, -turn.z, turn.w) }
 
 fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
@@ -307,17 +296,8 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
     (Vec3::new(x, y, z), Vec3::new(wide, high, deep))
   };
   let flesh = |keys: &[(Vec3, Vec3)], seed: u32| {
-    let length: f32 = keys.windows(2).map(|pair| pair[0].0.distance(pair[1].0)).sum();
-    let girth = keys
-      .iter()
-      .map(|&(_, Vec3 { x, y, z })| (x + (y + z) * 0.5) * 0.5 * TAU)
-      .fold(0.0, f32::max);
-    let mesh = plated(model::ruffled(sculpt(keys, 12, 24), 0.03, Vec3::splat(2.6), seed));
-    Hide::BRONZE.paint(tiled(
-      Piece::new(mesh, hide),
-      girth / SCALE_TILE,
-      length / SCALE_TILE
-    ))
+    let Piece(laid) = Piece::new(sculpt(keys, 12, 24), hide).followed(SCALE_TILE);
+    Hide::BRONZE.paint(Piece(plated(model::ruffled(laid, 0.03, Vec3::splat(2.6), seed))))
   };
   let fins = |from: Vec2, to: Vec2, count: usize, height: f32, shrink: f32| {
     (0..count)
@@ -647,11 +627,9 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
     ],
     6
   );
-  let wing_arm = Hide::BRONZE.paint(tiled(
-    Piece::new(model::sweep(&arm_spine, &arm_girth, 14), hide),
-    1.0,
-    4.5 / SCALE_TILE
-  ));
+  let wing_arm = Hide::BRONZE.paint(
+    Piece::new(model::sweep(&arm_spine, &arm_girth, 14), hide).followed(SCALE_TILE)
+  );
   let finger_tips = [
     Vec3::new(3.1, 0.0, 1.0),
     Vec3::new(2.2, 0.0, 2.9),
@@ -773,6 +751,7 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
         ),
         hide
       )
+      .followed(SCALE_TILE)
     })
     .collect();
   let claws: Vec<Piece> = [-0.16, 0.0, 0.16]
@@ -819,7 +798,14 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
   }
   parts
     .into_iter()
-    .map(|(bone, stuff, pieces)| (bone, stuff, stuff.fitted(model::merge(pieces))))
+    .map(|(bone, stuff, pieces)| {
+      let unwrapped = pieces.into_iter().map(|piece| match stuff {
+        Stuff::Scales => piece,
+        Stuff::Membrane => piece.unwrapped(4.0),
+        _ => piece.unwrapped(0.5)
+      });
+      (bone, stuff, stuff.fitted(model::merge(unwrapped)))
+    })
     .collect()
 }
 

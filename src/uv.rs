@@ -18,7 +18,8 @@ struct Welded {
   points: Vec<Vec3>,
   corners: Vec<[u32; 3]>,
   spots: Vec<[u32; 3]>,
-  across: Vec<[Option<usize>; 3]>
+  across: Vec<[Option<usize>; 3]>,
+  uvs: Vec<Vec2>
 }
 
 impl Welded {
@@ -70,7 +71,66 @@ impl Welded {
         })
       })
       .collect();
-    Self { points, corners, spots, across }
+    let uvs = match mesh.attribute(Mesh::ATTRIBUTE_UV_0) {
+      Some(VertexAttributeValues::Float32x2(uvs)) => {
+        uvs.iter().copied().map(Vec2::from).collect()
+      }
+      _ => Vec::new()
+    };
+    Self { points, corners, spots, across, uvs }
+  }
+
+  fn uv(&self, triangle: usize, spot: u32) -> Option<Vec2> {
+    self.spots[triangle]
+      .iter()
+      .position(|&each| each == spot)
+      .and_then(|k| self.uvs.get(self.corners[triangle][k] as usize).copied())
+  }
+
+  fn original(&self, chart: &[usize]) -> Option<HashMap<u32, DVec2>> {
+    let seen = chart.iter().flat_map(|&triangle| {
+      self.spots[triangle].map(|spot| (spot, self.uv(triangle, spot)))
+    });
+    let laid = seen.fold(
+      Some(HashMap::new()),
+      |laid: Option<HashMap<u32, Vec2>>, (spot, uv)| {
+        let (mut laid, uv) = (laid?, uv?);
+        let kept = *laid.entry(spot).or_insert(uv);
+        (kept.distance(uv) < 1e-4).then_some(laid)
+      }
+    )?;
+    let (squares, targets) = chart
+      .iter()
+      .flat_map(|&triangle| {
+        let spots = self.spots[triangle];
+        (0..3).map(move |k| (spots[k], spots[(k + 1) % 3]))
+      })
+      .fold((DVec3::ZERO, DVec2::ZERO), |(squares, targets), (a, b)| {
+        let span = (laid[&b] - laid[&a]).as_dvec2();
+        let (u, v) = (span.x * span.x, span.y * span.y);
+        let length = f64::from(self.at(a).distance_squared(self.at(b)));
+        (
+          squares + DVec3::new(u * u, u * v, v * v),
+          targets + DVec2::new(length * u, length * v)
+        )
+      });
+    let determinant = squares.x * squares.z - squares.y * squares.y;
+    (determinant.abs() > 1e-18).then_some(())?;
+    let stretch = DVec2::new(
+      (targets.x * squares.z - targets.y * squares.y) / determinant,
+      (targets.y * squares.x - targets.x * squares.y) / determinant
+    );
+    (stretch.min_element() > 0.0).then_some(())?;
+    let stretch = DVec2::new(stretch.x.sqrt(), stretch.y.sqrt());
+    let handed: f64 = chart
+      .iter()
+      .map(|&triangle| {
+        let [a, b, c] = self.spots[triangle].map(|spot| laid[&spot].as_dvec2() * stretch);
+        (b - a).perp_dot(c - a)
+      })
+      .sum();
+    let stretch = stretch * DVec2::new(handed.signum(), 1.0);
+    Some(laid.into_iter().map(|(spot, uv)| (spot, uv.as_dvec2() * stretch)).collect())
   }
 
   fn at(&self, spot: u32) -> Vec3 { self.points[spot as usize] }
@@ -168,7 +228,13 @@ impl Welded {
         })
       })
       .collect();
-    Self { points, corners: self.corners.clone(), spots, across: self.across.clone() }
+    Self {
+      points,
+      corners: self.corners.clone(),
+      spots,
+      across: self.across.clone(),
+      uvs: self.uvs.clone()
+    }
   }
 
   fn projected(&self, chart: &[usize], toward: Vec3) -> HashMap<u32, DVec2> {
@@ -186,12 +252,15 @@ impl Welded {
   fn flattened(&self, chart: &[usize], conforming: bool) -> HashMap<u32, DVec2> {
     let facing = chart.iter().map(|&triangle| self.area_normal(triangle)).sum::<Vec3>();
     let toward = facing.try_normalize().unwrap_or(Vec3::Y);
-    let start = self.projected(chart, toward);
+    let start = conforming
+      .then(|| self.original(chart))
+      .flatten()
+      .unwrap_or_else(|| self.projected(chart, toward));
     let curved = chart.iter().any(|&triangle| {
       self.area_normal(triangle).normalize_or(toward).dot(toward) < 0.995
     });
     let solved = if conforming && curved && start.len() > 3 {
-      conformal(self, chart, start)
+      aligned(conformal(self, chart, start.clone()), &start)
     } else {
       start
     };
@@ -207,6 +276,22 @@ impl Welded {
     let scale = (flat > 1e-12).then(|| (real / flat).sqrt()).unwrap_or(1.0);
     solved.into_iter().map(|(spot, at)| (spot, centre + (at - centre) * scale)).collect()
   }
+}
+
+fn aligned(
+  laid: HashMap<u32, DVec2>,
+  start: &HashMap<u32, DVec2>
+) -> HashMap<u32, DVec2> {
+  let middle = |points: &HashMap<u32, DVec2>| {
+    points.values().copied().sum::<DVec2>() / points.len().max(1) as f64
+  };
+  let (here, there) = (middle(&laid), middle(start));
+  let (dot, cross) = laid.iter().fold((0.0, 0.0), |(dot, cross), (spot, &at)| {
+    let (from, to) = (at - here, start[spot] - there);
+    (dot + from.dot(to), cross + from.perp_dot(to))
+  });
+  let turn = DVec2::from_angle(cross.atan2(dot));
+  laid.into_iter().map(|(spot, at)| (spot, here + turn.rotate(at - here))).collect()
 }
 
 fn conformal(
@@ -364,6 +449,87 @@ fn unfolded(
 }
 
 impl Piece {
+  pub fn followed(self, tile: f32) -> Self {
+    let positions = vectors(&self.0, Mesh::ATTRIBUTE_POSITION);
+    let grid: Vec<Vec2> = match self.0.attribute(Mesh::ATTRIBUTE_UV_0) {
+      Some(VertexAttributeValues::Float32x2(uvs)) => {
+        uvs.iter().copied().map(Vec2::from).collect()
+      }
+      _ => Vec::new()
+    };
+    let key = |value: f32| (value * 1e4).round() as i64;
+    let rows: Vec<Vec<usize>> = (0..grid.len())
+      .fold(std::collections::BTreeMap::<i64, Vec<usize>>::new(), |mut rows, vertex| {
+        rows.entry(key(grid[vertex].y)).or_default().push(vertex);
+        rows
+      })
+      .into_values()
+      .map(|mut row| {
+        row.sort_by(|&a, &b| grid[a].x.total_cmp(&grid[b].x));
+        row
+      })
+      .collect();
+    let around: Vec<(usize, f32)> = rows
+      .iter()
+      .flat_map(|row| {
+        let travelled: Vec<f32> = row
+          .iter()
+          .scan((row[0], 0.0), |(last, total), &vertex| {
+            *total += positions[*last].distance(positions[vertex]);
+            *last = vertex;
+            Some(*total)
+          })
+          .collect();
+        let middle = (0..row.len())
+          .min_by(|&a, &b| {
+            (grid[row[a]].x - 0.5).abs().total_cmp(&(grid[row[b]].x - 0.5).abs())
+          })
+          .map_or(0.0, |index| travelled[index]);
+        row
+          .iter()
+          .zip(travelled)
+          .map(move |(&vertex, gone)| (vertex, gone - middle))
+          .collect::<Vec<_>>()
+      })
+      .collect();
+    let gaps = rows.windows(2).map(|pair| {
+      let columns: HashMap<i64, usize> =
+        pair[0].iter().map(|&vertex| (key(grid[vertex].x), vertex)).collect();
+      let matched: Vec<f32> = pair[1]
+        .iter()
+        .filter_map(|&vertex| {
+          columns
+            .get(&key(grid[vertex].x))
+            .map(|&other| positions[other].distance(positions[vertex]))
+        })
+        .collect();
+      let centre = |row: &[usize]| {
+        row.iter().map(|&vertex| positions[vertex]).sum::<Vec3>() / row.len() as f32
+      };
+      (!matched.is_empty())
+        .then(|| matched.iter().sum::<f32>() / matched.len() as f32)
+        .unwrap_or_else(|| centre(&pair[0]).distance(centre(&pair[1])))
+    });
+    let downs: Vec<f32> = std::iter::once(0.0)
+      .chain(gaps.scan(0.0, |total, gap| {
+        *total += gap;
+        Some(*total)
+      }))
+      .collect();
+    let mut uvs = vec![[0.0f32; 2]; grid.len()];
+    for (row, &down) in rows.iter().zip(&downs) {
+      for &vertex in row {
+        uvs[vertex][1] = down / tile
+      }
+    }
+    for (vertex, across) in around {
+      uvs[vertex][0] = across / tile
+    }
+    let Piece(mut mesh) = self;
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    Piece(mesh)
+  }
+
   pub fn unwrapped(self, tile: f32) -> Self {
     let welded = Welded::new(&self.0);
     let joining = SMART.to_radians().cos();
@@ -464,6 +630,20 @@ mod tests {
         });
     let (low, high, _) = distortion(&tube);
     assert!(low.abs() > 0.85 && high.abs() < 1.15, "area ratios {low}..{high}");
+  }
+
+  #[test]
+  fn following_a_tapered_tube_keeps_cells_square_and_rows_along_it() {
+    let keys: Vec<(Vec3, Vec3)> = (0..8)
+      .map(|step| {
+        let t = step as f32 / 7.0;
+        (Vec3::new((t * 3.0).sin() * 2.0, t * 1.5, -t * 14.0), Vec3::splat(1.2 - t * 1.0))
+      })
+      .collect();
+    let tube =
+      Piece::new(crate::model::sculpt(&keys, 12, 24), Srgba::WHITE).followed(1.0);
+    let (low, high, same) = distortion(&tube);
+    assert!(same && low.abs() > 0.8 && high.abs() < 1.25, "area ratios {low}..{high}");
   }
 
   #[test]
