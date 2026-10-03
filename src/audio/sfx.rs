@@ -632,6 +632,52 @@ fn ice_shatter(seed: u64) -> Vec<f32> {
   burst
 }
 
+fn tree_groan(seed: u64) -> Vec<f32> {
+  const TIMBER: [(f32, f32); 3] = [(95.0, 9.0), (210.0, 8.0), (470.0, 6.0)];
+  let mut rng = Rng::new(seed);
+  let mut bank = TIMBER.map(|(hz, q)| Svf::new(hz, q));
+  let (mut stick, mut jitter, mut hum) = (0.0f32, Lag::new(5.0), Osc::default());
+  (0..len(2.2))
+    .map(|index| {
+      let t = time(index);
+      let rate = curve(t, &[(0.0, 22.0), (0.6, 46.0), (1.4, 34.0), (2.2, 18.0)])
+        * (1.0 + 0.5 * jitter.step(rng.signed() * 3.0));
+      stick += rate / RATE;
+      let slip = if stick >= 1.0 { rng.range(0.5, 1.0) } else { 0.0 };
+      stick = stick.fract();
+      let swell = curve(t, &[(0.0, 0.0), (0.3, 1.0), (1.6, 0.8), (2.2, 0.0)]);
+      let creak = bank.iter_mut().map(|filter| filter.step(slip).band).sum::<f32>();
+      drive(
+        creak * 4.0 * swell + hum.sine(38.0 + 6.0 * (t * 1.7).sin()) * 0.35 * swell,
+        1.6
+      )
+    })
+    .collect()
+}
+
+fn timber_fall(seed: u64) -> Vec<f32> {
+  let mut rng = Rng::new(seed);
+  let (mut splinter, mut thud, mut boom) =
+    (Svf::new(1800.0, 1.2), Lag::new(220.0), Osc::default());
+  let mut fall: Vec<f32> = (0..len(3.0))
+    .map(|index| {
+      let t = time(index);
+      let x = rng.signed();
+      let landing = t - 1.6;
+      drive(
+        splinter.step(x).band * (perc(t, 0.0005, 0.12) * 2.5 + 0.3 * perc(t, 0.05, 0.9))
+          + thud.step(x) * 7.0 * perc(landing, 0.003, 0.35)
+          + boom.sine(38.0 + 30.0 * (-landing.max(0.0) / 0.1).exp())
+            * perc(landing, 0.004, 0.6),
+        2.0
+      )
+    })
+    .collect();
+  clicks(&mut fall, seed + 1, 36, 0.0, 1.5, (900.0, 2400.0));
+  clicks(&mut fall, seed + 2, 20, 1.6, 2.4, (600.0, 1600.0));
+  fall
+}
+
 pub fn variants(cue: Cue) -> u64 {
   match cue {
     Cue::Footstep => 6,
@@ -712,7 +758,9 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::Gunshot => Wave::mono(gunshot(seed)),
     Cue::Explosion => Wave::mono(explosion(seed)),
     Cue::IceGrind => Wave::mono(ice_grind(seed)),
-    Cue::IceShatter => Wave::mono(ice_shatter(seed))
+    Cue::IceShatter => Wave::mono(ice_shatter(seed)),
+    Cue::TreeGroan => Wave::mono(tree_groan(seed)),
+    Cue::TimberFall => Wave::mono(timber_fall(seed))
   };
   wave.trimmed().normalized(0.9)
 }

@@ -91,7 +91,8 @@ fn spawn_player(
         damage: 18.0,
         swing_time: 0.62,
         cone: 1.0,
-        girth: 0.35
+        girth: 0.35,
+        tall: CAPSULE_HEIGHT
       },
       Collider::capsule(CAPSULE_RADIUS, CAPSULE_HEIGHT - 2.0 * CAPSULE_RADIUS),
       Transform::from_translation(

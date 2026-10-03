@@ -44,7 +44,8 @@ pub struct Fighter {
   pub damage: f32,
   pub swing_time: f32,
   pub cone: f32,
-  pub girth: f32
+  pub girth: f32,
+  pub tall: f32
 }
 
 #[derive(Component)]
@@ -142,8 +143,8 @@ fn swing(
         .filter_map(move |(target, their, their_fighter, _, their_motion, foe)| {
           let gap = their.translation - transform.translation;
           let flat = gap.with_y(0.0);
-          let within =
-            flat.length() < fighter.reach + their_fighter.girth && gap.y.abs() < 2.2;
+          let within = flat.length() < fighter.reach + their_fighter.girth
+            && gap.y.abs() < 0.4 + (fighter.tall + their_fighter.tall) / 2.0;
           let aimed = forward.dot(flat.normalize_or_zero()) > fighter.cone.cos();
           (within && aimed).then(|| {
             let facing_us =

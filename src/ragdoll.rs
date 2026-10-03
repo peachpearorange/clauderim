@@ -3,6 +3,7 @@ use {crate::{atronach::{self, Lumbering},
              dragon::{self, Dragon},
              humanoid::{self, Rig},
              player::Player,
+             treegiant::{self, Striding},
              walker::{Layer, Walker},
              wolf::{self, Beast}},
      avian3d::prelude::*,
@@ -76,14 +77,25 @@ fn collapse(
       Option<&Beast>,
       Option<&Dragon>,
       Option<&Lumbering>,
+      Option<&Striding>,
       Option<&Knocked>
     ),
     (Or<(Added<Dead>, Added<Knocked>)>, Without<Ragdoll>)
   >,
   bones: Query<(&GlobalTransform, &Transform, &ChildOf)>
 ) {
-  for (owner, place, walker, velocity, rig, beast, dragon, lumbering, knocked) in
-    fallen.iter_mut()
+  for (
+    owner,
+    place,
+    walker,
+    velocity,
+    rig,
+    beast,
+    dragon,
+    lumbering,
+    striding,
+    knocked
+  ) in fallen.iter_mut()
   {
     let plan: Vec<(Entity, Option<Limb>)> = rig
       .map(|rig| rig.bones.iter().copied().zip(humanoid::limbs(&rig.frame)).collect())
@@ -96,6 +108,11 @@ fn collapse(
       .or_else(|| {
         lumbering.map(|lumbering| {
           lumbering.bones.iter().map(|&(_, bone)| bone).zip(atronach::limbs()).collect()
+        })
+      })
+      .or_else(|| {
+        striding.map(|striding| {
+          striding.bones.iter().map(|&(_, bone)| bone).zip(treegiant::limbs()).collect()
         })
       })
       .unwrap_or_default();

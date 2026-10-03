@@ -930,7 +930,14 @@ fn spawn_dragon(
       Side::Wild,
       Vitals::new(HEALTH, 200.0),
       Motion::default(),
-      Fighter { reach: 7.5, damage: 26.0, swing_time: 1.1, cone: 0.6, girth: 3.0 },
+      Fighter {
+        reach: 7.5,
+        damage: 26.0,
+        swing_time: 1.1,
+        cone: 0.6,
+        girth: 3.0,
+        tall: 1.8
+      },
       RigidBody::Kinematic,
       Collider::sphere(2.0),
       start,

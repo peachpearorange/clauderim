@@ -13,7 +13,7 @@ use {crate::{atronach,
              settlement::{self, Clutter, House, Roof, Walls, Work},
              signal::FoeKind,
              stuff::{Stuff, Stuffs},
-             wolf},
+             treegiant, wolf},
      bevy::{camera::primitives::Aabb,
             light::{CascadeShadowConfig, CascadeShadowConfigBuilder},
             mesh::skinning::SkinnedMeshInverseBindposes,
@@ -34,7 +34,8 @@ enum Subject {
   Work(Work),
   Growth(String),
   Cages,
-  Atronach
+  Atronach,
+  TreeGiant
 }
 
 impl Subject {
@@ -68,6 +69,7 @@ impl Subject {
       "robot" => Subject::Robot,
       "cages" => Subject::Cages,
       "atronach" => Subject::Atronach,
+      "treegiant" => Subject::TreeGiant,
       "house" => Subject::Work(Work::House(house(9.0, 6.5, 3.0))),
       "inn" => Subject::Work(Work::Inn(house(15.0, 9.0, 6.1))),
       "longhall" => Subject::Work(Work::Longhall(house(22.0, 11.0, 4.4))),
@@ -115,7 +117,8 @@ impl Subject {
       | Subject::Villager(_)
       | Subject::Wolf
       | Subject::Dragon { .. }
-      | Subject::Atronach => PI,
+      | Subject::Atronach
+      | Subject::TreeGiant => PI,
       Subject::Robot | Subject::Work(_) | Subject::Growth(_) | Subject::Cages => 0.0
     }
   }
@@ -450,6 +453,18 @@ fn stage(
         commands.entity(holder).insert(posed());
       }
     }
+    Subject::TreeGiant => {
+      for (index, &holder) in holders.iter().enumerate() {
+        treegiant::spawn(
+          &mut commands,
+          &mut meshes,
+          &stuffs,
+          holder,
+          (seed, index as f32 * opts.film.unwrap_or(0.0))
+        );
+        commands.entity(holder).insert(posed());
+      }
+    }
     Subject::Cages => hang(
       &mut commands,
       &mut meshes,
@@ -569,7 +584,13 @@ pub fn plugin(app: &mut App) {
     .add_systems(Startup, stage)
     .add_systems(
       Update,
-      (robot::idle, atronach::animate, frame, checkered.run_if(|| opts().checker))
+      (
+        robot::idle,
+        atronach::animate,
+        treegiant::animate,
+        frame,
+        checkered.run_if(|| opts().checker)
+      )
     )
     .add_systems(PostUpdate, dragon::pose.before(TransformSystems::Propagate));
 }

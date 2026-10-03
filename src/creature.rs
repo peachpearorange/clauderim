@@ -206,7 +206,8 @@ fn raise(
         damage: stats.damage,
         swing_time: stats.swing_time,
         cone: 0.8,
-        girth: stats.radius
+        girth: stats.radius,
+        tall: stats.height
       },
       Transform::from_translation(center).with_rotation(facing),
       match spawn.kind {
@@ -311,6 +312,10 @@ fn think(
   mut struck: MessageReader<Struck>,
   mut sounds: MessageWriter<Sound>,
   player: Single<(Entity, &Transform, &Walker, Has<Dead>), With<Player>>,
+  allies: Query<
+    (Entity, &Transform, &Side),
+    (Without<Player>, Without<Dead>, Without<Foe>)
+  >,
   mut foes: Query<
     (Entity, &mut Foe, &Transform, &mut Walker, &mut Motion, &Fighter),
     (Without<Dead>, Without<Specimen>, Without<Player>)
@@ -319,8 +324,18 @@ fn think(
   let (hero, hero_at, hero_walker, hero_dead) = *player;
   let target = hero_at.translation;
   let delta = time.delta_secs();
-  let provoked: Vec<Entity> =
-    struck.read().filter(|hit| hit.attacker == hero).map(|hit| hit.target).collect();
+  let guardians: Vec<(Entity, Vec3)> = allies
+    .iter()
+    .filter(|&(_, _, &side)| side == Side::Hero)
+    .map(|(entity, transform, _)| (entity, transform.translation))
+    .collect();
+  let provoked: Vec<Entity> = struck
+    .read()
+    .filter(|hit| {
+      hit.attacker == hero || guardians.iter().any(|&(ally, _)| ally == hit.attacker)
+    })
+    .map(|hit| hit.target)
+    .collect();
   let sneaking = stealth.sneaking;
   let stir = 0.6 + 0.4 * (hero_walker.wish.length() / crate::player::RUN_SPEED).min(1.0);
   let gloom = 0.55 + 0.45 * daylight.level.clamp(0.0, 1.0) * (1.0 - daylight.shelter);
@@ -328,23 +343,30 @@ fn think(
   for (entity, mut foe, transform, mut walker, mut motion, fighter) in foes.iter_mut() {
     let stats = breed(foe.kind);
     let at = transform.translation;
-    let gap = (target - at).with_y(0.0);
-    let distance = gap.length();
-    let behind = transform.forward().as_vec3().dot(gap.normalize_or_zero()) < -0.2;
+    let hero_gap = (target - at).with_y(0.0);
+    let hero_distance = hero_gap.length();
+    let behind = transform.forward().as_vec3().dot(hero_gap.normalize_or_zero()) < -0.2;
     let reach = sneaking
       .then(|| {
         stats.aggro * SNEAK_SENSE * stir * gloom * behind.then_some(0.6).unwrap_or(1.0)
       })
       .unwrap_or(stats.aggro);
-    let sense = (1.0 - distance / reach).max(0.0);
+    let sense = (1.0 - hero_distance / reach).max(0.0);
     foe.suspicion = sneaking
       .then(|| (foe.suspicion + (sense * 3.0 - 0.35) * delta).clamp(0.0, 1.0))
       .unwrap_or((sense > 0.0) as u8 as f32);
-    let noticed = !hero_dead && (foe.suspicion >= 1.0 || provoked.contains(&entity));
+    let noticed = (!hero_dead && foe.suspicion >= 1.0) || provoked.contains(&entity);
+    let quarry = (!hero_dead)
+      .then_some(target)
+      .into_iter()
+      .chain(guardians.iter().map(|&(_, ally)| ally))
+      .min_by(|a, b| a.distance(at).total_cmp(&b.distance(at)));
+    let gap = quarry.map_or(Vec3::ZERO, |quarry| (quarry - at).with_y(0.0));
+    let distance = gap.length();
     let wake = sneaking.then_some(SNEAK_WAKE).unwrap_or(WAKE);
     foe.cooldown -= delta;
     let mind = match foe.mind {
-      Mind::Dormant if distance < wake || provoked.contains(&entity) => {
+      Mind::Dormant if hero_distance < wake || provoked.contains(&entity) => {
         sounds.write(Sound::here(Cue::DraugrWake, at));
         Mind::Hunt
       }
@@ -356,7 +378,7 @@ fn think(
         foe.cooldown = 0.6;
         Mind::Hunt
       }
-      Mind::Idle(wait) if wait <= 0.0 && distance < UNWATCHED => {
+      Mind::Idle(wait) if wait <= 0.0 && hero_distance < UNWATCHED => {
         let wander =
           foe.home + Vec3::new(foe.roll.spread(14.0), 0.0, foe.roll.spread(14.0));
         Mind::Roam(wander)
@@ -367,7 +389,7 @@ fn think(
       }
       Mind::Roam(spot) => Mind::Roam(spot),
       Mind::Hunt
-        if hero_dead
+        if quarry.is_none()
           || distance > stats.aggro * 2.8
           || (foe.home - at).length() > 90.0 =>
       {
@@ -413,7 +435,7 @@ fn think(
       && distance < strike_range
       && foe.cooldown <= 0.0
       && !busy
-      && !hero_dead
+      && quarry.is_some()
     {
       motion.swing = Some(0.0);
       motion.power = foe.roll.chance(0.2);

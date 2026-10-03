@@ -55,7 +55,9 @@ pub enum Cue {
   Gunshot,
   Explosion,
   IceGrind,
-  IceShatter
+  IceShatter,
+  TreeGroan,
+  TimberFall
 }
 
 #[derive(Message, Clone, Copy)]

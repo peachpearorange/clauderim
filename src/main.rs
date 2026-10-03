@@ -46,6 +46,7 @@ mod terrain;
 mod texture;
 mod trail;
 mod trail_cells;
+mod treegiant;
 mod uv;
 mod walker;
 mod wolf;
@@ -258,7 +259,8 @@ fn main() {
         patrol::plugin,
         spider::plugin,
         heli::plugin,
-        atronach::plugin
+        atronach::plugin,
+        treegiant::plugin
       ))
       .add_plugins(audio::plugin)
       .add_systems(
