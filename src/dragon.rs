@@ -225,7 +225,7 @@ const fn srgb(red: f32, green: f32, blue: f32) -> Srgba {
 const SCALE_TILE: f32 = 2.6;
 const RIBS: f32 = 3.0;
 const FAN_TURN: f32 = 0.47;
-const FOLDED_TOWARD: Vec3 = Vec3::new(1.4, 1.6, 0.6);
+const FOLDED_TOWARD: Vec3 = Vec3::new(1.5, 1.3, 2.4);
 
 struct Hide {
   flank: Srgba,
@@ -728,17 +728,27 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
     .collect();
   let shoulder = flesh(
     &[
-      key(-0.3, 0.1, 0.05, 0.02, 0.02, 0.02),
-      key(-0.2, 0.1, 0.05, 0.38, 0.38, 0.4),
+      key(-0.12, 0.05, 0.05, 0.02, 0.02, 0.02),
+      key(-0.02, 0.06, 0.05, 0.34, 0.34, 0.38),
       key(0.35, 0.18, 0.15, 0.34, 0.3, 0.34),
       key(0.7, 0.24, 0.25, 0.02, 0.02, 0.02)
     ],
     45
   );
+  let scapula = flesh(
+    &[
+      key(0.25, 0.42, -0.8, 0.02, 0.02, 0.02),
+      key(0.42, 0.56, -0.8, 0.46, 0.46, 0.6),
+      key(0.8, 0.68, -0.82, 0.44, 0.42, 0.52),
+      key(1.05, 0.66, -0.82, 0.02, 0.02, 0.02)
+    ],
+    46
+  );
   let in_fan = |pieces: Vec<Piece>| -> Vec<Piece> {
     pieces.into_iter().map(|piece| piece.turned(fan_frame)).collect()
   };
   let right_side: Vec<(Bone, Stuff, Vec<Piece>)> = vec![
+    (Bone::Body, Stuff::Scales, vec![scapula]),
     (Bone::WingR, Stuff::Scales, vec![wing_arm, shoulder]),
     (Bone::WingR, Stuff::Membrane, vec![inner]),
     (Bone::TipR, Stuff::Leather, in_fan(fingers)),
@@ -1490,9 +1500,11 @@ pub fn pose(
         Bone::Head if flying => Vec3::new(0.05, 0.0, 0.0),
         Bone::Head => Vec3::new(0.3 - 0.2 * bite, 0.0, 0.0),
         Bone::Jaw if slain => Vec3::new(0.35, 0.0, 0.0),
-        Bone::Jaw => {
-          Vec3::new(0.05 + breathing as u8 as f32 * 0.55 + bite * 0.7, 0.0, 0.0)
-        }
+        Bone::Jaw => Vec3::new(
+          0.05 + !flying as u8 as f32 * 0.15 + breathing as u8 as f32 * 0.55 + bite * 0.7,
+          0.0,
+          0.0
+        ),
         Bone::Tail1 | Bone::Tail2 | Bone::Tail3 | Bone::Tail4 => {
           let wave = (clock * 1.7 + bone as u8 as f32 * 0.8).sin();
           if slain {
@@ -1545,7 +1557,7 @@ pub fn pose(
       let outward = Vec3::X.reject_from_normalized(along).normalize();
       let folded =
         Quat::from_mat3(&Mat3::from_cols(outward.cross(along), outward, along));
-      (wing.inverse() * folded, Vec3::new(0.13, 1.0, 0.95), 0.3)
+      (wing.inverse() * folded, Vec3::new(0.38, 1.0, 0.95), 0.55)
     };
     for (&entity, bone) in dragon.bones.iter().zip(Bone::ALL) {
       if let Ok(mut transform) = bones.get_mut(entity) {
