@@ -2,6 +2,8 @@ use {crate::{model::{self, Piece},
              stuff::Stuff},
      bevy::{mesh::VertexAttributeValues, prelude::*}};
 
+const TILE: f32 = 0.6;
+
 const ICE: Srgba = Srgba::rgb(0.5, 0.82, 0.9);
 
 fn shard(seed: u32, from: Vec3, to: Vec3, girth: impl Fn(f32) -> Vec2) -> Piece {
@@ -29,7 +31,7 @@ fn shard(seed: u32, from: Vec3, to: Vec3, girth: impl Fn(f32) -> Vec2) -> Piece 
     .collect();
   mesh.insert_attribute(Mesh::ATTRIBUTE_POSITION, positions);
   mesh.compute_flat_normals();
-  Piece::new(mesh, ICE)
+  Piece::new(mesh, ICE).wrapped(from, to, TILE)
 }
 
 fn tapered(from: Vec2, to: Vec2) -> impl Fn(f32) -> Vec2 {
@@ -98,12 +100,6 @@ pub fn body() -> Vec<(Stuff, Mesh)> {
   };
   vec![(
     Stuff::Ice,
-    Stuff::Ice.fitted(model::merge(
-      core
-        .into_iter()
-        .chain(side(1.0))
-        .chain(side(-1.0))
-        .map(|piece| piece.unwrapped(0.6))
-    ))
+    Stuff::Ice.fitted(model::merge(core.into_iter().chain(side(1.0)).chain(side(-1.0))))
   )]
 }

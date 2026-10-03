@@ -449,6 +449,73 @@ fn unfolded(
 }
 
 impl Piece {
+  pub fn wrapped(self, from: Vec3, to: Vec3, tile: f32) -> Self {
+    const BANDS: usize = 8;
+    let axis = (to - from).normalize_or(Vec3::Y);
+    let behind = Vec3::Z
+      .reject_from_normalized(axis)
+      .try_normalize()
+      .unwrap_or_else(|| axis.any_orthonormal_vector());
+    let side = axis.cross(behind);
+    let Piece(mut mesh) = self;
+    mesh.duplicate_vertices();
+    let polar: Vec<(f32, f32, f32)> = vectors(&mesh, Mesh::ATTRIBUTE_POSITION)
+      .into_iter()
+      .map(|point| {
+        let offset = point - from;
+        let radial = offset.reject_from_normalized(axis);
+        (radial.dot(side).atan2(-radial.dot(behind)), radial.length(), offset.dot(axis))
+      })
+      .collect();
+    let (first, last) =
+      polar.iter().fold((f32::MAX, f32::MIN), |(low, high), &(.., along)| {
+        (low.min(along), high.max(along))
+      });
+    let band = |along: f32| {
+      ((along - first) / (last - first).max(1e-4) * BANDS as f32)
+        .clamp(0.0, BANDS as f32 - 1e-3)
+    };
+    let (sums, counts) = polar.iter().fold(
+      ([0.0f32; BANDS], [0.0f32; BANDS]),
+      |(mut sums, mut counts), &(_, reach, along)| {
+        let index = band(along) as usize;
+        sums[index] += reach;
+        counts[index] += 1.0;
+        (sums, counts)
+      }
+    );
+    let girth: Vec<f32> =
+      (0..BANDS).map(|index| sums[index] / counts[index].max(1.0)).collect();
+    let girth_at = |along: f32| {
+      let at = (band(along) - 0.5).clamp(0.0, BANDS as f32 - 1.0);
+      let low = at.floor() as usize;
+      let high = (low + 1).min(BANDS - 1);
+      girth[low] + (girth[high] - girth[low]) * (at - low as f32)
+    };
+    let uvs: Vec<[f32; 2]> = polar
+      .chunks_exact(3)
+      .flat_map(|corners| {
+        let (low, high) =
+          corners.iter().fold((f32::MAX, f32::MIN), |(low, high), &(angle, ..)| {
+            (low.min(angle), high.max(angle))
+          });
+        let split = high - low > std::f32::consts::PI;
+        corners
+          .iter()
+          .map(|&(angle, _, along)| {
+            let angle =
+              if split && angle < 0.0 { angle + std::f32::consts::TAU } else { angle };
+            [angle * girth_at(along) / tile, along / tile]
+          })
+          .collect::<Vec<_>>()
+      })
+      .collect();
+    let count = uvs.len() as u32;
+    mesh.insert_attribute(Mesh::ATTRIBUTE_UV_0, uvs);
+    mesh.insert_indices(Indices::U32((0..count).collect()));
+    Piece(mesh)
+  }
+
   pub fn followed(self, tile: f32) -> Self {
     let positions = vectors(&self.0, Mesh::ATTRIBUTE_POSITION);
     let grid: Vec<Vec2> = match self.0.attribute(Mesh::ATTRIBUTE_UV_0) {
@@ -644,6 +711,30 @@ mod tests {
       Piece::new(crate::model::sculpt(&keys, 12, 24), Srgba::WHITE).followed(1.0);
     let (low, high, same) = distortion(&tube);
     assert!(same && low.abs() > 0.8 && high.abs() < 1.25, "area ratios {low}..{high}");
+  }
+
+  #[test]
+  fn wrapping_a_cylinder_around_its_axis_keeps_its_sides_true() {
+    let tube =
+      Piece::new(Cylinder::new(1.0, 3.0).mesh().resolution(32).segments(4), Srgba::WHITE)
+        .wrapped(Vec3::NEG_Y * 1.5, Vec3::Y * 1.5, 1.0);
+    let positions = vectors(&tube.0, Mesh::ATTRIBUTE_POSITION);
+    let uvs: Vec<Vec2> = match tube.0.attribute(Mesh::ATTRIBUTE_UV_0) {
+      Some(VertexAttributeValues::Float32x2(uvs)) => {
+        uvs.iter().copied().map(Vec2::from).collect()
+      }
+      _ => Vec::new()
+    };
+    let sides: Vec<f32> = positions
+      .chunks_exact(3)
+      .zip(uvs.chunks_exact(3))
+      .filter_map(|(at, uv)| {
+        let normal = (at[1] - at[0]).cross(at[2] - at[0]);
+        (normal.y.abs() < 0.1 * normal.length())
+          .then(|| ((uv[1] - uv[0]).perp_dot(uv[2] - uv[0]) / normal.length()).abs())
+      })
+      .collect();
+    assert!(sides.iter().all(|ratio| (ratio - 1.0).abs() < 0.05), "{sides:?}");
   }
 
   #[test]
