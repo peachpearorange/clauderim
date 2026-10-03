@@ -595,6 +595,43 @@ fn explosion(seed: u64) -> Vec<f32> {
     .collect()
 }
 
+fn ice_grind(seed: u64) -> Vec<f32> {
+  let mut rng = Rng::new(seed);
+  let (mut rumble, mut grit) = (Lag::new(140.0), Svf::new(900.0, 2.0));
+  let mut grind: Vec<f32> = (0..len(1.6))
+    .map(|index| {
+      let t = time(index);
+      let swell = curve(t, &[(0.0, 0.0), (0.35, 1.0), (1.0, 0.8), (1.6, 0.0)]);
+      let x = rng.signed();
+      let judder = 0.6 + 0.4 * (t * 23.0 + (t * 3.0).sin() * 4.0).sin();
+      drive(rumble.step(x) * 9.0 * swell + grit.step(x).band * 1.4 * swell * judder, 2.0)
+    })
+    .collect();
+  clicks(&mut grind, seed + 1, 18, 0.05, 1.4, (2200.0, 4200.0));
+  grind
+}
+
+fn ice_shatter(seed: u64) -> Vec<f32> {
+  let mut rng = Rng::new(seed);
+  let (mut crack, mut thud, mut boom) =
+    (Svf::new(2600.0, 0.8), Lag::new(300.0), Osc::default());
+  let mut burst: Vec<f32> = (0..len(2.4))
+    .map(|index| {
+      let t = time(index);
+      let x = rng.signed();
+      drive(
+        crack.step(x).band * perc(t, 0.0004, 0.05) * 3.0
+          + thud.step(x) * 6.0 * perc(t, 0.002, 0.25)
+          + boom.sine(45.0 + 60.0 * (-t / 0.08).exp()) * perc(t, 0.002, 0.4),
+        2.2
+      )
+    })
+    .collect();
+  clicks(&mut burst, seed + 1, 40, 0.0, 0.5, (2500.0, 5200.0));
+  clicks(&mut burst, seed + 2, 28, 0.3, 2.1, (3200.0, 6500.0));
+  burst
+}
+
 pub fn variants(cue: Cue) -> u64 {
   match cue {
     Cue::Footstep => 6,
@@ -673,7 +710,9 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::LevelUp => level_up(seed),
     Cue::Coins => Wave::mono(coins(seed)),
     Cue::Gunshot => Wave::mono(gunshot(seed)),
-    Cue::Explosion => Wave::mono(explosion(seed))
+    Cue::Explosion => Wave::mono(explosion(seed)),
+    Cue::IceGrind => Wave::mono(ice_grind(seed)),
+    Cue::IceShatter => Wave::mono(ice_shatter(seed))
   };
   wave.trimmed().normalized(0.9)
 }

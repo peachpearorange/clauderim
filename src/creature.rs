@@ -1,4 +1,5 @@
-use {crate::{combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
+use {crate::{atronach,
+             combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
              fx::{Effects, Fleeting},
              humanoid::{self, Grip, MAN, Motion, Rig},
              inventory::{Inventory, Item, Loot},
@@ -104,6 +105,19 @@ const fn breed(kind: FoeKind) -> Breed {
       scale: 1.08,
       radius: 0.37,
       height: 1.98
+    },
+    FoeKind::FrostAtronach => Breed {
+      name: "Frost Atronach",
+      health: 160.0,
+      damage: 16.0,
+      reach: 2.6,
+      swing_time: 1.7,
+      run: 3.4,
+      walk: 1.1,
+      aggro: 24.0,
+      scale: 1.0,
+      radius: 0.75,
+      height: 3.25
     }
   }
 }
@@ -155,7 +169,8 @@ fn loot(kind: FoeKind, roll: &mut Roll) -> Vec<Loot> {
       gold(60.0, 120.0, roll),
       Loot::one(Item::SteelWarAxe),
       Loot::one(Item::RotfenPlans),
-    ]
+    ],
+    FoeKind::FrostAtronach => vec![Loot::one(Item::FrostSalts)]
   }
 }
 
@@ -209,40 +224,44 @@ fn raise(
         ChildOf(entity)
       ))
       .id();
-    let (bones, tailoring): (Vec<Entity>, crate::work::Job<Vec<(usize, Stuff, Mesh)>>) =
-      match spawn.kind {
-        FoeKind::Wolf => {
-          let beast = wolf::skeleton(&mut commands, body);
-          let bones = beast.bones.to_vec();
-          commands.entity(entity).insert(beast);
-          (bones, crate::work::task(move || wolf::hide(seed)))
-        }
-        kind => {
-          let (grip, hunch) = match kind {
-            FoeKind::Draugr => (Grip::Axe, 0.22),
-            FoeKind::DraugrOverlord => (Grip::Axe, 0.12),
-            FoeKind::BanditChief => (Grip::Axe, 0.0),
-            _ => (Grip::Blade, 0.0)
-          };
-          let bones = humanoid::skeleton(&mut commands, body, MAN);
-          commands.entity(entity).insert(Rig { bones, frame: MAN, grip, hunch });
-          (
-            bones.to_vec(),
-            crate::work::task(move || {
-              humanoid::tailor(
-                match kind {
-                  FoeKind::Draugr => humanoid::draugr(seed),
-                  FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
-                  FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
-                  _ => humanoid::bandit(seed)
-                },
-                &MAN
-              )
-            })
-          )
-        }
-      };
-    commands.entity(entity).insert(Dressing { bones, tailoring });
+    if spawn.kind == FoeKind::FrostAtronach {
+      commands.entity(entity).insert(atronach::Forming(body));
+    } else {
+      let (bones, tailoring): (Vec<Entity>, crate::work::Job<Vec<(usize, Stuff, Mesh)>>) =
+        match spawn.kind {
+          FoeKind::Wolf => {
+            let beast = wolf::skeleton(&mut commands, body);
+            let bones = beast.bones.to_vec();
+            commands.entity(entity).insert(beast);
+            (bones, crate::work::task(move || wolf::hide(seed)))
+          }
+          kind => {
+            let (grip, hunch) = match kind {
+              FoeKind::Draugr => (Grip::Axe, 0.22),
+              FoeKind::DraugrOverlord => (Grip::Axe, 0.12),
+              FoeKind::BanditChief => (Grip::Axe, 0.0),
+              _ => (Grip::Blade, 0.0)
+            };
+            let bones = humanoid::skeleton(&mut commands, body, MAN);
+            commands.entity(entity).insert(Rig { bones, frame: MAN, grip, hunch });
+            (
+              bones.to_vec(),
+              crate::work::task(move || {
+                humanoid::tailor(
+                  match kind {
+                    FoeKind::Draugr => humanoid::draugr(seed),
+                    FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
+                    FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
+                    _ => humanoid::bandit(seed)
+                  },
+                  &MAN
+                )
+              })
+            )
+          }
+        };
+      commands.entity(entity).insert(Dressing { bones, tailoring });
+    }
   }
 }
 
@@ -280,7 +299,8 @@ fn alarm(kind: FoeKind) -> Cue {
   match kind {
     FoeKind::Wolf => Cue::WolfGrowl,
     FoeKind::Draugr | FoeKind::DraugrOverlord => Cue::DraugrGroan,
-    FoeKind::Bandit | FoeKind::BanditChief => Cue::BanditShout
+    FoeKind::Bandit | FoeKind::BanditChief => Cue::BanditShout,
+    FoeKind::FrostAtronach => Cue::IceGrind
   }
 }
 
@@ -500,7 +520,8 @@ fn perish(
     let cue = match foe.kind {
       FoeKind::Wolf => Cue::WolfDie,
       FoeKind::Draugr | FoeKind::DraugrOverlord => Cue::DraugrDie,
-      FoeKind::Bandit | FoeKind::BanditChief => Cue::ManDie
+      FoeKind::Bandit | FoeKind::BanditChief => Cue::ManDie,
+      FoeKind::FrostAtronach => Cue::IceShatter
     };
     sounds.write(Sound::here(cue, transform.translation));
   }
@@ -556,10 +577,12 @@ fn specimen(
     Some("overlord") => Some(FoeKind::DraugrOverlord),
     Some("bandit") => Some(FoeKind::Bandit),
     Some("chief") => Some(FoeKind::BanditChief),
+    Some("atronach") => Some(FoeKind::FrostAtronach),
     _ => None
   };
   if let Some(kind) = kind {
-    let ahead = player.translation + player.forward().as_vec3() * 3.2;
+    let gap = (kind == FoeKind::FrostAtronach).then_some(6.0).unwrap_or(3.2);
+    let ahead = player.translation + player.forward().as_vec3() * gap;
     commands.spawn((
       FoeSpawn { kind, dormant: true },
       Specimen,

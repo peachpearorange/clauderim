@@ -53,7 +53,9 @@ pub enum Cue {
   LevelUp,
   Coins,
   Gunshot,
-  Explosion
+  Explosion,
+  IceGrind,
+  IceShatter
 }
 
 #[derive(Message, Clone, Copy)]
@@ -74,7 +76,8 @@ pub enum FoeKind {
   Draugr,
   DraugrOverlord,
   Bandit,
-  BanditChief
+  BanditChief,
+  FrostAtronach
 }
 
 #[derive(Component, Clone, Copy)]

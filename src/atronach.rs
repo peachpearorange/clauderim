@@ -1,12 +1,12 @@
-use {crate::{humanoid::Motion,
+use {crate::{combat::{Dead, Fighting},
+             humanoid::Motion,
              model::{self, Piece},
              noise::Roll,
-             opts::opts,
              place,
-             player::Player,
+             ragdoll::{Limb, Link, Ragdoll},
+             signal::{FoeKind, FoeSpawn},
              stuff::{Stuff, Stuffs},
              terrain::{self, height_at}},
-     avian3d::prelude::*,
      bevy::{mesh::VertexAttributeValues, prelude::*},
      std::{f32::consts::TAU, sync::LazyLock}};
 
@@ -216,10 +216,61 @@ pub fn body() -> Vec<(Bone, Mesh)> {
     .collect()
 }
 
+pub fn limbs() -> [Option<Limb>; 11] {
+  let limb =
+    |radius: f32, to: Vec3, link: Link| Some(Limb { radius, from: Vec3::ZERO, to, link });
+  let socket = Link::Socket { swing: 1.0, twist: 0.4 };
+  let hinge = Link::Hinge { low: -1.6, high: 0.3 };
+  Bone::ALL.map(|bone| match bone {
+    Bone::Hips => Some(Limb {
+      radius: 0.32,
+      from: Vec3::new(-0.15, 0.0, 0.0),
+      to: Vec3::new(0.15, 0.0, 0.0),
+      link: Link::Root
+    }),
+    Bone::Chest => limb(0.48, Vec3::Y * 1.0, socket),
+    Bone::Head => limb(0.24, Vec3::Y * 0.6, socket),
+    Bone::Arm(side) => limb(0.21, Vec3::new(side.sign() * 0.14, -0.85, 0.08), socket),
+    Bone::Forearm(side) => limb(0.26, Vec3::new(side.sign() * 0.17, -1.5, 0.14), hinge),
+    Bone::Thigh(side) => limb(0.2, Vec3::new(side.sign() * 0.15, -0.3, 0.0), socket),
+    Bone::Shin(side) => limb(0.3, Vec3::new(side.sign() * 0.09, -0.75, 0.04), hinge)
+  })
+}
+
 #[derive(Component)]
 pub struct Lumbering {
-  bones: Vec<(Bone, Entity)>,
-  offset: f32
+  pub bones: Vec<(Bone, Entity)>,
+  stride: f32,
+  offset: f32,
+  shift: f32
+}
+
+fn rig(
+  commands: &mut Commands,
+  parts: &[(Bone, Handle<Mesh>)],
+  ice: &Handle<StandardMaterial>,
+  (root, owner): (Entity, Entity),
+  (offset, shift): (f32, f32)
+) {
+  let bones =
+    parts.iter().fold(Vec::new(), |mut bones: Vec<(Bone, Entity)>, (bone, mesh)| {
+      let parent = bone
+        .parent()
+        .and_then(|parent| bones.iter().find(|(each, _)| *each == parent))
+        .map_or(root, |&(_, entity)| entity);
+      let entity = commands
+        .spawn((
+          Transform::from_translation(bone.rest()),
+          Visibility::Inherited,
+          Mesh3d(mesh.clone()),
+          MeshMaterial3d(ice.clone()),
+          ChildOf(parent)
+        ))
+        .id();
+      bones.push((*bone, entity));
+      bones
+    });
+  commands.entity(owner).insert(Lumbering { bones, stride: 0.0, offset, shift });
 }
 
 pub fn spawn(
@@ -229,28 +280,30 @@ pub fn spawn(
   holder: Entity,
   offset: f32
 ) {
+  let parts: Vec<(Bone, Handle<Mesh>)> =
+    body().into_iter().map(|(bone, mesh)| (bone, meshes.add(mesh))).collect();
+  rig(commands, &parts, &stuffs.of(Stuff::Ice), (holder, holder), (offset, offset))
+}
+
+#[derive(Component)]
+pub struct Forming(pub Entity);
+
+fn form(
+  mut commands: Commands,
+  mut meshes: ResMut<Assets<Mesh>>,
+  stuffs: Res<Stuffs>,
+  mut parts: Local<Vec<(Bone, Handle<Mesh>)>>,
+  forming: Query<(Entity, &Forming)>
+) {
+  if parts.is_empty() && !forming.is_empty() {
+    *parts = body().into_iter().map(|(bone, mesh)| (bone, meshes.add(mesh))).collect()
+  }
   let ice = stuffs.of(Stuff::Ice);
-  let bones = body().into_iter().fold(
-    Vec::new(),
-    |mut bones: Vec<(Bone, Entity)>, (bone, mesh)| {
-      let parent = bone
-        .parent()
-        .and_then(|parent| bones.iter().find(|(each, _)| *each == parent))
-        .map_or(holder, |&(_, entity)| entity);
-      let entity = commands
-        .spawn((
-          Transform::from_translation(bone.rest()),
-          Visibility::Inherited,
-          Mesh3d(meshes.add(mesh)),
-          MeshMaterial3d(ice.clone()),
-          ChildOf(parent)
-        ))
-        .id();
-      bones.push((bone, entity));
-      bones
-    }
-  );
-  commands.entity(holder).insert(Lumbering { bones, offset });
+  for (entity, &Forming(body)) in &forming {
+    let offset = Roll::new(entity.index().index()).range(0.0, 10.0);
+    rig(&mut commands, &parts, &ice, (body, entity), (offset, 0.0));
+    commands.entity(entity).remove::<Forming>();
+  }
 }
 
 fn rise(from: f32, to: f32, at: f32) -> f32 {
@@ -258,13 +311,18 @@ fn rise(from: f32, to: f32, at: f32) -> f32 {
   t * t * (3.0 - 2.0 * t)
 }
 
-fn posed(bone: Bone, motion: &Motion, time: f32, offset: f32) -> (Vec3, Quat) {
+fn posed(
+  bone: Bone,
+  motion: &Motion,
+  time: f32,
+  stride: f32,
+  shift: f32
+) -> (Vec3, Quat) {
   let walk = (motion.speed / 2.5).clamp(0.0, 1.0);
   let still = 1.0 - walk;
-  let stride = time * TAU * 0.7;
   let (step, lift) = stride.sin_cos();
   let breath = (time * 1.3).sin();
-  let attack = motion.swing.map_or(0.0, |progress| (progress + offset).fract());
+  let attack = motion.swing.map_or(0.0, |progress| (progress + shift).fract());
   let swinging = motion.swing.is_some() as u8 as f32;
   let (raise, slam, settle) =
     (rise(0.0, 0.45, attack), rise(0.45, 0.62, attack), rise(0.75, 1.0, attack));
@@ -343,16 +401,26 @@ fn posed(bone: Bone, motion: &Motion, time: f32, offset: f32) -> (Vec3, Quat) {
   }
 }
 
+fn pace(speed: f32) -> f32 { TAU * (0.6 + 0.15 * speed) }
+
 pub fn animate(
   time: Res<Time>,
-  frames: Query<(&Lumbering, &Motion)>,
-  mut transforms: Query<&mut Transform>
+  mut frames: Query<(&mut Lumbering, &Motion), (Without<Dead>, Without<Ragdoll>)>,
+  mut transforms: Query<&mut Transform, Without<Lumbering>>
 ) {
-  for (Lumbering { bones, offset }, motion) in &frames {
-    for &(bone, entity) in bones {
+  for (mut lumbering, motion) in &mut frames {
+    lumbering.stride += time.delta_secs() * pace(motion.speed);
+    let &Lumbering { stride, offset, shift, .. } = &*lumbering;
+    for &(bone, entity) in &lumbering.bones {
       if let Ok(mut transform) = transforms.get_mut(entity) {
-        let (shift, turn) = posed(bone, motion, time.elapsed_secs() + offset, *offset);
-        *transform = Transform::from_translation(bone.rest() + shift).with_rotation(turn)
+        let (lift, turn) = posed(
+          bone,
+          motion,
+          time.elapsed_secs() + offset,
+          stride + offset * pace(motion.speed),
+          shift
+        );
+        *transform = Transform::from_translation(bone.rest() + lift).with_rotation(turn)
       }
     }
   }
@@ -392,43 +460,19 @@ static HOMES: LazyLock<Vec<Vec2>> = LazyLock::new(|| {
   })
 });
 
-fn haunt(
-  mut commands: Commands,
-  mut meshes: ResMut<Assets<Mesh>>,
-  stuffs: Res<Stuffs>,
-  player: Single<&Transform, Added<Player>>
-) {
-  let specimen = (opts().foe.as_deref() == Some("atronach")).then(|| {
-    player.translation.xz() + player.forward().as_vec3().xz() * opts().gap.unwrap_or(9.0)
-  });
-  for (index, &home) in HOMES.iter().chain(specimen.iter()).enumerate() {
-    let at = home.extend(height_at(home) - 0.05).xzy();
-    let facing = specimen.filter(|&spot| spot == home).map_or_else(
-      || Quat::from_rotation_y(Roll::new(index as u32 * 13 + 5).range(0.0, TAU)),
-      |_| {
-        let toward = (player.translation.xz() - home).normalize_or(Vec2::Y);
-        Quat::from_rotation_arc(Vec3::NEG_Z, toward.extend(0.0).xzy())
-      }
-    );
-    let holder = commands
-      .spawn((
-        Name::new("Frost Atronach"),
-        Transform::from_translation(at).with_rotation(facing),
-        Visibility::default(),
-        Motion::default()
-      ))
-      .id();
-    spawn(&mut commands, &mut meshes, &stuffs, holder, index as f32 * 1.7);
+fn haunt(mut commands: Commands) {
+  for (index, &home) in HOMES.iter().enumerate() {
     commands.spawn((
-      RigidBody::Static,
-      Collider::cylinder(0.7, 3.0),
-      Transform::from_translation(at + Vec3::Y * 1.5)
+      FoeSpawn { kind: FoeKind::FrostAtronach, dormant: false },
+      Transform::from_translation(home.extend(height_at(home)).xzy()).with_rotation(
+        Quat::from_rotation_y(Roll::new(index as u32 * 13 + 5).range(0.0, TAU))
+      )
     ));
   }
 }
 
 pub fn plugin(app: &mut App) {
-  app.add_systems(PostStartup, haunt).add_systems(Update, animate);
+  app.add_systems(Startup, haunt).add_systems(Update, (form, animate.after(Fighting)));
 }
 
 #[cfg(test)]

@@ -74,7 +74,9 @@ pub enum Item {
   #[assoc(name = "Draugr Overlord's Key", kind = Kind::Misc, value = 0, weight = 0.0)]
   OverlordsKey,
   #[assoc(name = "Note: Rotfen Plans", kind = Kind::Misc, value = 0, weight = 0.0)]
-  RotfenPlans
+  RotfenPlans,
+  #[assoc(name = "Frost Salts", kind = Kind::Misc, value = 100, weight = 0.25)]
+  FrostSalts
 }
 
 impl Item {

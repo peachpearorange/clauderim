@@ -1,4 +1,5 @@
-use {crate::{combat::Dead,
+use {crate::{atronach::{self, Lumbering},
+             combat::Dead,
              dragon::{self, Dragon},
              humanoid::{self, Rig},
              player::Player,
@@ -74,13 +75,16 @@ fn collapse(
       Option<&Rig>,
       Option<&Beast>,
       Option<&Dragon>,
+      Option<&Lumbering>,
       Option<&Knocked>
     ),
     (Or<(Added<Dead>, Added<Knocked>)>, Without<Ragdoll>)
   >,
   bones: Query<(&GlobalTransform, &Transform, &ChildOf)>
 ) {
-  for (owner, place, walker, velocity, rig, beast, dragon, knocked) in fallen.iter_mut() {
+  for (owner, place, walker, velocity, rig, beast, dragon, lumbering, knocked) in
+    fallen.iter_mut()
+  {
     let plan: Vec<(Entity, Option<Limb>)> = rig
       .map(|rig| rig.bones.iter().copied().zip(humanoid::limbs(&rig.frame)).collect())
       .or_else(|| {
@@ -88,6 +92,11 @@ fn collapse(
       })
       .or_else(|| {
         dragon.map(|dragon| dragon.bones.iter().copied().zip(dragon::limbs()).collect())
+      })
+      .or_else(|| {
+        lumbering.map(|lumbering| {
+          lumbering.bones.iter().map(|&(_, bone)| bone).zip(atronach::limbs()).collect()
+        })
       })
       .unwrap_or_default();
     let found: Option<Vec<_>> = plan
