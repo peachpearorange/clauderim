@@ -31,6 +31,8 @@ struct Breed {
   height: f32
 }
 
+pub const fn stature(kind: FoeKind) -> f32 { breed(kind).scale }
+
 const UNWATCHED: f32 = 200.0;
 const SNEAK_SENSE: f32 = 0.42;
 const SNEAK_WAKE: f32 = 2.8;

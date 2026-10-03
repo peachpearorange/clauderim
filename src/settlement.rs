@@ -2724,8 +2724,8 @@ fn wheel(radius: f32, roll: &mut Roll) -> Vec<(Stuff, Piece)> {
     .collect()
 }
 
-fn mill(site: &Site, roll: &mut Roll) -> Works {
-  let ground: Ground = &|offset| site.ground(offset);
+fn mill(site: Option<&Site>, roll: &mut Roll) -> Works {
+  let ground: Ground = &|offset| site.map_or(0.0, |site| site.ground(offset));
   let plan = House {
     at: Vec2::ZERO,
     facing: 0.0,
@@ -2737,9 +2737,12 @@ fn mill(site: &Site, roll: &mut Roll) -> Works {
   };
   let mut works = house(&plan, ground, roll);
   let side = Vec2::new(-(plan.length / 2.0 + 1.2), -1.0);
-  let world = site.origin + site.frame.transform_point(side.extend(0.0).xzy());
-  let level = crate::river::reach_at(world.xz())
-    .map_or(ground(side), |reach| reach.level - site.origin.y);
+  let level = site
+    .and_then(|site| {
+      let world = site.origin + site.frame.transform_point(side.extend(0.0).xzy());
+      crate::river::reach_at(world.xz()).map(|reach| reach.level - site.origin.y)
+    })
+    .unwrap_or(ground(side));
   let radius = 2.8;
   works.spinners.push((
     Transform::from_xyz(side.x, level + radius - 0.6, side.y)
@@ -3117,8 +3120,8 @@ fn longhall(plan: &House, ground: Ground, roll: &mut Roll) -> Works {
   works
 }
 
-fn built(work: &Work, site: &Site, roll: &mut Roll) -> Works {
-  let ground: Ground = &|offset| site.ground(offset);
+fn built(work: &Work, site: Option<&Site>, roll: &mut Roll) -> Works {
+  let ground: Ground = &|offset| site.map_or(0.0, |site| site.ground(offset));
   match work {
     Work::Mill { .. } => mill(site, roll),
     Work::House(house_plan) => house(house_plan, ground, roll),
@@ -3236,6 +3239,14 @@ fn merged(parts: Vec<(Stuff, Piece)>) -> Vec<(Stuff, Mesh)> {
     .collect()
 }
 
+pub fn specimen(work: &Work, seed: u32) -> Vec<(Stuff, Mesh)> {
+  let Works { parts, spinners, .. } = built(work, None, &mut Roll::new(seed));
+  let turning = spinners.into_iter().flat_map(|(hub, parts)| {
+    parts.into_iter().map(move |(stuff, piece)| (stuff, piece.moved(hub)))
+  });
+  merged(parts.into_iter().chain(turning).collect())
+}
+
 const SHARE: usize = 4;
 
 fn shares(index: usize) -> usize { layout(index).works.len().div_ceil(SHARE).max(1) }
@@ -3265,7 +3276,7 @@ fn raise(index: usize, share: usize) -> Raised {
         }
         other => other.clone()
       };
-      all.absorb(built(&local_work, &site, &mut roll).placed(frame));
+      all.absorb(built(&local_work, Some(&site), &mut roll).placed(frame));
       all
     }
   );
@@ -3440,7 +3451,7 @@ mod tests {
           let frame = Transform::from_translation((at - spot).extend(0.0).xzy())
             .with_rotation(Quat::from_rotation_y(facing));
           let site = Site { origin, frame };
-          let works = built(work, &site, &mut Roll::new(3));
+          let works = built(work, Some(&site), &mut Roll::new(3));
           for (at, turn, collider) in works.solids.iter() {
             let mass = collider.shape_scaled().mass_properties(1.0).mass();
             assert!(

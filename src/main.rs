@@ -38,6 +38,7 @@ mod signal;
 mod site;
 mod sky;
 mod spider;
+mod studio;
 mod stuff;
 mod terrain;
 mod texture;
@@ -179,79 +180,91 @@ fn unveil() {
 fn unveil() {}
 
 fn main() {
-  App::new()
-    .add_plugins((
-      DefaultPlugins
-        .build()
-        .set(RenderPlugin {
-          render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
-            instance_flags: InstanceFlags::empty().with_env(),
-            ..default()
-          })),
+  let mut app = App::new();
+  app.add_plugins(
+    DefaultPlugins
+      .build()
+      .set(RenderPlugin {
+        render_creation: RenderCreation::Automatic(Box::new(WgpuSettings {
+          instance_flags: InstanceFlags::empty().with_env(),
           ..default()
-        })
-        .set(WindowPlugin {
-          primary_window: Some(Window {
-            title: "The Vibe Scrolls V: Clauderim".into(),
-            resolution: (1600, 900).into(),
-            fit_canvas_to_parent: true,
-            present_mode: opts::opts()
-              .shot
-              .map_or(bevy::window::PresentMode::AutoVsync, |_| {
-                bevy::window::PresentMode::AutoNoVsync
-              }),
-            ..default()
-          }),
+        })),
+        ..default()
+      })
+      .set(WindowPlugin {
+        primary_window: Some(Window {
+          title: "The Vibe Scrolls V: Clauderim".into(),
+          resolution: (1600, 900).into(),
+          fit_canvas_to_parent: true,
+          present_mode: opts::opts()
+            .shot
+            .map_or(bevy::window::PresentMode::AutoVsync, |_| {
+              bevy::window::PresentMode::AutoNoVsync
+            }),
           ..default()
         }),
-      PhysicsPlugins::default()
-    ))
-    .add_plugins((
+        ..default()
+      })
+  );
+  match opts::opts().studio {
+    Some(_) => app.add_plugins((
       signal::plugin,
-      terrain::plugin,
-      flora::plugin,
       sky::plugin,
       blur::plugin,
-      cloud::plugin,
-      mist::plugin,
       stuff::plugin,
       humanoid::plugin,
-      walker::plugin,
-      player::plugin,
-      combat::plugin,
-      creature::plugin,
       wolf::plugin,
-      landmark::plugin
-    ))
-    .add_plugins((
       fx::plugin,
-      shout::plugin,
-      dragon::plugin,
-      hud::plugin,
-      inventory::plugin
-    ))
-    .add_plugins((
-      cave::plugin,
-      depths::plugin,
-      paving::plugin,
-      settlement::plugin,
-      river::plugin,
-      npc::plugin,
-      ragdoll::plugin,
-      robot::plugin,
-      patrol::plugin,
-      spider::plugin,
-      heli::plugin
-    ))
-    .add_plugins((audio::plugin, work::plugin, watch_compiling))
-    .add_systems(Update, snapshot)
-    .add_systems(
-      Last,
-      unveil.run_if(|frames: Res<bevy::diagnostic::FrameCount>| frames.0 == 3)
-    )
-    .add_systems(
-      PreUpdate,
-      press.after(bevy::input::InputSystems).before(inventory::browse)
-    )
-    .run();
+      studio::plugin
+    )),
+    None => app
+      .add_plugins(PhysicsPlugins::default())
+      .add_plugins((
+        signal::plugin,
+        terrain::plugin,
+        flora::plugin,
+        sky::plugin,
+        blur::plugin,
+        cloud::plugin,
+        mist::plugin,
+        stuff::plugin,
+        humanoid::plugin,
+        walker::plugin,
+        player::plugin,
+        combat::plugin,
+        creature::plugin,
+        wolf::plugin,
+        landmark::plugin
+      ))
+      .add_plugins((
+        fx::plugin,
+        shout::plugin,
+        dragon::plugin,
+        hud::plugin,
+        inventory::plugin
+      ))
+      .add_plugins((
+        cave::plugin,
+        depths::plugin,
+        paving::plugin,
+        settlement::plugin,
+        river::plugin,
+        npc::plugin,
+        ragdoll::plugin,
+        robot::plugin,
+        patrol::plugin,
+        spider::plugin,
+        heli::plugin
+      ))
+      .add_plugins(audio::plugin)
+      .add_systems(
+        Last,
+        unveil.run_if(|frames: Res<bevy::diagnostic::FrameCount>| frames.0 == 3)
+      )
+      .add_systems(
+        PreUpdate,
+        press.after(bevy::input::InputSystems).before(inventory::browse)
+      )
+  };
+  app.add_plugins((work::plugin, watch_compiling)).add_systems(Update, snapshot).run();
 }

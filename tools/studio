@@ -1,0 +1,6 @@
+#!/bin/sh
+# tools/studio <subject> ['<json5 opts>'] — screenshots just that model (no world) to screenshots/shot-studio-<subject>.png in ~10 s.
+until cargo build --quiet --features dev 2>/dev/null; do sleep 8; done
+extra=$(echo "${2:-{\}}" | sed 's/^ *{//; s/} *$//')
+SKYRIM="{shot: 0.5, studio: '$1', $extra}" SHOT_NAME="studio-$1" timeout 300 \
+  xvfb-run -a -s "-screen 0 1920x1080x24" cargo run --quiet --features dev 2>&1 | grep -E "panicked|Encountered" -A5

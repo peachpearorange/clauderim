@@ -1992,6 +1992,45 @@ fn report_woods(
   pending.0.insert("woods", woods.growing.len() + forms.is_none() as usize);
 }
 
+fn frond_material(
+  atlas: Image,
+  images: &mut Assets<Image>,
+  materials: &mut Assets<StandardMaterial>
+) -> Handle<StandardMaterial> {
+  materials.add(StandardMaterial {
+    base_color_texture: Some(images.add(atlas)),
+    alpha_mode: AlphaMode::Mask(0.5),
+    perceptual_roughness: 0.9,
+    reflectance: 0.2,
+    double_sided: true,
+    cull_mode: None,
+    ..default()
+  })
+}
+
+pub fn specimen(
+  name: &str,
+  variant: usize,
+  images: &mut Assets<Image>,
+  materials: &mut Assets<StandardMaterial>,
+  stuffs: &Stuffs
+) -> Option<Vec<(Handle<StandardMaterial>, Mesh)>> {
+  Growth::ALL
+    .into_iter()
+    .find(|growth| format!("{growth:?}").eq_ignore_ascii_case(name))
+    .map(|growth| {
+      let fronds = frond_material(frond_atlas(), images, materials);
+      shape(growth, variant % growth.variants())
+        .parts
+        .into_iter()
+        .map(|(coat, mesh)| match coat {
+          Coat::Plain(stuff) => (stuffs.of(stuff), stuff.fitted(mesh)),
+          Coat::Fronds => (fronds.clone(), mesh)
+        })
+        .collect()
+    })
+}
+
 fn spawn_flora(
   mut commands: Commands,
   mut meshes: ResMut<Assets<Mesh>>,
@@ -2006,15 +2045,7 @@ fn spawn_flora(
     let atlas = scope.spawn(frond_atlas);
     (made.join().expect("flora shapes"), atlas.join().expect("frond atlas"))
   });
-  let fronds = materials.add(StandardMaterial {
-    base_color_texture: Some(images.add(atlas)),
-    alpha_mode: AlphaMode::Mask(0.5),
-    perceptual_roughness: 0.9,
-    reflectance: 0.2,
-    double_sided: true,
-    cull_mode: None,
-    ..default()
-  });
+  let fronds = frond_material(atlas, &mut images, &mut materials);
   let mut cpu = HashMap::default();
   let mut coated = |coats: Vec<(Coat, Mesh)>| -> Vec<_> {
     coats

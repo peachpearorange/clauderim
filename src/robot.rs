@@ -420,12 +420,12 @@ fn paint(skin: Skin, pixel: Pixel) -> Texel {
 }
 
 #[derive(Component)]
-struct Idle {
+pub struct Idle {
   part: Part,
   rest: Vec3
 }
 
-fn spawn_robot(
+pub fn spawn_robot(
   commands: &mut Commands,
   meshes: &mut Assets<Mesh>,
   images: &mut Assets<Image>,
@@ -440,7 +440,7 @@ fn spawn_robot(
   root
 }
 
-fn idle(time: Res<Time>, mut bones: Query<(&Idle, &mut Transform, &mut Visibility)>) {
+pub fn idle(time: Res<Time>, mut bones: Query<(&Idle, &mut Transform, &mut Visibility)>) {
   let now = time.elapsed_secs();
   for (&Idle { part, rest }, mut transform, mut visibility) in bones.iter_mut() {
     let (lift, turn) = match part {

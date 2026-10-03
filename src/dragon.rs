@@ -216,7 +216,7 @@ impl Dragon {
 struct Breath(Entity);
 
 #[derive(Component)]
-struct FoldsAway;
+pub struct FoldsAway;
 
 const fn srgb(red: f32, green: f32, blue: f32) -> Srgba {
   Srgba::new(red, green, blue, 1.0)
@@ -867,7 +867,7 @@ fn spawn_dragon(
   effects: &Effects,
   lair: Option<Vec3>,
   seed: u32
-) {
+) -> Entity {
   let mut roll = crate::noise::Roll::new(seed);
   let start = lair.map_or(Transform::from_xyz(0.0, -500.0, 0.0), |lair| {
     Transform::from_translation(lair + Vec3::Y * STANCE)
@@ -922,6 +922,7 @@ fn spawn_dragon(
     streamed: 0,
     absorbed: false
   });
+  dragon
 }
 
 fn spawn_dragons(
@@ -940,7 +941,39 @@ fn spawn_dragons(
   let lairs = opts().foe.as_deref().is_none_or(|foe| !foe.starts_with("dragon"));
   for (index, &lair) in LAIR_SPOTS.iter().enumerate().filter(|_| lairs) {
     let lair = lair.extend(terrain::height_at(lair)).xzy();
-    spawn_dragon(&mut commands, &anatomy, &stuffs, &effects, Some(lair), index as u32 + 1)
+    spawn_dragon(
+      &mut commands,
+      &anatomy,
+      &stuffs,
+      &effects,
+      Some(lair),
+      index as u32 + 1
+    );
+  }
+}
+
+pub fn specimen(
+  commands: &mut Commands,
+  meshes: &mut Assets<Mesh>,
+  stuffs: &Stuffs,
+  effects: &Effects,
+  holders: &[Entity],
+  aloft: bool
+) {
+  let anatomy = Anatomy(
+    anatomy()
+      .into_iter()
+      .map(|(bone, stuff, mesh)| (bone, stuff, meshes.add(mesh)))
+      .collect()
+  );
+  let lift = Vec3::Y * aloft.then_some(14.0).unwrap_or(STANCE);
+  for &holder in holders {
+    let dragon = spawn_dragon(commands, &anatomy, stuffs, effects, None, 0);
+    commands
+      .entity(dragon)
+      .insert((Transform::from_translation(lift), Visibility::Inherited, ChildOf(holder)))
+      .entry::<Dragon>()
+      .and_modify(move |mut dragon| dragon.flight = Flight::Posing { aloft });
   }
 }
 
@@ -1414,7 +1447,7 @@ fn kindle(
   }
 }
 
-fn pose(
+pub fn pose(
   time: Res<Time>,
   dragons: Query<(&Dragon, &Motion), Without<Dead>>,
   mut bones: Query<&mut Transform, (Without<Dragon>, Without<FoldsAway>)>,

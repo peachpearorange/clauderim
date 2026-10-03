@@ -29,7 +29,9 @@ pub struct Opts {
   pub race: Option<String>,
   pub seed: Option<u32>,
   pub gap: Option<f32>,
-  pub pilot: bool
+  pub pilot: bool,
+  pub studio: Option<String>,
+  pub views: Vec<f32>
 }
 
 impl Default for Opts {
@@ -59,7 +61,9 @@ impl Default for Opts {
       race: None,
       seed: None,
       gap: None,
-      pilot: false
+      pilot: false,
+      studio: None,
+      views: vec![0.0, 45.0, 90.0, 180.0]
     }
   }
 }
