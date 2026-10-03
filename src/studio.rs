@@ -395,7 +395,8 @@ fn frame(
       }
     );
     let (low, high) = (placed.0.with_y(placed.0.y.max(0.0)), placed.1);
-    let (size, center) = (high - low, (low + high) / 2.0);
+    let (size, center) =
+      (high - low, opts().look.map_or((low + high) / 2.0, Vec3::from_array));
     let upright = (lens.fov / 2.0).tan();
     let across = upright * window.width() / window.height();
     let distance = (size.y / 2.0 / upright).max(size.x / 2.0 / across)

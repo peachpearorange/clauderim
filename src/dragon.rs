@@ -452,22 +452,71 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
       })
     })
     .collect();
-  let fangs = |row: f32, down: f32| {
-    (0..6)
-      .flat_map(|index| {
-        let z = -0.5 - index as f32 * 0.1;
-        let spread = 0.2 - index as f32 * 0.018;
-        let long = (index == 1).then_some(0.2).unwrap_or(0.12);
-        [1.0, -1.0].map(|side| {
-          Piece::new(cone(0.03, long), srgb(0.9, 0.86, 0.75)).pitched(down).at_xyz(
-            side * spread,
-            row,
-            z
-          )
+  let fangs =
+    |row: f32, down: f32, from: f32, to: f32, wide: f32, narrow: f32, fang: usize| {
+      let count = 11;
+      (0..count)
+        .flat_map(|index| {
+          let t = index as f32 / (count - 1) as f32;
+          let z = from + (to - from) * t;
+          let spread = wide + (narrow - wide) * t;
+          let long = if index == fang {
+            0.28
+          } else {
+            0.13 + 0.06 * ((index * 7 % 3) as f32 / 2.0)
+          };
+          [1.0, -1.0].map(|side| {
+            Piece::new(cone(0.022 + long * 0.08, long), srgb(0.66, 0.62, 0.52))
+              .pitched(down)
+              .rolled(side * 0.12 * down.cos())
+              .at_xyz(side * spread, row, z)
+          })
         })
-      })
-      .collect::<Vec<_>>()
-  };
+        .collect::<Vec<_>>()
+    };
+  let maw = srgb(0.3, 0.07, 0.07);
+  let palate = Piece::new(
+    model::sculpt(
+      &[
+        (Vec3::new(0.0, -0.15, 0.1), Vec3::splat(0.02)),
+        (Vec3::new(0.0, -0.16, -0.05), Vec3::new(0.26, 0.05, 0.12)),
+        (Vec3::new(0.0, -0.15, -0.6), Vec3::new(0.21, 0.04, 0.1)),
+        (Vec3::new(0.0, -0.11, -1.08), Vec3::new(0.12, 0.03, 0.06)),
+        (Vec3::new(0.0, -0.1, -1.18), Vec3::splat(0.02))
+      ],
+      10,
+      16
+    ),
+    maw
+  );
+  let gullet = Piece::new(
+    model::sculpt(
+      &[
+        (Vec3::new(0.0, 0.07, 0.3), Vec3::splat(0.02)),
+        (Vec3::new(0.0, 0.08, 0.2), Vec3::new(0.22, 0.05, 0.12)),
+        (Vec3::new(0.0, 0.07, -0.5), Vec3::new(0.15, 0.04, 0.08)),
+        (Vec3::new(0.0, 0.07, -0.95), Vec3::new(0.09, 0.03, 0.05)),
+        (Vec3::new(0.0, 0.07, -1.02), Vec3::splat(0.02))
+      ],
+      10,
+      16
+    ),
+    maw
+  );
+  let tongue = Piece::new(
+    model::sculpt(
+      &[
+        (Vec3::new(0.0, 0.1, 0.1), Vec3::splat(0.02)),
+        (Vec3::new(0.0, 0.11, 0.0), Vec3::new(0.1, 0.04, 0.06)),
+        (Vec3::new(0.0, 0.12, -0.45), Vec3::new(0.08, 0.035, 0.05)),
+        (Vec3::new(0.0, 0.11, -0.7), Vec3::new(0.04, 0.02, 0.03)),
+        (Vec3::new(0.0, 0.11, -0.75), Vec3::splat(0.01))
+      ],
+      10,
+      12
+    ),
+    srgb(0.42, 0.12, 0.12)
+  );
   let brows: Vec<Piece> = [1.0, -1.0]
     .into_iter()
     .map(|side| {
@@ -499,11 +548,11 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
   let jaw = flesh(
     &[
       key(0.0, 0.0, 0.42, 0.02, 0.02, 0.02),
-      key(0.0, 0.0, 0.3, 0.28, 0.1, 0.16),
-      key(0.0, -0.02, -0.15, 0.24, 0.08, 0.13),
-      key(0.0, 0.0, -0.65, 0.17, 0.06, 0.09),
-      key(0.0, 0.02, -0.92, 0.12, 0.05, 0.06),
-      key(0.0, 0.02, -1.0, 0.02, 0.02, 0.02)
+      key(0.0, 0.0, 0.3, 0.28, 0.11, 0.16),
+      key(0.0, -0.03, -0.15, 0.25, 0.1, 0.13),
+      key(0.0, -0.01, -0.65, 0.18, 0.08, 0.09),
+      key(0.0, 0.01, -0.95, 0.13, 0.06, 0.06),
+      key(0.0, 0.02, -1.04, 0.02, 0.02, 0.02)
     ],
     23
   );
@@ -516,15 +565,21 @@ fn anatomy() -> Vec<(Bone, Stuff, Mesh)> {
         .into_iter()
         .chain(brow_horns)
         .chain(cheek_spikes)
-        .chain(fangs(-0.07, std::f32::consts::PI))
+        .chain(fangs(-0.11, std::f32::consts::PI, -0.3, -1.12, 0.25, 0.12, 8))
         .collect()
     ),
     (Bone::Head, Stuff::Ember, vec![
       Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(0.25, 0.17, -0.42),
       Piece::new(ball(0.055), srgb(1.0, 0.7, 0.2)).at_xyz(-0.25, 0.17, -0.42),
     ]),
+    (Bone::Head, Stuff::Gloss, vec![palate]),
     (Bone::Jaw, Stuff::Scales, vec![jaw]),
-    (Bone::Jaw, Stuff::Bone, fangs(0.06, 0.0).into_iter().chain(chin_spikes).collect())
+    (Bone::Jaw, Stuff::Gloss, vec![gullet, tongue]),
+    (
+      Bone::Jaw,
+      Stuff::Bone,
+      fangs(0.07, 0.0, -0.1, -0.92, 0.2, 0.1, 9).into_iter().chain(chin_spikes).collect()
+    )
   ]);
   for (index, (bone, girth, next)) in [
     (Bone::Tail1, 0.64, 0.46),
@@ -1490,18 +1545,22 @@ pub fn pose(
         Bone::Neck1 if slain => Vec3::new(0.35, 0.3, 0.0),
         Bone::Neck1 if breathing => Vec3::new(-0.25, 0.0, 0.0),
         Bone::Neck1 if flying => Vec3::new(-0.05, 0.05 * sway, 0.0),
-        Bone::Neck1 => Vec3::new(-0.55 + 0.4 * bite, 0.0, 0.0),
+        Bone::Neck1 => Vec3::new(0.45 - 0.25 * bite + 0.03 * sway, 0.0, 0.0),
         Bone::Neck2 if slain => Vec3::new(0.2, 0.3, 0.0),
         Bone::Neck2 if flying => Vec3::new(0.05, 0.05 * sway, 0.0),
-        Bone::Neck2 => Vec3::new(0.15 + 0.3 * bite, 0.0, 0.0),
+        Bone::Neck2 => Vec3::new(0.12 - 0.3 * bite, 0.0, 0.0),
         Bone::Neck3 if slain => Vec3::new(0.1, 0.4, 0.0),
-        Bone::Neck3 => Vec3::new(0.25 + 0.2 * bite, 0.0, 0.0),
+        Bone::Neck3 if flying => Vec3::new(0.25, 0.0, 0.0),
+        Bone::Neck3 => Vec3::new(-0.42 - 0.1 * bite, 0.0, 0.0),
         Bone::Head if breathing => Vec3::new(-0.3, 0.0, 0.0),
         Bone::Head if flying => Vec3::new(0.05, 0.0, 0.0),
-        Bone::Head => Vec3::new(0.3 - 0.2 * bite, 0.0, 0.0),
-        Bone::Jaw if slain => Vec3::new(0.35, 0.0, 0.0),
+        Bone::Head => Vec3::new(-0.15 + 0.35 * bite, 0.0, 0.0),
+        Bone::Jaw if slain => Vec3::new(-0.35, 0.0, 0.0),
         Bone::Jaw => Vec3::new(
-          0.05 + !flying as u8 as f32 * 0.15 + breathing as u8 as f32 * 0.55 + bite * 0.7,
+          -(0.02
+            + !flying as u8 as f32 * 0.2
+            + breathing as u8 as f32 * 0.55
+            + bite * 0.7),
           0.0,
           0.0
         ),
@@ -1523,8 +1582,8 @@ pub fn pose(
         Bone::WingL if flying => {
           Vec3::new(0.0, 0.0, -beat * 0.75 * (dragon.flap_rate > 0.1) as u8 as f32 - 0.05)
         }
-        Bone::WingR => Vec3::new(0.2, 0.6, -1.15),
-        Bone::WingL => Vec3::new(0.2, -0.6, 1.15),
+        Bone::WingR => Vec3::new(0.2, 0.6, -0.92),
+        Bone::WingL => Vec3::new(0.2, -0.6, 0.92),
         Bone::TipR | Bone::TipL => Vec3::ZERO,
         Bone::LegL | Bone::LegR if flying => Vec3::new(-1.1, 0.0, 0.0),
         Bone::ShinL | Bone::ShinR if flying => Vec3::new(1.0, 0.0, 0.0),
