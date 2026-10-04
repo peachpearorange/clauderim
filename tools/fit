@@ -1,7 +1,0 @@
-#!/usr/bin/env bash
-# tools/fit [name …]: dumps the posed player for tools/fits/<name>.json (all when none given)
-# and renders screenshots/fit/<name>.png over its reference image. See tools/fit.py.
-set -euo pipefail
-cd "$(dirname "$0")/.."
-FIT="${1:-}" cargo test --features dev -q --bin northmark humanoid::tests::fit -- --ignored --exact >/dev/null
-exec python3 tools/fit.py "$@"
