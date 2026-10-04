@@ -27,21 +27,21 @@ const HEADINGS: [Vec2; 4] = [Vec2::NEG_Y, Vec2::X, Vec2::NEG_X, Vec2::Y];
 const ROCK_DARK: LinearRgba = terrain::srgb(0.30, 0.30, 0.30);
 
 const TOMB_HOARDS: [&[Loot]; 3] = [
-  &[
-    Loot::Gold(96),
-    Loot::one(Item::AncientNordWarAxe),
-    Loot::one(Item::PotionOfMinorHealing)
-  ],
-  &[Loot::Gold(154), Loot::one(Item::Amethyst), Loot::one(Item::AncientNordHelmet)],
+  &[Loot::Gold(96), Loot::one(Item::BarrowWarAxe), Loot::one(Item::SmallHealingDraught)],
+  &[Loot::Gold(154), Loot::one(Item::Amethyst), Loot::one(Item::BarrowHelm)],
   &[
     Loot::Gold(71),
-    Loot::Goods(Item::PotionOfMinorHealing, 2),
+    Loot::Goods(Item::SmallHealingDraught, 2),
     Loot::one(Item::IronDagger)
   ]
 ];
 const CAVE_HOARDS: [&[Loot]; 3] = [
   &[Loot::Gold(58), Loot::Goods(Item::WolfPelt, 2), Loot::Goods(Item::Lockpick, 3)],
-  &[Loot::Gold(112), Loot::one(Item::SteelWarAxe), Loot::one(Item::PotionOfMinorHealing)],
+  &[
+    Loot::Gold(112),
+    Loot::one(Item::SteelBattleAxe),
+    Loot::one(Item::SmallHealingDraught)
+  ],
   &[Loot::Gold(83), Loot::one(Item::FurArmor), Loot::one(Item::Amethyst)]
 ];
 
@@ -421,11 +421,11 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
       let (at, inward) = wall_spot(room, side, roll.spread(1.2), 0.0, 0.5);
       (!chart.opening(index, at)).then(|| {
         works.put(sarcophagus(), facing(at, inward));
-        works.foe(at + inward * 0.15, inward, FoeKind::Draugr, true);
+        works.foe(at + inward * 0.15, inward, FoeKind::Wight, true);
       });
       (roll.chance(0.7)).then(|| {
         let spot = room.floor + Vec3::new(roll.spread(1.5), 0.0, roll.spread(1.5));
-        works.foe(spot, Vec3::new(roll.spread(1.0), 0.0, 1.0), FoeKind::Draugr, false);
+        works.foe(spot, Vec3::new(roll.spread(1.0), 0.0, 1.0), FoeKind::Wight, false);
       });
     }
   }
@@ -441,7 +441,7 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
   works.hoards.push(Hoard {
     at: facing(dais + Vec3::Y * 0.6 - toward * 0.4, toward),
     size: 1.0,
-    noun: "Ancient Nord Chest",
+    noun: "Barrow Chest",
     loot: TOMB_HOARDS[seed as usize % TOMB_HOARDS.len()]
   });
   for side in [-1.0, 1.0] {
@@ -451,11 +451,11 @@ fn furnish_tomb(chart: &Chart, seed: u32) -> Works {
       .solid(Transform::from_translation(foot + Vec3::Y * 0.5), Vec3::new(0.8, 1.0, 0.8));
     works.fire(foot + Vec3::Y * 1.0, 1.1, 140000.0, side > 0.0);
   }
-  works.foe(dais + toward * 5.0, toward, FoeKind::DraugrOverlord, true);
+  works.foe(dais + toward * 5.0, toward, FoeKind::WightLord, true);
   works.foe(
     dais + toward * 6.5 + heading.perp().extend(0.0).xzy() * 2.5,
     toward,
-    FoeKind::Draugr,
+    FoeKind::Wight,
     false
   );
   works

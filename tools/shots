@@ -2,11 +2,11 @@
 # tools/shots name '<opts>' [name '<opts>' ...] — builds once, then takes each screenshot in turn with that build (edits made meanwhile don't trigger rebuilds).
 until cargo build --quiet --features dev 2>/dev/null; do sleep 8; done
 dir=$(mktemp -d)
-cp target/debug/skyrim2 target/debug/libbevy_dylib.so "$dir/"
+cp target/debug/northmark target/debug/libbevy_dylib.so "$dir/"
 export BEVY_ASSET_ROOT="$PWD"
 export LD_LIBRARY_PATH="$dir:$(rustc --print sysroot)/lib/rustlib/$(rustc -vV | sed -n "s/host: //p")/lib:$LD_LIBRARY_PATH"
 while [ $# -ge 2 ]; do
-  SKYRIM="$2" SHOT_NAME="$1" timeout ${SHOT_TIMEOUT:-400} xvfb-run -a -s "-screen 0 1600x900x24" "$dir/skyrim2" 2>&1 | grep -E "panicked" -A5
+  NORTHMARK="$2" SHOT_NAME="$1" timeout ${SHOT_TIMEOUT:-400} xvfb-run -a -s "-screen 0 1600x900x24" "$dir/northmark" 2>&1 | grep -E "panicked" -A5
   shift 2
 done
 rm -rf "$dir"

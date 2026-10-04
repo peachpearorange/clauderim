@@ -28,9 +28,9 @@ struct Mist {
 }
 
 impl Material for Mist {
-  fn vertex_shader() -> ShaderRef { "embedded://skyrim2/mist.wgsl".into() }
+  fn vertex_shader() -> ShaderRef { "embedded://northmark/mist.wgsl".into() }
 
-  fn fragment_shader() -> ShaderRef { "embedded://skyrim2/mist.wgsl".into() }
+  fn fragment_shader() -> ShaderRef { "embedded://northmark/mist.wgsl".into() }
 
   fn alpha_mode(&self) -> AlphaMode { AlphaMode::Premultiplied }
 

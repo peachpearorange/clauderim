@@ -1,5 +1,5 @@
 {
-  "image": "ref images/dragonborn front.jpg",
+  "image": "ref images/wanderer front.jpg",
   "crop": [0.2, 0.0, 0.8, 0.33],
   "pose": "ready",
   "joints": {},

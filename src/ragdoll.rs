@@ -1,6 +1,6 @@
-use {crate::{atronach::{self, Lumbering},
-             combat::Dead,
+use {crate::{combat::Dead,
              dragon::{self, Dragon},
+             golem::{self, Lumbering},
              humanoid::{self, Rig},
              player::Player,
              treegiant::{self, Striding},
@@ -107,7 +107,7 @@ fn collapse(
       })
       .or_else(|| {
         lumbering.map(|lumbering| {
-          lumbering.bones.iter().map(|&(_, bone)| bone).zip(atronach::limbs()).collect()
+          lumbering.bones.iter().map(|&(_, bone)| bone).zip(golem::limbs()).collect()
         })
       })
       .or_else(|| {

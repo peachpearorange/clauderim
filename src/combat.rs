@@ -173,7 +173,7 @@ fn swing(
     .collect();
   for (hit, unaware) in hits {
     if unaware {
-      notices.write(Notice(format!("Sneak attack for {SNEAK_ATTACK:.1}x damage")));
+      notices.write(Notice(format!("Unseen strike: {SNEAK_ATTACK:.1}x damage")));
     }
     struck.write(hit);
   }

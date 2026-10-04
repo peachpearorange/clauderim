@@ -1,6 +1,6 @@
 use {serde::Deserialize, std::sync::LazyLock};
 
-const VAR: &str = "SKYRIM";
+const VAR: &str = "NORTHMARK";
 
 #[derive(Deserialize)]
 #[serde(default, deny_unknown_fields)]

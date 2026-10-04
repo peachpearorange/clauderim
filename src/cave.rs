@@ -4,8 +4,8 @@ use {crate::{inventory::{Inventory, Item, Loot},
              place::{self, Place},
              player::{Player, View},
              sdf::{self, Bounds, Surface},
-             signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, Sound,
-                      WordWall},
+             signal::{Cue, FoeKind, FoeSpawn, Notice, Prompt, Prompting, RuneWall,
+                      Sound},
              sky::{CloseShadows, Daylight},
              stuff::{Stuff, Stuffs},
              terrain::{self, Surfaces}},
@@ -68,15 +68,12 @@ const SHAFT: Vec2 = Vec2::new(4.5, -3.0);
 const HOLLOWCRAG_LOOT: &[Loot] = &[
   Loot::Gold(143),
   Loot::one(Item::IronDagger),
-  Loot::one(Item::PotionOfMinorHealing),
+  Loot::one(Item::SmallHealingDraught),
   Loot::one(Item::Amethyst),
-  Loot::one(Item::AncientNordHelmet)
+  Loot::one(Item::BarrowHelm)
 ];
-const FELLHOUND_LOOT: &[Loot] = &[
-  Loot::Gold(37),
-  Loot::one(Item::PotionOfMinorHealing),
-  Loot::Goods(Item::Lockpick, 2)
-];
+const FELLHOUND_LOOT: &[Loot] =
+  &[Loot::Gold(37), Loot::one(Item::SmallHealingDraught), Loot::Goods(Item::Lockpick, 2)];
 
 fn smooth(edge0: f32, edge1: f32, value: f32) -> f32 {
   let t = ((value - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
@@ -730,7 +727,7 @@ pub(crate) fn nest(seed: u32) -> Parts {
   straw.into_iter().chain(fur).chain(bones(seed + 50)).collect()
 }
 
-fn word_wall(works: &mut Works, radius: f32) {
+fn rune_wall(works: &mut Works, radius: f32) {
   let segments = 13;
   let spread = 65f32.to_radians();
   let chord = radius * 2.0 * spread / (segments - 1) as f32 * 1.06;
@@ -1333,7 +1330,7 @@ fn barrow_hall(works: &mut Works) {
         .then(|| {
           works
             .put(sarcophagus(), inward.with_translation(niche + Vec3::X * side * 0.45));
-          works.foe(niche + Vec3::X * side * 0.35, facing, FoeKind::Draugr, true);
+          works.foe(niche + Vec3::X * side * 0.35, facing, FoeKind::Wight, true);
         })
         .unwrap_or_else(|| {
           works.put(
@@ -1399,7 +1396,7 @@ fn barrow_hall(works: &mut Works) {
       ))
     );
   }
-  works.foe(Vec3::new(0.0, HALL_FLOOR, -0.8), Vec3::Z, FoeKind::Draugr, false);
+  works.foe(Vec3::new(0.0, HALL_FLOOR, -0.8), Vec3::Z, FoeKind::Wight, false);
   works.rooms.push((Vec3::new(-7.6, HALL_FLOOR - 1.0, -6.3), Vec3::new(7.6, 2.0, 15.5)));
 }
 
@@ -1437,7 +1434,7 @@ fn barrow_chamber(works: &mut Works) {
     Collider::convex_hull(rim(6.6, HALL_FLOOR - 0.2).chain(rim(5.0, DAIS.y)).collect())
       .expect("dais hull")
   ));
-  word_wall(works, 4.0);
+  rune_wall(works, 4.0);
   let toward_room = |at: Vec3| (CHAMBER + Vec3::Z * 6.0 - at).with_y(0.0).normalize();
   let crypt = DAIS + Vec3::new(-3.5, 0.0, 1.2);
   works.put(
@@ -1447,14 +1444,14 @@ fn barrow_chamber(works: &mut Works) {
   works.foe(
     crypt + toward_room(crypt) * 0.1,
     toward_room(crypt),
-    FoeKind::DraugrOverlord,
+    FoeKind::WightLord,
     true
   );
   let hoard = DAIS + Vec3::new(3.1, 0.0, 1.5);
   works.hoards.push(Hoard {
     at: Transform::from_translation(hoard).looking_to(-toward_room(hoard), Vec3::Y),
     size: 1.0,
-    noun: "Ancient Nord Chest",
+    noun: "Barrow Chest",
     loot: HOLLOWCRAG_LOOT
   });
   for side in [-1.0, 1.0] {
@@ -1501,7 +1498,7 @@ fn barrow_chamber(works: &mut Works) {
   works.foe(
     Vec3::new(-2.0, HALL_FLOOR, -7.0),
     Vec3::new(0.3, 0.0, 1.0),
-    FoeKind::Draugr,
+    FoeKind::Wight,
     false
   );
   works.rooms.push((Vec3::new(-9.0, HALL_FLOOR - 1.0, -21.0), Vec3::new(9.0, 6.0, -3.0)));
@@ -1687,8 +1684,8 @@ impl Kit<'_, '_, '_> {
       let entity = self
         .commands
         .spawn((
-          Name::new("Word Wall"),
-          WordWall,
+          Name::new("Rune Wall"),
+          RuneWall,
           frame.mul_transform(Transform::from_translation(wall_at)),
           Visibility::default()
         ))

@@ -28,7 +28,7 @@ struct Cloud {
 }
 
 impl Material for Cloud {
-  fn fragment_shader() -> ShaderRef { "embedded://skyrim2/cloud.wgsl".into() }
+  fn fragment_shader() -> ShaderRef { "embedded://northmark/cloud.wgsl".into() }
 
   fn alpha_mode(&self) -> AlphaMode { AlphaMode::Premultiplied }
 

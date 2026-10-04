@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""tools/uesp [-p PAGE] [-n N] [-w WIDTH] [--list] [--fandom] [words ...]
+"""tools/refs [-p PAGE] [-n N] [-w WIDTH] [--list] [--fandom] [words ...]
 
-Finds Skyrim screenshots on the UESP wiki and saves them to screenshots/uesp/.
-  tools/uesp dragon bridge          search Skyrim image files (File:SR-*) by words
-  tools/uesp -p Skyrim:Whiterun     every screenshot shown on a wiki page
-  tools/uesp -n 3 --list barrow     just print titles, sizes and URLs
+Finds Skyrim screenshots on the UESP wiki and saves them to screenshots/refs/.
+  tools/refs dragon bridge          search Skyrim image files (File:SR-*) by words
+  tools/refs -p Skyrim:Whiterun     every screenshot shown on a wiki page
+  tools/refs -n 3 --list barrow     just print titles, sizes and URLs
 Icons and images under 400 px wide are skipped; downloads are WIDTH px wide (default 1280).
 UESP's image host sits behind a Cloudflare browser challenge that scripts can't pass, so when
 a download is refused the same query is run on the Elder Scrolls Fandom wiki instead
@@ -14,8 +14,8 @@ import argparse, json, os, re, sys, urllib.error, urllib.parse, urllib.request
 from dataclasses import dataclass
 from typing import Callable
 
-AGENT = "clauderim-reference-fetcher/1.0 (procedural Skyrim look-alike; reference images)"
-OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots", "uesp"))
+AGENT = "northmark-reference-fetcher/1.0 (reference images)"
+OUT = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "screenshots", "refs"))
 
 
 @dataclass

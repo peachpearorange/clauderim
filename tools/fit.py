@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Overlays the player (humanoid::dragonborn) on a reference picture, to tweak him until he matches.
+"""Overlays the player (humanoid::wanderer) on a reference picture, to tweak him until he matches.
 Each tools/fits/<name>.json names a reference image and poses the body and a camera:
   image     "ref images/….png"
   crop      [left, top, right, bottom], fractions of the image to keep (default whole)

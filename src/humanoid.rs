@@ -1469,7 +1469,7 @@ fn pauldron(kit: &mut Kit, joint: Joint, iron: Srgba) {
   }
 }
 
-pub fn dragonborn() -> Kit {
+pub fn wanderer() -> Kit {
   let frame = MAN;
   let build = Build::BURLY;
   let mut kit = Kit::new();
@@ -1483,7 +1483,7 @@ pub fn dragonborn() -> Kit {
     style: Style::Long,
     beard: Some(Beard::Stubble),
     paint: None,
-    ..Person::roll(Race::Nord, false, 4)
+    ..Person::roll(Race::Northman, false, 4)
   };
   face::head(&mut kit, &person, &build);
   closed_helm(&mut kit, &build, iron, srgb(0.5, 0.42, 0.3));
@@ -1513,7 +1513,7 @@ pub fn dragonborn() -> Kit {
   kit
 }
 
-pub fn draugr(seed: u32) -> Kit {
+pub fn wight(seed: u32) -> Kit {
   let frame = MAN;
   let build = Build::WITHERED;
   let mut kit = Kit::new();
@@ -1521,7 +1521,7 @@ pub fn draugr(seed: u32) -> Kit {
   let rags = srgb(0.22, 0.2, 0.17);
   let ancient = srgb(0.3, 0.33, 0.3);
   let helmed = seed % 2 == 0;
-  let person = Person::draugr(seed);
+  let person = Person::wight(seed);
   let person =
     Person { style: helmed.then_some(Style::Cropped).unwrap_or(person.style), ..person };
   face::head(&mut kit, &person, &build);
@@ -2083,7 +2083,7 @@ pub fn villager(calling: Calling, person: &Person) -> Kit {
     Calling::Farmer => {
       let build = Build::HALE;
       face::head(&mut kit, person, &build);
-      (person.race != Race::Argonian).then(|| {
+      (person.race != Race::Saurian).then(|| {
         kit.add(
           Joint::Head,
           Stuff::Cloth,
@@ -2283,7 +2283,7 @@ mod tests {
   #[ignore]
   fn fit() {
     let only = std::env::var("FIT").unwrap_or_default();
-    let body = tailor(dragonborn(), &MAN);
+    let body = tailor(wanderer(), &MAN);
     let mut fits: Vec<_> = std::fs::read_dir("tools/fits")
       .unwrap()
       .filter_map(|entry| entry.ok().map(|entry| entry.path()))

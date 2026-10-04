@@ -41,8 +41,8 @@ const FIRST: [&str; 24] = [
 ];
 
 const SECOND: [&str; 20] = [
-  "moor", "fell", "crag", "wood", "vale", "mire", "hold", "brook", "rock", "holm",
-  "wind", "gate", "tooth", "ridge", "water", "hollow", "shade", "reach", "mark", "fen"
+  "heath", "fell", "crag", "wood", "vale", "mire", "garth", "brook", "scar", "holm",
+  "beck", "gate", "tooth", "ridge", "water", "hollow", "shade", "field", "mark", "fen"
 ];
 
 const PATRONS: [&str; 12] = [

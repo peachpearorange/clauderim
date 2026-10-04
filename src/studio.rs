@@ -1,9 +1,9 @@
-use {crate::{atronach,
-             cage::Cage,
+use {crate::{cage::Cage,
              creature, dragon,
              face::{Person, Race},
              flora,
              fx::Effects,
+             golem,
              humanoid::{self, Calling, Frame, Grip, Kit, MAN, Motion},
              model::Piece,
              noise,
@@ -34,7 +34,7 @@ enum Subject {
   Work(Work),
   Growth(String),
   Cages,
-  Atronach,
+  Golem,
   TreeGiant
 }
 
@@ -53,10 +53,10 @@ impl Subject {
     };
     let clutter = |kind: Clutter| Subject::Work(Work::Clutter { at, facing, kind });
     match name {
-      "dragonborn" => Subject::Hero,
+      "wanderer" => Subject::Hero,
       "wolf" => Subject::Wolf,
-      "draugr" => Subject::Foe(FoeKind::Draugr),
-      "overlord" => Subject::Foe(FoeKind::DraugrOverlord),
+      "wight" => Subject::Foe(FoeKind::Wight),
+      "overlord" => Subject::Foe(FoeKind::WightLord),
       "bandit" => Subject::Foe(FoeKind::Bandit),
       "chief" => Subject::Foe(FoeKind::BanditChief),
       "cook" => Subject::Villager(Calling::Cook),
@@ -68,7 +68,7 @@ impl Subject {
       "dragonaloft" => Subject::Dragon { aloft: true },
       "robot" => Subject::Robot,
       "cages" => Subject::Cages,
-      "atronach" => Subject::Atronach,
+      "golem" => Subject::Golem,
       "treegiant" => Subject::TreeGiant,
       "house" => Subject::Work(Work::House(house(9.0, 6.5, 3.0))),
       "inn" => Subject::Work(Work::Inn(house(15.0, 9.0, 6.1))),
@@ -117,7 +117,7 @@ impl Subject {
       | Subject::Villager(_)
       | Subject::Wolf
       | Subject::Dragon { .. }
-      | Subject::Atronach
+      | Subject::Golem
       | Subject::TreeGiant => PI,
       Subject::Robot | Subject::Work(_) | Subject::Growth(_) | Subject::Cages => 0.0
     }
@@ -340,21 +340,21 @@ fn stage(
           &stuffs,
           holder,
           (MAN, Grip::Blade, 0.0, 1.0),
-          humanoid::dragonborn()
+          humanoid::wanderer()
         )
       }
     }
     Subject::Foe(kind) => {
       let (grip, hunch) = match kind {
-        FoeKind::Draugr => (Grip::Axe, 0.22),
-        FoeKind::DraugrOverlord => (Grip::Axe, 0.12),
+        FoeKind::Wight => (Grip::Axe, 0.22),
+        FoeKind::WightLord => (Grip::Axe, 0.12),
         FoeKind::BanditChief => (Grip::Axe, 0.0),
         _ => (Grip::Blade, 0.0)
       };
       for &holder in &holders {
         let kit = match kind {
-          FoeKind::Draugr => humanoid::draugr(seed),
-          FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
+          FoeKind::Wight => humanoid::wight(seed),
+          FoeKind::WightLord => humanoid::wight(seed * 2),
           FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
           _ => humanoid::bandit(seed)
         };
@@ -441,9 +441,9 @@ fn stage(
       flora::specimen(&name, seed as usize, &mut images, &mut materials, &stuffs)
         .unwrap_or_else(|| panic!("studio: nothing called {name:?}"))
     ),
-    Subject::Atronach => {
+    Subject::Golem => {
       for (index, &holder) in holders.iter().enumerate() {
-        atronach::spawn(
+        golem::spawn(
           &mut commands,
           &mut meshes,
           &stuffs,
@@ -586,7 +586,7 @@ pub fn plugin(app: &mut App) {
       Update,
       (
         robot::idle,
-        atronach::animate,
+        golem::animate,
         treegiant::animate,
         frame,
         checkered.run_if(|| opts().checker)

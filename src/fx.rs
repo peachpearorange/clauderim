@@ -296,7 +296,7 @@ fn splatter(
     for hit in struck.read() {
       let dry = foes
         .get(hit.target)
-        .is_ok_and(|foe| matches!(foe.kind, FoeKind::Draugr | FoeKind::DraugrOverlord));
+        .is_ok_and(|foe| matches!(foe.kind, FoeKind::Wight | FoeKind::WightLord));
       let effect = if hit.blocked || dry { &effects.sparks } else { &effects.blood };
       commands.spawn((
         effects.emit(effect),

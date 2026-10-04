@@ -3804,6 +3804,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "610a5acd306ec67f907abe5567859a3c693fb9886eb1f012ab8f2a47bef3db51"
 
 [[package]]
+name = "northmark"
+version = "0.1.0"
+dependencies = [
+ "avian3d",
+ "bevy",
+ "bevy_hanabi",
+ "cpal",
+ "enum-assoc",
+ "fidget",
+ "getrandom 0.3.4",
+ "json5",
+ "nalgebra",
+ "serde",
+ "tracing",
+ "web-sys",
+ "web-time",
+]
+
+[[package]]
 name = "nu-ansi-term"
 version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5166,25 +5185,6 @@ checksum = "819ab7d62b1d3e72d9d9dea5650bac30424f9111364bb94928dbf5ecad1baa68"
 dependencies = [
  "bytemuck",
  "read-fonts 0.41.0",
-]
-
-[[package]]
-name = "skyrim2"
-version = "0.1.0"
-dependencies = [
- "avian3d",
- "bevy",
- "bevy_hanabi",
- "cpal",
- "enum-assoc",
- "fidget",
- "getrandom 0.3.4",
- "json5",
- "nalgebra",
- "serde",
- "tracing",
- "web-sys",
- "web-time",
 ]
 
 [[package]]

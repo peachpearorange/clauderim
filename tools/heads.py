@@ -80,7 +80,7 @@ def render(groups, yaw, size, center, span):
 
 def portrait(path, size=360):
     groups = load(path)
-    body = "farmer" in path or "draugr" in path
+    body = "farmer" in path or "wight" in path
     top = max(g[1][:, 1].max() for g in groups)
     center = np.array([0, top - (0.9 if body else 0.14), 0], dtype=np.float32)
     span = 2.0 if body else 0.36

@@ -1674,8 +1674,8 @@ fn absorb(
         clad(Stuff::Bone);
         dragon.absorbed = true;
         shouts.cooldown = 0.0;
-        sounds.write(Sound::flat(Cue::WordLearned));
-        notices.write(Notice("Dragon Soul Absorbed".into()));
+        sounds.write(Sound::flat(Cue::RuneLearned));
+        notices.write(Notice("Dragon's Power Absorbed".into()));
       }
     }
   }

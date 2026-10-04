@@ -1,6 +1,6 @@
-use {crate::{atronach,
-             combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
+use {crate::{combat::{Dead, Fighter, Shake, Side, Stealth, Struck, Vitals},
              fx::{Effects, Fleeting},
+             golem,
              humanoid::{self, Grip, MAN, Motion, Rig},
              inventory::{Inventory, Item, Loot},
              noise::Roll,
@@ -54,8 +54,8 @@ const fn breed(kind: FoeKind) -> Breed {
       radius: 0.4,
       height: 0.8
     },
-    FoeKind::Draugr => Breed {
-      name: "Restless Draugr",
+    FoeKind::Wight => Breed {
+      name: "Barrow Wight",
       health: 60.0,
       damage: 10.0,
       reach: 1.9,
@@ -67,8 +67,8 @@ const fn breed(kind: FoeKind) -> Breed {
       radius: 0.34,
       height: 1.84
     },
-    FoeKind::DraugrOverlord => Breed {
-      name: "Draugr Overlord",
+    FoeKind::WightLord => Breed {
+      name: "Wight Lord",
       health: 150.0,
       damage: 17.0,
       reach: 2.1,
@@ -106,8 +106,8 @@ const fn breed(kind: FoeKind) -> Breed {
       radius: 0.37,
       height: 1.98
     },
-    FoeKind::FrostAtronach => Breed {
-      name: "Frost Atronach",
+    FoeKind::FrostGolem => Breed {
+      name: "Frost Golem",
       health: 160.0,
       damage: 16.0,
       reach: 2.6,
@@ -154,23 +154,23 @@ fn loot(kind: FoeKind, roll: &mut Roll) -> Vec<Loot> {
     |low: f32, high: f32, roll: &mut Roll| Loot::Gold(roll.range(low, high) as u32);
   match kind {
     FoeKind::Wolf => vec![Loot::one(Item::WolfPelt)],
-    FoeKind::Draugr => vec![gold(3.0, 18.0, roll), Loot::one(Item::AncientNordWarAxe)],
-    FoeKind::DraugrOverlord => vec![
+    FoeKind::Wight => vec![gold(3.0, 18.0, roll), Loot::one(Item::BarrowWarAxe)],
+    FoeKind::WightLord => vec![
       gold(40.0, 90.0, roll),
-      Loot::one(Item::AncientNordHelmet),
+      Loot::one(Item::BarrowHelm),
       Loot::one(Item::OverlordsKey),
     ],
     FoeKind::Bandit => vec![
       gold(5.0, 30.0, roll),
       Loot::one(Item::FurArmor),
-      Loot::one(Item::PotionOfMinorHealing),
+      Loot::one(Item::SmallHealingDraught),
     ],
     FoeKind::BanditChief => vec![
       gold(60.0, 120.0, roll),
-      Loot::one(Item::SteelWarAxe),
+      Loot::one(Item::SteelBattleAxe),
       Loot::one(Item::RotfenPlans),
     ],
-    FoeKind::FrostAtronach => vec![Loot::one(Item::FrostSalts)]
+    FoeKind::FrostGolem => vec![Loot::one(Item::RimeCrystal)]
   }
 }
 
@@ -225,8 +225,8 @@ fn raise(
         ChildOf(entity)
       ))
       .id();
-    if spawn.kind == FoeKind::FrostAtronach {
-      commands.entity(entity).insert(atronach::Forming(body));
+    if spawn.kind == FoeKind::FrostGolem {
+      commands.entity(entity).insert(golem::Forming(body));
     } else {
       let (bones, tailoring): (Vec<Entity>, crate::work::Job<Vec<(usize, Stuff, Mesh)>>) =
         match spawn.kind {
@@ -238,8 +238,8 @@ fn raise(
           }
           kind => {
             let (grip, hunch) = match kind {
-              FoeKind::Draugr => (Grip::Axe, 0.22),
-              FoeKind::DraugrOverlord => (Grip::Axe, 0.12),
+              FoeKind::Wight => (Grip::Axe, 0.22),
+              FoeKind::WightLord => (Grip::Axe, 0.12),
               FoeKind::BanditChief => (Grip::Axe, 0.0),
               _ => (Grip::Blade, 0.0)
             };
@@ -250,8 +250,8 @@ fn raise(
               crate::work::task(move || {
                 humanoid::tailor(
                   match kind {
-                    FoeKind::Draugr => humanoid::draugr(seed),
-                    FoeKind::DraugrOverlord => humanoid::draugr(seed * 2),
+                    FoeKind::Wight => humanoid::wight(seed),
+                    FoeKind::WightLord => humanoid::wight(seed * 2),
                     FoeKind::BanditChief => humanoid::bandit(seed * 2 + 1),
                     _ => humanoid::bandit(seed)
                   },
@@ -299,9 +299,9 @@ pub fn dress(
 fn alarm(kind: FoeKind) -> Cue {
   match kind {
     FoeKind::Wolf => Cue::WolfGrowl,
-    FoeKind::Draugr | FoeKind::DraugrOverlord => Cue::DraugrGroan,
+    FoeKind::Wight | FoeKind::WightLord => Cue::WightGroan,
     FoeKind::Bandit | FoeKind::BanditChief => Cue::BanditShout,
-    FoeKind::FrostAtronach => Cue::IceGrind
+    FoeKind::FrostGolem => Cue::IceGrind
   }
 }
 
@@ -367,7 +367,7 @@ fn think(
     foe.cooldown -= delta;
     let mind = match foe.mind {
       Mind::Dormant if hero_distance < wake || provoked.contains(&entity) => {
-        sounds.write(Sound::here(Cue::DraugrWake, at));
+        sounds.write(Sound::here(Cue::WightWake, at));
         Mind::Hunt
       }
       Mind::Dormant => Mind::Dormant,
@@ -473,7 +473,7 @@ fn bellow(
   let delta = time.delta_secs();
   let (hero, hero_at, mut vitals) = player.into_inner();
   for (mut foe, transform, mut walker, mut motion) in
-    foes.iter_mut().filter(|(foe, ..)| foe.kind == FoeKind::DraugrOverlord)
+    foes.iter_mut().filter(|(foe, ..)| foe.kind == FoeKind::WightLord)
   {
     let at = transform.translation;
     let gap = hero_at.translation - at;
@@ -541,9 +541,9 @@ fn perish(
   for (foe, transform) in fallen.iter() {
     let cue = match foe.kind {
       FoeKind::Wolf => Cue::WolfDie,
-      FoeKind::Draugr | FoeKind::DraugrOverlord => Cue::DraugrDie,
+      FoeKind::Wight | FoeKind::WightLord => Cue::WightDie,
       FoeKind::Bandit | FoeKind::BanditChief => Cue::ManDie,
-      FoeKind::FrostAtronach => Cue::IceShatter
+      FoeKind::FrostGolem => Cue::IceShatter
     };
     sounds.write(Sound::here(cue, transform.translation));
   }
@@ -595,15 +595,15 @@ fn specimen(
 ) {
   let kind = match crate::opts::opts().foe.as_deref() {
     Some("wolf") => Some(FoeKind::Wolf),
-    Some("draugr") => Some(FoeKind::Draugr),
-    Some("overlord") => Some(FoeKind::DraugrOverlord),
+    Some("wight") => Some(FoeKind::Wight),
+    Some("overlord") => Some(FoeKind::WightLord),
     Some("bandit") => Some(FoeKind::Bandit),
     Some("chief") => Some(FoeKind::BanditChief),
-    Some("atronach") => Some(FoeKind::FrostAtronach),
+    Some("golem") => Some(FoeKind::FrostGolem),
     _ => None
   };
   if let Some(kind) = kind {
-    let gap = (kind == FoeKind::FrostAtronach).then_some(6.0).unwrap_or(3.2);
+    let gap = (kind == FoeKind::FrostGolem).then_some(6.0).unwrap_or(3.2);
     let ahead = player.translation + player.forward().as_vec3() * gap;
     commands.spawn((
       FoeSpawn { kind, dormant: true },
@@ -658,8 +658,8 @@ static GARRISONS: LazyLock<Vec<(Vec2, Vec<(Vec2, FoeKind)>)>> = LazyLock::new(||
     .filter(|layout| !layout.foes.is_empty())
     .map(|layout| (layout.place.spot(), layout.foes.clone()))
     .chain([
-      camp(Place::BLACKBRIAR, 3, true),
-      camp(Place::WOLFSKULL, 3, false),
+      camp(Place::BLACKTHORN, 3, true),
+      camp(Place::WOLFJAW, 3, false),
       camp(Place::SNOWGATE, 2, false),
       pack(Vec2::new(880.0, 620.0), 3),
       pack(Vec2::new(-1380.0, 180.0), 2),

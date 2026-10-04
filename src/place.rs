@@ -41,18 +41,18 @@ const NAMED: [Spot; 36] = [
   Spot::new("Hollowcrag Barrow", Vec2::new(-250.0, -170.0), Marker::Barrow, 36.0)
     .sunk(9.0),
   Spot::new("Fellhound Den", Vec2::new(302.8, -216.2), Marker::Cave, 24.0).sunk(6.0),
-  Spot::new("Greymoor Watch", Vec2::new(175.0, 70.0), Marker::Tower, 16.0),
-  Spot::new("The Warrior Stone", Vec2::new(-10.0, 70.0), Marker::Stone, 11.0),
+  Spot::new("Greyfold Watch", Vec2::new(175.0, 70.0), Marker::Tower, 16.0),
+  Spot::new("The Champion Stone", Vec2::new(-10.0, 70.0), Marker::Stone, 11.0),
   Spot::new("Rotfen Camp", Vec2::new(-150.0, 20.0), Marker::Camp, 14.0),
   Spot::new("Kjeldholm", Vec2::new(2080.0, 420.0), Marker::City, 100.0).rise(26.0),
   Spot::new("Brookhollow", Vec2::new(330.0, 1330.0), Marker::Town, 62.0),
-  Spot::new("Frostmere", Vec2::new(-1950.0, -620.0), Marker::Town, 60.0),
+  Spot::new("Frostvatn", Vec2::new(-1950.0, -620.0), Marker::Town, 60.0),
   Spot::new("Aldvik Farm", Vec2::new(1660.0, 730.0), Marker::Farm, 36.0),
   Spot::new("Hallgrim Farm", Vec2::new(610.0, 1190.0), Marker::Farm, 32.0),
   Spot::new("Fort Greyhelm", Vec2::new(-1300.0, -1720.0), Marker::Fort, 44.0),
   Spot::new("Fort Skarn", Vec2::new(1910.0, -1320.0), Marker::Fort, 44.0),
-  Spot::new("Blackbriar Camp", Vec2::new(560.0, 800.0), Marker::Camp, 14.0),
-  Spot::new("Wolfskull Camp", Vec2::new(-880.0, 420.0), Marker::Camp, 14.0),
+  Spot::new("Blackthorn Camp", Vec2::new(560.0, 800.0), Marker::Camp, 14.0),
+  Spot::new("Wolfjaw Camp", Vec2::new(-880.0, 420.0), Marker::Camp, 14.0),
   Spot::new("Snowgate Watch", Vec2::new(-640.0, -40.0), Marker::Tower, 16.0),
   Spot::new("Ravensholt", Vec2::new(-2250.0, 950.0), Marker::City, 96.0).rise(18.0),
   Spot::new("Hvitmark", Vec2::new(2300.0, 2450.0), Marker::City, 96.0).rise(20.0),
@@ -83,18 +83,18 @@ pub struct Place(u16);
 impl Place {
   pub const HOLLOWCRAG: Place = Place(0);
   pub const FELLHOUND: Place = Place(1);
-  pub const GREYMOOR: Place = Place(2);
-  pub const WARRIOR_STONE: Place = Place(3);
+  pub const GREYFOLD: Place = Place(2);
+  pub const CHAMPION_STONE: Place = Place(3);
   pub const ROTFEN: Place = Place(4);
   pub const KJELDHOLM: Place = Place(5);
   pub const BROOKHOLLOW: Place = Place(6);
-  pub const FROSTMERE: Place = Place(7);
+  pub const FROSTVATN: Place = Place(7);
   pub const ALDVIK: Place = Place(8);
   pub const HALLGRIM: Place = Place(9);
   pub const GREYHELM: Place = Place(10);
   pub const SKARN: Place = Place(11);
-  pub const BLACKBRIAR: Place = Place(12);
-  pub const WOLFSKULL: Place = Place(13);
+  pub const BLACKTHORN: Place = Place(12);
+  pub const WOLFJAW: Place = Place(13);
   pub const SNOWGATE: Place = Place(14);
   pub const RAVENSHOLT: Place = Place(15);
   pub const HVITMARK: Place = Place(16);
@@ -316,10 +316,10 @@ const ALDVIK_TRAIL: [Vec2; 3] =
 const HALLGRIM_TRAIL: [Vec2; 3] =
   [Vec2::new(300.0, 1255.0), Vec2::new(450.0, 1215.0), Vec2::new(610.0, 1190.0)];
 
-const BLACKBRIAR_TRAIL: [Vec2; 3] =
+const BLACKTHORN_TRAIL: [Vec2; 3] =
   [Vec2::new(140.0, 880.0), Vec2::new(380.0, 860.0), Vec2::new(548.0, 806.0)];
 
-const WOLFSKULL_TRAIL: [Vec2; 3] =
+const WOLFJAW_TRAIL: [Vec2; 3] =
   [Vec2::new(-450.0, 60.0), Vec2::new(-650.0, 250.0), Vec2::new(-868.0, 412.0)];
 
 const RAVEN_ROAD: [Vec2; 7] = [
@@ -447,8 +447,8 @@ pub static ROADS: LazyLock<Vec<Road>> = LazyLock::new(|| {
     road(Paving::Dirt, &SKARN_TRAIL),
     road(Paving::Dirt, &ALDVIK_TRAIL),
     road(Paving::Dirt, &HALLGRIM_TRAIL),
-    road(Paving::Dirt, &BLACKBRIAR_TRAIL),
-    road(Paving::Dirt, &WOLFSKULL_TRAIL),
+    road(Paving::Dirt, &BLACKTHORN_TRAIL),
+    road(Paving::Dirt, &WOLFJAW_TRAIL),
     road(Paving::Stone, &RAVEN_ROAD),
     road(Paving::Dirt, &MOSS_ROAD),
     road(Paving::Dirt, &NORTH_TRAIL),

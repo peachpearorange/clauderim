@@ -1,6 +1,5 @@
 #![recursion_limit = "256"]
 
-mod atronach;
 mod audio;
 mod blocky;
 mod blur;
@@ -14,6 +13,7 @@ mod dragon;
 mod face;
 mod flora;
 mod fx;
+mod golem;
 mod heli;
 mod horse;
 mod hud;
@@ -197,7 +197,7 @@ fn main() {
       })
       .set(WindowPlugin {
         primary_window: Some(Window {
-          title: "The Vibe Scrolls V: Clauderim".into(),
+          title: "Northmark".into(),
           resolution: (1600, 900).into(),
           fit_canvas_to_parent: true,
           present_mode: opts::opts()
@@ -259,7 +259,7 @@ fn main() {
         patrol::plugin,
         spider::plugin,
         heli::plugin,
-        atronach::plugin,
+        golem::plugin,
         treegiant::plugin
       ))
       .add_plugins(audio::plugin)

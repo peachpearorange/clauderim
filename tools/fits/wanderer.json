@@ -1,5 +1,5 @@
 {
-  "image": "ref images/dragonborn front.jpg",
+  "image": "ref images/wanderer front.jpg",
   "pose": "ready",
   "joints": {},
   "camera": {"at": [0, 1.4, 0], "pin": [0.5, 0.48], "distance": 1.9, "fov": 40, "pitch": -6}

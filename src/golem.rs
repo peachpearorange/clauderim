@@ -463,7 +463,7 @@ static HOMES: LazyLock<Vec<Vec2>> = LazyLock::new(|| {
 fn haunt(mut commands: Commands) {
   for (index, &home) in HOMES.iter().enumerate() {
     commands.spawn((
-      FoeSpawn { kind: FoeKind::FrostAtronach, dormant: false },
+      FoeSpawn { kind: FoeKind::FrostGolem, dormant: false },
       Transform::from_translation(home.extend(height_at(home)).xzy()).with_rotation(
         Quat::from_rotation_y(Roll::new(index as u32 * 13 + 5).range(0.0, TAU))
       )
@@ -480,7 +480,7 @@ mod tests {
   use super::*;
 
   #[test]
-  fn atronachs_haunt_snowfields_around_the_start() {
+  fn golems_haunt_snowfields_around_the_start() {
     println!(
       "{:?}",
       HOMES

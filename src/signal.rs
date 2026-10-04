@@ -36,16 +36,16 @@ pub enum Cue {
   WolfGrowl,
   WolfBite,
   WolfDie,
-  DraugrWake,
-  DraugrGroan,
-  DraugrDie,
+  WightWake,
+  WightGroan,
+  WightDie,
   BanditShout,
   ManDie,
   PlayerHurt,
   ChestOpen,
   Discover,
-  WordWall,
-  WordLearned,
+  RuneWall,
+  RuneLearned,
   Shout,
   DragonRoar,
   FireBreath,
@@ -75,11 +75,11 @@ impl Sound {
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
 pub enum FoeKind {
   Wolf,
-  Draugr,
-  DraugrOverlord,
+  Wight,
+  WightLord,
   Bandit,
   BanditChief,
-  FrostAtronach
+  FrostGolem
 }
 
 #[derive(Component, Clone, Copy)]
@@ -89,7 +89,7 @@ pub struct FoeSpawn {
 }
 
 #[derive(Component)]
-pub struct WordWall;
+pub struct RuneWall;
 
 #[derive(Resource, Default)]
 pub struct Shouts {

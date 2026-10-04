@@ -49,39 +49,39 @@ pub enum Item {
   SteelSword,
   #[assoc(name = "Iron Dagger", kind = Kind::Weapons, value = 10, weight = 2.0, power = Power::Damage(4))]
   IronDagger,
-  #[assoc(name = "Ancient Nord War Axe", kind = Kind::Weapons, value = 35, weight = 12.0, power = Power::Damage(8))]
-  AncientNordWarAxe,
-  #[assoc(name = "Steel War Axe", kind = Kind::Weapons, value = 55, weight = 13.0, power = Power::Damage(9))]
-  SteelWarAxe,
+  #[assoc(name = "Barrow War Axe", kind = Kind::Weapons, value = 35, weight = 12.0, power = Power::Damage(8))]
+  BarrowWarAxe,
+  #[assoc(name = "Steel Battle Axe", kind = Kind::Weapons, value = 55, weight = 13.0, power = Power::Damage(9))]
+  SteelBattleAxe,
   #[assoc(name = "Horned Iron Helmet", kind = Kind::Apparel, value = 60, weight = 5.0, power = Power::Armor(15))]
   HornedIronHelmet,
   #[assoc(name = "Iron Armor", kind = Kind::Apparel, value = 125, weight = 30.0, power = Power::Armor(25))]
   IronArmor,
-  #[assoc(name = "Banded Iron Shield", kind = Kind::Apparel, value = 100, weight = 12.0, power = Power::Armor(22))]
-  BandedIronShield,
+  #[assoc(name = "Rimmed Iron Shield", kind = Kind::Apparel, value = 100, weight = 12.0, power = Power::Armor(22))]
+  RimmedIronShield,
   #[assoc(name = "Fur Armor", kind = Kind::Apparel, value = 55, weight = 6.0, power = Power::Armor(23))]
   FurArmor,
-  #[assoc(name = "Ancient Nord Helmet", kind = Kind::Apparel, value = 35, weight = 4.0, power = Power::Armor(16))]
-  AncientNordHelmet,
-  #[assoc(name = "Potion of Minor Healing", kind = Kind::Potions, value = 17, weight = 0.5, power = Power::Heal(25.0))]
-  PotionOfMinorHealing,
+  #[assoc(name = "Barrow Helm", kind = Kind::Apparel, value = 35, weight = 4.0, power = Power::Armor(16))]
+  BarrowHelm,
+  #[assoc(name = "Small Healing Draught", kind = Kind::Potions, value = 17, weight = 0.5, power = Power::Heal(25.0))]
+  SmallHealingDraught,
   #[assoc(name = "Wolf Pelt", kind = Kind::Misc, value = 25, weight = 2.0)]
   WolfPelt,
   #[assoc(name = "Amethyst", kind = Kind::Misc, value = 120, weight = 0.1)]
   Amethyst,
   #[assoc(name = "Lockpick", kind = Kind::Misc, value = 3, weight = 0.0)]
   Lockpick,
-  #[assoc(name = "Draugr Overlord's Key", kind = Kind::Misc, value = 0, weight = 0.0)]
+  #[assoc(name = "Wight Lord's Key", kind = Kind::Misc, value = 0, weight = 0.0)]
   OverlordsKey,
   #[assoc(name = "Note: Rotfen Plans", kind = Kind::Misc, value = 0, weight = 0.0)]
   RotfenPlans,
-  #[assoc(name = "Frost Salts", kind = Kind::Misc, value = 100, weight = 0.25)]
-  FrostSalts
+  #[assoc(name = "Rime Crystal", kind = Kind::Misc, value = 100, weight = 0.25)]
+  RimeCrystal
 }
 
 impl Item {
   pub const WORN: [Item; 4] =
-    [Item::SteelSword, Item::BandedIronShield, Item::HornedIronHelmet, Item::IronArmor];
+    [Item::SteelSword, Item::RimmedIronShield, Item::HornedIronHelmet, Item::IronArmor];
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -430,7 +430,7 @@ fn details(column: &mut ChildSpawnerCommands, fonts: &Fonts, item: Item) {
     });
   if let Power::Heal(amount) = item.power() {
     column.spawn((
-      Text::new(format!("Restore {amount} points of Health.")),
+      Text::new(format!("Heals {amount} health.")),
       TextColor(PALE),
       TextFont {
         font: FontSource::Handle(fonts.light.clone()),

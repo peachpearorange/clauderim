@@ -695,7 +695,7 @@ fn ruin(place: Place, seed: u32) -> Layout {
   plan.worn.push((center, reach));
   let foes = around_fire(center, 2 + plan.roll.below(2), 4.0, turn)
     .into_iter()
-    .map(|(at, _)| (at, FoeKind::Draugr))
+    .map(|(at, _)| (at, FoeKind::Wight))
     .collect();
   plan.finish(place, Paving::Dirt, Vec::new(), foes)
 }
@@ -758,7 +758,7 @@ fn barrow(place: Place, seed: u32) -> Layout {
     plan.works.push(Work::Rubble { at });
   }
   let foes = (0..1 + plan.roll.below(2))
-    .map(|index| (guard + side * (index as f32 * 2.5 - 1.0), FoeKind::Draugr))
+    .map(|index| (guard + side * (index as f32 * 2.5 - 1.0), FoeKind::Wight))
     .collect();
   Layout {
     entrance: Some(Entrance { at: entry, outward: front, depths: Depths::Tomb }),
@@ -819,7 +819,7 @@ pub static LAYOUTS: LazyLock<Vec<Layout>> = LazyLock::new(|| {
   vec![
     city(Place::KJELDHOLM, 11, Vec2::new(-1.0, 0.05)),
     town(Place::BROOKHOLLOW, 23, Vec2::new(-0.25, -1.0), Roof::Thatch, Walls::Timber),
-    town(Place::FROSTMERE, 37, Vec2::new(0.85, 0.5), Roof::Thatch, Walls::Stone),
+    town(Place::FROSTVATN, 37, Vec2::new(0.85, 0.5), Roof::Thatch, Walls::Stone),
     farm(Place::ALDVIK, 41, Vec2::new(-0.3, -1.0), true),
     farm(Place::HALLGRIM, 43, Vec2::new(-1.0, -0.25), false),
     fort(Place::GREYHELM, 53, Vec2::new(0.0, 1.0), [11.0, 11.0, 12.0, 12.0], 17.0),

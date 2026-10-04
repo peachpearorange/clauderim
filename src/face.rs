@@ -9,38 +9,38 @@ use {crate::{humanoid::{Build, Joint, Kit},
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Race {
-  Nord,
+  Northman,
   Orc,
-  HighElf,
-  DarkElf,
-  Argonian
+  SunElf,
+  AshElf,
+  Saurian
 }
 
 impl Race {
   pub fn of(seed: u32) -> Race {
     match Roll::new(seed * 7 + 3).next() {
-      odds if odds < 0.5 => Race::Nord,
+      odds if odds < 0.5 => Race::Northman,
       odds if odds < 0.62 => Race::Orc,
-      odds if odds < 0.72 => Race::HighElf,
-      odds if odds < 0.88 => Race::DarkElf,
-      _ => Race::Argonian
+      odds if odds < 0.72 => Race::SunElf,
+      odds if odds < 0.88 => Race::AshElf,
+      _ => Race::Saurian
     }
   }
 
   pub fn named(name: &str) -> Option<Race> {
     match name {
-      "nord" => Some(Race::Nord),
+      "northman" => Some(Race::Northman),
       "orc" => Some(Race::Orc),
-      "altmer" | "highelf" => Some(Race::HighElf),
-      "dunmer" | "darkelf" => Some(Race::DarkElf),
-      "argonian" => Some(Race::Argonian),
+      "altmer" | "sunelf" => Some(Race::SunElf),
+      "dunmer" | "ashelf" => Some(Race::AshElf),
+      "saurian" => Some(Race::Saurian),
       _ => None
     }
   }
 
   fn skins(self) -> Vec<Srgba> {
     match self {
-      Race::Nord => vec![
+      Race::Northman => vec![
         Srgba::new(0.8, 0.62, 0.52, 1.0),
         Srgba::new(0.74, 0.56, 0.46, 1.0),
         Srgba::new(0.7, 0.5, 0.4, 1.0),
@@ -52,18 +52,18 @@ impl Race {
         Srgba::new(0.52, 0.54, 0.42, 1.0),
         Srgba::new(0.36, 0.36, 0.28, 1.0),
       ],
-      Race::HighElf => vec![
+      Race::SunElf => vec![
         Srgba::new(0.7, 0.57, 0.34, 1.0),
         Srgba::new(0.64, 0.52, 0.3, 1.0),
         Srgba::new(0.74, 0.62, 0.4, 1.0),
       ],
-      Race::DarkElf => vec![
+      Race::AshElf => vec![
         Srgba::new(0.4, 0.42, 0.42, 1.0),
         Srgba::new(0.35, 0.37, 0.39, 1.0),
         Srgba::new(0.46, 0.46, 0.44, 1.0),
         Srgba::new(0.31, 0.31, 0.33, 1.0),
       ],
-      Race::Argonian => vec![
+      Race::Saurian => vec![
         Srgba::new(0.36, 0.4, 0.22, 1.0),
         Srgba::new(0.44, 0.34, 0.24, 1.0),
         Srgba::new(0.3, 0.34, 0.2, 1.0),
@@ -74,7 +74,7 @@ impl Race {
 
   fn irises(self) -> Vec<Srgba> {
     match self {
-      Race::Nord => vec![
+      Race::Northman => vec![
         Srgba::new(0.3, 0.45, 0.6, 1.0),
         Srgba::new(0.45, 0.5, 0.55, 1.0),
         Srgba::new(0.35, 0.45, 0.3, 1.0),
@@ -85,15 +85,15 @@ impl Race {
         Srgba::new(0.6, 0.12, 0.08, 1.0),
         Srgba::new(0.55, 0.45, 0.3, 1.0),
       ],
-      Race::HighElf => vec![
+      Race::SunElf => vec![
         Srgba::new(0.8, 0.65, 0.1, 1.0),
         Srgba::new(0.5, 0.7, 0.15, 1.0),
         Srgba::new(0.85, 0.45, 0.1, 1.0),
       ],
-      Race::DarkElf => {
+      Race::AshElf => {
         vec![Srgba::new(0.75, 0.08, 0.05, 1.0), Srgba::new(0.6, 0.1, 0.1, 1.0)]
       }
-      Race::Argonian => vec![
+      Race::Saurian => vec![
         Srgba::new(0.85, 0.7, 0.2, 1.0),
         Srgba::new(0.9, 0.45, 0.15, 1.0),
         Srgba::new(0.7, 0.75, 0.4, 1.0),
@@ -103,7 +103,7 @@ impl Race {
 
   fn manes(self) -> Vec<Srgba> {
     match self {
-      Race::Nord => vec![
+      Race::Northman => vec![
         Srgba::new(0.55, 0.42, 0.22, 1.0),
         Srgba::new(0.3, 0.2, 0.11, 1.0),
         Srgba::new(0.45, 0.2, 0.1, 1.0),
@@ -115,18 +115,18 @@ impl Race {
         Srgba::new(0.22, 0.16, 0.1, 1.0),
         Srgba::new(0.5, 0.48, 0.45, 1.0),
       ],
-      Race::HighElf => vec![
+      Race::SunElf => vec![
         Srgba::new(0.72, 0.6, 0.36, 1.0),
         Srgba::new(0.8, 0.78, 0.72, 1.0),
         Srgba::new(0.62, 0.36, 0.26, 1.0),
       ],
-      Race::DarkElf => vec![
+      Race::AshElf => vec![
         Srgba::new(0.08, 0.07, 0.07, 1.0),
         Srgba::new(0.2, 0.14, 0.1, 1.0),
         Srgba::new(0.5, 0.2, 0.12, 1.0),
         Srgba::new(0.8, 0.76, 0.7, 1.0),
       ],
-      Race::Argonian => vec![
+      Race::Saurian => vec![
         Srgba::new(0.3, 0.2, 0.14, 1.0),
         Srgba::new(0.2, 0.18, 0.3, 1.0),
         Srgba::new(0.45, 0.2, 0.12, 1.0),
@@ -161,7 +161,7 @@ pub struct Visage {
 impl Visage {
   fn of(race: Race, woman: bool) -> Visage {
     let base = match race {
-      Race::Nord => Visage {
+      Race::Northman => Visage {
         jaw: 1.04,
         length: 1.0,
         brow: 1.0,
@@ -189,7 +189,7 @@ impl Visage {
         ear: Ear::Pointed,
         tusks: 1.0
       },
-      Race::HighElf => Visage {
+      Race::SunElf => Visage {
         jaw: 0.88,
         length: 1.12,
         brow: 1.1,
@@ -203,7 +203,7 @@ impl Visage {
         ear: Ear::Long,
         tusks: 0.0
       },
-      Race::DarkElf => Visage {
+      Race::AshElf => Visage {
         jaw: 0.92,
         length: 1.06,
         brow: 1.5,
@@ -217,7 +217,7 @@ impl Visage {
         ear: Ear::Long,
         tusks: 0.0
       },
-      Race::Argonian => Visage {
+      Race::Saurian => Visage {
         jaw: 1.0,
         length: 1.0,
         brow: 1.0,
@@ -302,26 +302,24 @@ impl Person {
       (pick(&race.skins()), pick(&race.manes()), pick(&race.irises()));
     let mut roll = Roll::new(seed * 29 + 11);
     let styles: &[Style] = match (race, woman) {
-      (Race::Argonian, _) => &[Style::Bald],
+      (Race::Saurian, _) => &[Style::Bald],
       (Race::Orc, false) => &[Style::Mohawk, Style::Topknot, Style::Cropped, Style::Bald],
       (Race::Orc, true) => &[Style::Topknot, Style::Swept, Style::Mohawk],
-      (Race::DarkElf, false) => {
+      (Race::AshElf, false) => {
         &[Style::Mohawk, Style::Long, Style::Swept, Style::Cropped]
       }
-      (Race::DarkElf, true) => {
-        &[Style::Long, Style::Mohawk, Style::Braided, Style::Swept]
-      }
-      (Race::HighElf, false) => &[Style::Long, Style::Swept, Style::Topknot],
-      (Race::HighElf, true) => &[Style::Long, Style::Swept, Style::Topknot],
-      (Race::Nord, false) => {
+      (Race::AshElf, true) => &[Style::Long, Style::Mohawk, Style::Braided, Style::Swept],
+      (Race::SunElf, false) => &[Style::Long, Style::Swept, Style::Topknot],
+      (Race::SunElf, true) => &[Style::Long, Style::Swept, Style::Topknot],
+      (Race::Northman, false) => {
         &[Style::Long, Style::Swept, Style::Braided, Style::Bald, Style::Cropped]
       }
-      (Race::Nord, true) => &[Style::Long, Style::Braided, Style::Swept]
+      (Race::Northman, true) => &[Style::Long, Style::Braided, Style::Swept]
     };
     let style = styles[roll.below(styles.len())];
     let beards: &[Option<Beard>] = match (race, woman) {
-      (Race::Argonian, _) | (_, true) => &[None],
-      (Race::Nord, false) => &[
+      (Race::Saurian, _) | (_, true) => &[None],
+      (Race::Northman, false) => &[
         Some(Beard::Full),
         Some(Beard::Long),
         Some(Beard::Stubble),
@@ -335,11 +333,11 @@ impl Person {
     };
     let beard = beards[roll.below(beards.len())];
     let paints: &[Paint] = match race {
-      Race::Nord => &[Paint::HalfFace, Paint::EyeBand, Paint::Claws],
+      Race::Northman => &[Paint::HalfFace, Paint::EyeBand, Paint::Claws],
       Race::Orc => &[Paint::Chevron, Paint::Stripes, Paint::Claws],
-      Race::HighElf => &[Paint::Sigil],
-      Race::DarkElf => &[Paint::Tears, Paint::Stripes, Paint::Chevron],
-      Race::Argonian => &[Paint::Stripes, Paint::Tears]
+      Race::SunElf => &[Paint::Sigil],
+      Race::AshElf => &[Paint::Tears, Paint::Stripes, Paint::Chevron],
+      Race::Saurian => &[Paint::Stripes, Paint::Tears]
     };
     let inks = [
       Srgba::new(0.22, 0.36, 0.4, 1.0),
@@ -382,11 +380,11 @@ impl Person {
   }
 
   pub fn flesh(&self) -> Stuff {
-    (self.race == Race::Argonian).then_some(Stuff::Scales).unwrap_or(Stuff::Skin)
+    (self.race == Race::Saurian).then_some(Stuff::Scales).unwrap_or(Stuff::Skin)
   }
 
-  pub fn draugr(seed: u32) -> Person {
-    let base = Person::roll(Race::Nord, false, seed);
+  pub fn wight(seed: u32) -> Person {
+    let base = Person::roll(Race::Northman, false, seed);
     Person {
       skin: Srgba::new(0.36, 0.33, 0.27, 1.0),
       mane: Srgba::new(0.66, 0.64, 0.58, 1.0),
@@ -725,10 +723,10 @@ fn saurian_features(person: &Person) -> Vec<Bump> {
 }
 
 fn eyeball(person: &Person) -> Mesh {
-  let slit = person.race == Race::Argonian;
+  let slit = person.race == Race::Saurian;
   let sclera = match person.race {
-    Race::Argonian => person.iris,
-    Race::DarkElf => Srgba::new(0.55, 0.3, 0.28, 1.0),
+    Race::Saurian => person.iris,
+    Race::AshElf => Srgba::new(0.55, 0.3, 0.28, 1.0),
     _ => Srgba::new(0.8, 0.76, 0.7, 1.0)
   };
   let iris = person.iris;
@@ -845,7 +843,7 @@ fn beard_depth(beard: Beard, at: Vec3, angle: f32) -> f32 {
 }
 
 pub fn head(kit: &mut Kit, person: &Person, build: &Build) {
-  let saurian = person.race == Race::Argonian;
+  let saurian = person.race == Race::Saurian;
   let visage =
     Visage { hollow: person.visage.hollow + (1.0 - build.cheeks) * 6.0, ..person.visage };
   let person = &Person { visage, ..*person };
@@ -863,7 +861,7 @@ pub fn head(kit: &mut Kit, person: &Person, build: &Build) {
   let seed = person.seed;
   let lip_tone = match person.race {
     Race::Orc => tint(lin(person.skin), 0.8, 0.72, 0.8),
-    Race::DarkElf | Race::HighElf => tint(lin(person.skin), 0.9, 0.78, 0.8),
+    Race::AshElf | Race::SunElf => tint(lin(person.skin), 0.9, 0.78, 0.8),
     _ => tint(lin(person.skin), 0.95, 0.7, 0.68)
   };
   let paint = |at: Vec3| -> LinearRgba {
@@ -878,12 +876,13 @@ pub fn head(kit: &mut Kit, person: &Person, build: &Build) {
       (1.6 * near(0.03, 0.176, 0.02, 0.0045) * (1.0 - smoothstep(0.052, 0.058, side.x)))
         .clamp(0.0, 1.0)
         * (!saurian) as i32 as f32;
-    let flush =
-      near(0.045, 0.12, 0.02, 0.02) * 0.25 * (person.race == Race::Nord) as i32 as f32;
+    let flush = near(0.045, 0.12, 0.02, 0.02)
+      * 0.25
+      * (person.race == Race::Northman) as i32 as f32;
     let shadow = near(0.032, 0.158, 0.02, 0.012)
       * match (person.woman, person.race) {
-        (_, Race::DarkElf) | (true, _) => 0.55,
-        (_, Race::HighElf) => 0.35,
+        (_, Race::AshElf) | (true, _) => 0.55,
+        (_, Race::SunElf) => 0.35,
         _ => 0.15
       };
     let stubble = person.beard.filter(|_| !saurian).map_or(0.0, |_| {
@@ -1248,7 +1247,7 @@ pub(crate) mod tests {
   #[test]
   #[ignore]
   fn heads() {
-    let races = [Race::Nord, Race::Orc, Race::HighElf, Race::DarkElf, Race::Argonian];
+    let races = [Race::Northman, Race::Orc, Race::SunElf, Race::AshElf, Race::Saurian];
     for seed in
       0..std::env::var("SEEDS").ok().and_then(|seeds| seeds.parse().ok()).unwrap_or(2u32)
     {
@@ -1268,9 +1267,10 @@ pub(crate) mod tests {
         }
       }
     }
-    let draugr = humanoid::draugr(1);
-    dump("screenshots/heads/draugr.bin", humanoid::tailor(draugr, &MAN));
-    let farmer = humanoid::villager(Calling::Farmer, &Person::roll(Race::Nord, false, 3));
+    let wight = humanoid::wight(1);
+    dump("screenshots/heads/wight.bin", humanoid::tailor(wight, &MAN));
+    let farmer =
+      humanoid::villager(Calling::Farmer, &Person::roll(Race::Northman, false, 3));
     dump("screenshots/heads/farmer.bin", humanoid::tailor(farmer, &MAN));
   }
 }

@@ -39,16 +39,16 @@ const HOLLOW: Color = Color::srgba(0.03, 0.03, 0.04, 0.85);
 const HOSTILE: Color = Color::srgb(0.86, 0.12, 0.08);
 
 const HINTS: [&str; 6] = [
-  "Draugr are the restless dead of the old Nord barrows. They sleep in their alcoves for \
+  "Wights are the restless dead of the old barrows. They sleep in their alcoves for \
    centuries, and wake to the footfall of the living.",
   "Wolves rarely hunt alone. Where one bares its teeth on the road, the rest of the pack is \
    already circling beyond the pines.",
-  "Word Walls hold the language of dragons, carved by priests who served them. A Dragonborn \
-   who reads the claw marks can take a Word of Power as their own.",
-  "The Standing Stones are older than any hold. The Warrior Stone favours those who would \
+  "Rune Walls hold the speech of dragons, carved by priests who served them. A wanderer \
+   who reads the claw marks can take a Rune of Power as their own.",
+  "The standing stones are older than any town. The Champion Stone favours those who would \
    rather settle matters with steel.",
   "Raise your shield against a heavy blow. A well-timed block turns aside even the fury of a \
-   draugr overlord.",
+   wight lord.",
   "Bandits make their camps within sight of the roads, and a lone traveller is worth more to \
    them than a dozen honest days of work."
 ];
@@ -1034,10 +1034,10 @@ fn raise(mut commands: Commands, assets: Res<AssetServer>) {
             }))
             .with_children(|title| {
               title.spawn((
-                words(&fonts.serif_light, 1.9, PALE, "THE VIBE SCROLLS V"),
+                words(&fonts.serif_light, 1.9, PALE, "A SAGA OF THE NORTH"),
                 spaced(0.9)
               ));
-              title.spawn((words(&fonts.serif, 9.0, INK, "CLAUDERIM"), spaced(1.3)));
+              title.spawn((words(&fonts.serif, 9.0, INK, "NORTHMARK"), spaced(1.3)));
               title
                 .spawn(Node { width: VMin(46.0), height: VMin(1.4), ..default() })
                 .with_children(|rule| {

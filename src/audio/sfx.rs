@@ -179,7 +179,7 @@ fn discover(seed: u64) -> Wave {
   Hall::new(0.85, 0.3, 1.3).apply(&Wave::mono(dry), 0.9, false)
 }
 
-fn word_learned(seed: u64) -> Wave {
+fn rune_learned(seed: u64) -> Wave {
   let env = Adsr { attack: 1.0, decay: 3.0, sustain: 0.9, release: 1.5 };
   let mut boom = Osc::default();
   let mut rumble = Lag::new(120.0);
@@ -210,33 +210,33 @@ fn word_learned(seed: u64) -> Wave {
 
 fn shout(seed: u64) -> Wave {
   let low = 82.0;
-  let fus_ro_dah = [
-    Phone::F.voiced(0.0, 0.0).at(0.0),
-    Phone::F.at(0.03),
-    Phone::F.at(0.11),
-    Phone::U.voiced(1.0, 0.25).pitched(low * 1.1).at(0.16),
-    Phone::U.voiced(1.0, 0.25).pitched(low * 1.05).at(0.3),
+  let storm_words = [
+    Phone::SH.voiced(0.0, 0.0).at(0.0),
+    Phone::SH.at(0.03),
+    Phone::SH.at(0.11),
+    Phone::A.voiced(1.0, 0.25).pitched(low * 1.1).at(0.16),
+    Phone::A.voiced(1.0, 0.25).pitched(low * 1.05).at(0.3),
     Phone::S.voiced(0.0, 0.7).pitched(low).at(0.36),
     Phone::S.voiced(0.0, 0.7).at(0.5),
     Phone::S.voiced(0.0, 0.0).at(0.56),
     Phone::R.voiced(0.0, 0.0).pitched(low).at(0.6),
     Phone::R.voiced(0.9, 0.2).pitched(low).at(0.64),
     Phone::R.voiced(0.9, 0.2).pitched(low * 1.05).at(0.72),
-    Phone::O.voiced(1.0, 0.25).pitched(low * 1.12).at(0.78),
-    Phone::O.voiced(1.0, 0.25).pitched(low).at(0.95),
-    Phone::O.voiced(0.0, 0.0).at(1.02),
+    Phone::EH.voiced(1.0, 0.25).pitched(low * 1.12).at(0.78),
+    Phone::EH.voiced(1.0, 0.25).pitched(low).at(0.95),
+    Phone::EH.voiced(0.0, 0.0).at(1.02),
     Phone::D.voiced(0.15, 0.0).at(1.06),
     Phone::D.voiced(0.15, 0.0).at(1.12),
     Phone::D.voiced(0.2, 1.2).at(1.125),
-    Phone::A.voiced(1.2, 0.35).pitched(low * 1.25).at(1.16),
-    Phone::A.voiced(1.2, 0.35).pitched(low * 1.15).at(1.5),
-    Phone::A.voiced(0.6, 0.5).pitched(low * 0.9).at(1.75),
-    Phone::A.voiced(0.0, 0.0).pitched(low * 0.9).at(1.95)
+    Phone::U.voiced(1.2, 0.35).pitched(low * 1.25).at(1.16),
+    Phone::U.voiced(1.2, 0.35).pitched(low * 1.15).at(1.5),
+    Phone::U.voiced(0.6, 0.5).pitched(low * 0.9).at(1.75),
+    Phone::U.voiced(0.0, 0.0).pitched(low * 0.9).at(1.95)
   ];
   let hushed = |phone: Phone| phone.voiced(phone.voice, phone.hiss * 0.6);
-  let man = speak(&fus_ro_dah.map(|phone| hushed(phone).sized(0.9)), 0.3, seed);
+  let man = speak(&storm_words.map(|phone| hushed(phone).sized(0.9)), 0.3, seed);
   let giant = speak(
-    &fus_ro_dah.map(|phone| hushed(phone).sized(0.72).pitched(phone.pitch * 0.5)),
+    &storm_words.map(|phone| hushed(phone).sized(0.72).pitched(phone.pitch * 0.5)),
     0.55,
     seed + 1
   );
@@ -519,7 +519,7 @@ fn wolf_die(seed: u64) -> Vec<f32> {
   )
 }
 
-fn draugr(phones: &[(Phone, f32, f32, f32, f32)], seed: u64) -> Vec<f32> {
+fn wight(phones: &[(Phone, f32, f32, f32, f32)], seed: u64) -> Vec<f32> {
   let track: Vec<Phone> = phones
     .iter()
     .map(|&(phone, pitch, voice, hiss, at)| {
@@ -540,8 +540,8 @@ fn human(phones: &[(Phone, f32, f32, f32, f32)], rough: f32, seed: u64) -> Vec<f
   speak(&track, rough, seed).into_iter().map(|x| drive(x * 1.5, 2.0)).collect()
 }
 
-fn draugr_die(seed: u64) -> Vec<f32> {
-  let mut dry = draugr(
+fn wight_die(seed: u64) -> Vec<f32> {
+  let mut dry = wight(
     &[
       (Phone::A, 70.0, 0.0, 0.0, 0.0),
       (Phone::A, 72.0, 1.0, 0.4, 0.08),
@@ -684,7 +684,7 @@ pub fn variants(cue: Cue) -> u64 {
     Cue::Swing | Cue::Hit | Cue::PlayerHurt | Cue::Coins => 3,
     Cue::Block
     | Cue::WolfGrowl
-    | Cue::DraugrGroan
+    | Cue::WightGroan
     | Cue::BanditShout
     | Cue::Wingbeat
     | Cue::PowerSwing => 2,
@@ -739,16 +739,16 @@ pub fn render(cue: Cue, seed: u64) -> Wave {
     Cue::WolfGrowl => Wave::mono(wolf_growl(seed)),
     Cue::WolfBite => Wave::mono(wolf_bite(seed)),
     Cue::WolfDie => Wave::mono(wolf_die(seed)),
-    Cue::DraugrWake => Wave::mono(draugr(&inhale, seed)),
-    Cue::DraugrGroan => Wave::mono(draugr(&groan, seed)),
-    Cue::DraugrDie => Wave::mono(draugr_die(seed)),
+    Cue::WightWake => Wave::mono(wight(&inhale, seed)),
+    Cue::WightGroan => Wave::mono(wight(&groan, seed)),
+    Cue::WightDie => Wave::mono(wight_die(seed)),
     Cue::BanditShout => Wave::mono(human(&hah, 0.35, seed)),
     Cue::ManDie => Wave::mono(human(&dying, 0.55, seed)),
     Cue::PlayerHurt => Wave::mono(human(&hurt, 0.4, seed)),
     Cue::ChestOpen => Wave::mono(creak(seed)),
     Cue::Discover => discover(seed),
-    Cue::WordWall => chant(7.0, false, seed),
-    Cue::WordLearned => word_learned(seed),
+    Cue::RuneWall => chant(7.0, false, seed),
+    Cue::RuneLearned => rune_learned(seed),
     Cue::Shout => shout(seed),
     Cue::DragonRoar => roar(seed),
     Cue::FireBreath => fire_breath(seed),

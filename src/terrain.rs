@@ -535,7 +535,7 @@ pub struct Layers {
 }
 
 impl MaterialExtension for Layers {
-  fn fragment_shader() -> ShaderRef { "embedded://skyrim2/terrain.wgsl".into() }
+  fn fragment_shader() -> ShaderRef { "embedded://northmark/terrain.wgsl".into() }
 }
 
 type Land = ExtendedMaterial<StandardMaterial, Layers>;

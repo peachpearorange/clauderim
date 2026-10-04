@@ -4,13 +4,13 @@ use {crate::{combat::{Dead, Shake, Side, Vitals},
              model,
              player::{Player, View},
              ragdoll::{Knocked, Tumbling},
-             signal::{Cue, Notice, Shouts, Sound, WordWall},
+             signal::{Cue, Notice, RuneWall, Shouts, Sound},
              stuff::{Stuff, Stuffs},
              walker::{Walker, Walking}},
      avian3d::prelude::*,
      bevy::{light::NotShadowCaster, prelude::*}};
 
-const WORDS: [&str; 3] = ["FUS", "RO", "DAH"];
+const WORDS: [&str; 3] = ["SHAS", "REH", "DU"];
 const REACH: [f32; 3] = [7.0, 10.0, 15.0];
 const FORCE: [f32; 3] = [5.0, 7.0, 10.0];
 const LIMP: [f32; 3] = [1.6, 2.2, 3.0];
@@ -187,7 +187,7 @@ fn stagger(
   }
 }
 
-fn word_walls(
+fn rune_walls(
   time: Res<Time>,
   look: Res<WispLook>,
   mut chanting: ResMut<Chanting>,
@@ -196,7 +196,7 @@ fn word_walls(
   mut notices: MessageWriter<Notice>,
   mut commands: Commands,
   player: Single<(Entity, &Transform), With<Player>>,
-  walls: Query<(Entity, &GlobalTransform), With<WordWall>>,
+  walls: Query<(Entity, &GlobalTransform), With<RuneWall>>,
   mut spawned: Local<u32>
 ) {
   let (hero, at) = *player;
@@ -208,7 +208,7 @@ fn word_walls(
       chanting.wall = Some(wall);
       chanting.elapsed = 0.0;
       *spawned = 0;
-      sounds.write(Sound::flat(Cue::WordWall));
+      sounds.write(Sound::flat(Cue::RuneWall));
     }
     (None, Some(_)) => chanting.wall = None,
     _ => {}
@@ -230,9 +230,9 @@ fn word_walls(
       shouts.learned = 3;
       shouts.cooldown = 0.0;
       *spawned = 0;
-      sounds.write(Sound::flat(Cue::WordLearned));
+      sounds.write(Sound::flat(Cue::RuneLearned));
       notices.write(Notice(format!(
-        "Word of Power learned: {} {} {} — Unrelenting Force",
+        "Rune of Power learned: {} {} {} — Storm Voice",
         WORDS[0], WORDS[1], WORDS[2]
       )));
       notices.write(Notice("Press Z to Shout.".into()));
@@ -248,5 +248,5 @@ pub fn plugin(app: &mut App) {
       Update,
       (shout, stagger).chain().before(Walking).after(crate::creature::Thinking)
     )
-    .add_systems(Update, (drift_wisps, word_walls));
+    .add_systems(Update, (drift_wisps, rune_walls));
 }

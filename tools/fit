@@ -3,5 +3,5 @@
 # and renders screenshots/fit/<name>.png over its reference image. See tools/fit.py.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-FIT="${1:-}" cargo test --features dev -q --bin skyrim2 humanoid::tests::fit -- --ignored --exact >/dev/null
+FIT="${1:-}" cargo test --features dev -q --bin northmark humanoid::tests::fit -- --ignored --exact >/dev/null
 exec python3 tools/fit.py "$@"

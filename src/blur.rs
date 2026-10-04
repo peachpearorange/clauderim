@@ -121,7 +121,7 @@ fn init_pipeline(
       min_filter: FilterMode::Linear,
       ..default()
     }),
-    shader: assets.load("embedded://skyrim2/blur.wgsl"),
+    shader: assets.load("embedded://northmark/blur.wgsl"),
     fullscreen: fullscreen.clone()
   })
 }

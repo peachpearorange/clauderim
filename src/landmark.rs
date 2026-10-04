@@ -461,7 +461,7 @@ fn raise_landmarks(
         &stuffs,
         place.name(),
         floor(place),
-        (place == Place::GREYMOOR).then_some(0.9).unwrap_or(turn),
+        (place == Place::GREYFOLD).then_some(0.9).unwrap_or(turn),
         watchtower(&mut roll),
         true
       ),
@@ -497,19 +497,19 @@ fn raise_landmarks(
       _ => {}
     }
   }
-  let stone_at = floor(Place::WARRIOR_STONE);
+  let stone_at = floor(Place::CHAMPION_STONE);
   spawn_static(
     &mut commands,
     &mut meshes,
     &stuffs,
-    "The Warrior Stone",
+    "The Champion Stone",
     stone_at,
     0.2,
     standing_stones(&mut roll),
     true
   );
   commands.spawn((
-    Blessing { name: "The Warrior Stone", told: false },
+    Blessing { name: "The Champion Stone", told: false },
     Transform::from_translation(stone_at + Vec3::Y * 1.2)
   ));
   let junction = Vec2::new(-5.0, 85.0) + Vec2::new(4.0, 3.0);
@@ -552,9 +552,9 @@ fn bless(
         let line = blessing
           .told
           .then_some("You already have this blessing.")
-          .unwrap_or("The Warrior Stone: Combat skills improve 20% faster.");
+          .unwrap_or("The Champion Stone: Combat skills improve 20% faster.");
         notices.write(Notice(line.into()));
-        sounds.write(Sound::flat(Cue::WordLearned));
+        sounds.write(Sound::flat(Cue::RuneLearned));
         blessing.told = true;
       }
     }

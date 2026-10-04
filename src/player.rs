@@ -80,7 +80,7 @@ fn spawn_player(
   let yaw = f32::atan2(-facing.x, -facing.y) + opts().yaw.unwrap_or(0.0).to_radians();
   let player = commands
     .spawn((
-      Name::new("Dragonborn"),
+      Name::new("Wanderer"),
       Player,
       Walker::default(),
       Motion::default(),
@@ -118,7 +118,7 @@ fn spawn_player(
     MAN,
     Grip::Blade,
     0.0,
-    humanoid::dragonborn()
+    humanoid::wanderer()
   );
   commands.insert_batch(
     head

@@ -1,4 +1,4 @@
 #!/bin/sh
 # tools/shot <name> '<json5 opts>' — waits for a compiling tree, then screenshots.
 until cargo build --quiet --features dev 2>/dev/null; do sleep 8; done
-SKYRIM="$2" SHOT_NAME="$1" timeout 240 cargo run --quiet --features dev 2>&1 | grep -E "panicked" -A5
+NORTHMARK="$2" SHOT_NAME="$1" timeout 240 cargo run --quiet --features dev 2>&1 | grep -E "panicked" -A5
