@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{combat::Dead,
              face::{self, Beard, Person, Race, Style},
              model::{self, Hoop, Piece, ball, block, curve, lathe, loft, rod, taper,
@@ -10,7 +11,7 @@ use {crate::{combat::Dead,
             prelude::*},
      std::f32::consts::{FRAC_PI_2, PI}};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 pub enum Joint {
   Pelvis,
   Chest,
@@ -25,22 +26,10 @@ pub enum Joint {
   KneeR
 }
 
-pub const JOINTS: usize = 11;
+pub const JOINTS: usize = Joint::ALL.len();
 
 impl Joint {
-  pub const ALL: [Joint; JOINTS] = [
-    Joint::Pelvis,
-    Joint::Chest,
-    Joint::Head,
-    Joint::ArmL,
-    Joint::ElbowL,
-    Joint::ArmR,
-    Joint::ElbowR,
-    Joint::LegL,
-    Joint::KneeL,
-    Joint::LegR,
-    Joint::KneeR
-  ];
+  pub const ALL: [Joint; Joint::VARIANTS.len()] = *Joint::VARIANTS.first_chunk().unwrap();
 
   const fn parent(self) -> Option<Joint> {
     match self {

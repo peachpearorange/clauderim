@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{model::{self, Blade, Piece},
              noise::{self, Roll},
              place::{self, START, START_FACING},
@@ -871,7 +872,7 @@ fn juniper(seed: u32) -> Mesh {
   model::merge(clumps)
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Assoc)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Assoc, VariantArray)]
 #[func(const fn variants(self) -> usize)]
 enum Growth {
   #[assoc(variants = 6)]
@@ -905,22 +906,7 @@ enum Growth {
 }
 
 impl Growth {
-  const ALL: [Growth; 14] = [
-    Growth::Pine,
-    Growth::SnowyPine,
-    Growth::Birch,
-    Growth::Gnarl,
-    Growth::Snag,
-    Growth::Stump,
-    Growth::Log,
-    Growth::Boulder,
-    Growth::SnowyBoulder,
-    Growth::Crag,
-    Growth::SnowyCrag,
-    Growth::Cliff,
-    Growth::SnowyCliff,
-    Growth::Juniper
-  ];
+  const ALL: [Growth; Growth::VARIANTS.len()] = *Growth::VARIANTS.first_chunk().unwrap();
 }
 
 #[derive(Clone, Copy)]

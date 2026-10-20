@@ -3817,6 +3817,7 @@ dependencies = [
  "json5",
  "nalgebra",
  "serde",
+ "strum",
  "tracing",
  "web-sys",
  "web-time",

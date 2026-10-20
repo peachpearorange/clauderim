@@ -1,8 +1,9 @@
+use strum::VariantArray;
 use {crate::texture,
      bevy::{math::Affine2, prelude::*},
      enum_assoc::Assoc};
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Assoc)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Assoc, VariantArray)]
 #[func(pub const fn roughness(self) -> f32)]
 #[func(pub const fn metallic(self) -> f32 { 0.0 })]
 #[func(pub const fn reflectance(self) -> f32 { 0.3 })]
@@ -90,33 +91,7 @@ impl Stuff {
     mesh
   }
 
-  pub const ALL: [Stuff; 25] = [
-    Stuff::Skin,
-    Stuff::Fur,
-    Stuff::Leather,
-    Stuff::Cloth,
-    Stuff::Iron,
-    Stuff::Steel,
-    Stuff::Gold,
-    Stuff::Bone,
-    Stuff::Wood,
-    Stuff::Bark,
-    Stuff::Birch,
-    Stuff::Needles,
-    Stuff::Stone,
-    Stuff::Cliff,
-    Stuff::Frost,
-    Stuff::Ember,
-    Stuff::Gloss,
-    Stuff::Membrane,
-    Stuff::Scales,
-    Stuff::Cinder,
-    Stuff::Thatch,
-    Stuff::Shingle,
-    Stuff::Masonry,
-    Stuff::Planks,
-    Stuff::Ice
-  ];
+  pub const ALL: [Stuff; Stuff::VARIANTS.len()] = *Stuff::VARIANTS.first_chunk().unwrap();
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

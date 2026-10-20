@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{combat::Vitals,
              hud::{self, DIM, FRAME, Fonts, Hud, INK, PALE},
              player::{Player, View}},
@@ -12,7 +13,7 @@ use {crate::{combat::Vitals,
 const CARRY_MAX: f32 = 300.0;
 const HIGHLIGHT: Color = Color::srgba(0.95, 0.94, 0.9, 0.13);
 
-#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Assoc)]
+#[derive(Clone, Copy, PartialEq, Eq, Default, Debug, Assoc, VariantArray)]
 #[func(pub const fn label(self) -> &'static str)]
 pub enum Kind {
   #[default]
@@ -27,7 +28,7 @@ pub enum Kind {
 }
 
 impl Kind {
-  pub const ALL: [Kind; 4] = [Kind::Weapons, Kind::Apparel, Kind::Potions, Kind::Misc];
+  pub const ALL: [Kind; Kind::VARIANTS.len()] = *Kind::VARIANTS.first_chunk().unwrap();
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]

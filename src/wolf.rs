@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::{combat::Dead,
              humanoid::Motion,
              model::{self, Piece, ball, sculpt},
@@ -6,7 +7,7 @@ use {crate::{combat::Dead,
              stuff::Stuff},
      bevy::prelude::*};
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, VariantArray)]
 enum Bone {
   Body,
   Head,
@@ -22,23 +23,10 @@ enum Bone {
   ShinBR
 }
 
-const BONES: usize = 12;
+const BONES: usize = Bone::ALL.len();
 
 impl Bone {
-  const ALL: [Bone; BONES] = [
-    Bone::Body,
-    Bone::Head,
-    Bone::Jaw,
-    Bone::Tail,
-    Bone::FrontL,
-    Bone::FrontR,
-    Bone::BackL,
-    Bone::BackR,
-    Bone::ShinFL,
-    Bone::ShinFR,
-    Bone::ShinBL,
-    Bone::ShinBR
-  ];
+  const ALL: [Bone; Bone::VARIANTS.len()] = *Bone::VARIANTS.first_chunk().unwrap();
 
   const fn parent(self) -> Option<Bone> {
     match self {

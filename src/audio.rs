@@ -1,3 +1,4 @@
+use strum::VariantArray;
 mod ambience;
 mod music;
 mod output;
@@ -17,39 +18,6 @@ use {crate::{humanoid::Motion,
      synth::{Rng, Wave},
      web_time::Instant};
 
-const CUES: [Cue; 30] = [
-  Cue::Swing,
-  Cue::PowerSwing,
-  Cue::Hit,
-  Cue::Block,
-  Cue::Footstep,
-  Cue::WolfGrowl,
-  Cue::WolfBite,
-  Cue::WolfDie,
-  Cue::WightWake,
-  Cue::WightGroan,
-  Cue::WightDie,
-  Cue::BanditShout,
-  Cue::ManDie,
-  Cue::PlayerHurt,
-  Cue::ChestOpen,
-  Cue::Discover,
-  Cue::RuneWall,
-  Cue::RuneLearned,
-  Cue::Shout,
-  Cue::DragonRoar,
-  Cue::FireBreath,
-  Cue::Wingbeat,
-  Cue::LevelUp,
-  Cue::Coins,
-  Cue::Gunshot,
-  Cue::Explosion,
-  Cue::IceGrind,
-  Cue::IceShatter,
-  Cue::TreeGroan,
-  Cue::TimberFall
-];
-
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 enum Clip {
   Cue(Cue),
@@ -67,7 +35,7 @@ impl Clip {
   fn all() -> Vec<Clip> {
     [Clip::Explore, Clip::Combat]
       .into_iter()
-      .chain(CUES.map(Clip::Cue))
+      .chain(Cue::VARIANTS.iter().copied().map(Clip::Cue))
       .chain([Clip::Wind, Clip::Cave, Clip::Night, Clip::Chant, Clip::Bird, Clip::Owl])
       .collect()
   }

@@ -1,3 +1,4 @@
+use strum::VariantArray;
 use {crate::place::Place,
      bevy::{platform::collections::HashMap, prelude::*}};
 
@@ -26,7 +27,7 @@ impl Pending {
 #[derive(Resource, Default)]
 pub struct Engaged(pub Option<Entity>);
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, VariantArray)]
 pub enum Cue {
   Swing,
   PowerSwing,
