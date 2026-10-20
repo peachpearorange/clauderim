@@ -90,5 +90,5 @@ Code structure should mirror the thinking behind it: translate the user's concep
 - ECS: merge components that always co-occur. Name components by behaviour (`WalkAroundRandomly`), not entity (`SheepWalk`).
 
 # Collaboration
-- Don't implement features that weren't asked for. Ask when unclear.
+- Ask when unclear.
 - If a requested approach can't be done, say so; never change direction without asking.
